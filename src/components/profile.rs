@@ -6,9 +6,10 @@ use benthic_core::Dive;
 use crate::state::AppState;
 
 /// An interactive SVG depth profile with temperature/pressure overlays, event
-/// markers and a scrubber readout.
+/// markers, a scrubber readout and (when a dive has several computers) an
+/// overlay of the other computers' depth traces.
 #[component]
-pub fn DiveProfile(dive: Dive) -> Element {
+pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let state = use_context::<AppState>();
     let prefs = (state.prefs)();
 
@@ -16,41 +17,50 @@ pub fn DiveProfile(dive: Dive) -> Element {
     let mut show_pressure = use_signal(|| true);
     let mut cursor = use_signal(|| 0usize);
 
-    let samples = dive
-        .primary_computer()
-        .map(|dc| dc.samples.clone())
-        .unwrap_or_default();
-    let events = dive
-        .primary_computer()
-        .map(|dc| dc.events.clone())
-        .unwrap_or_default();
+    let Some(active) = dive.computer(dc_index).or_else(|| dive.computers.first()) else {
+        return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
+    };
 
-    if samples.len() < 2 {
+    if active.samples.len() < 2 {
         return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
     }
 
-    let max_t = samples.last().map(|s| s.time.seconds).unwrap_or(1).max(1) as f64;
-    let max_d = samples.iter().map(|s| s.depth.mm).max().unwrap_or(1).max(1) as f64;
-
-    let depth_points: String = samples
+    // A common frame so multiple computers can be compared directly.
+    let max_t = dive
+        .computers
         .iter()
-        .map(|s| {
-            let x = s.time.seconds as f64 / max_t * 100.0;
-            let y = s.depth.mm as f64 / max_d * 90.0 + 5.0;
-            format!("{x:.2},{y:.2}")
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+        .filter_map(|dc| dc.samples.last())
+        .map(|s| s.time.seconds)
+        .max()
+        .unwrap_or(1)
+        .max(1) as f64;
+    let max_d = dive
+        .computers
+        .iter()
+        .flat_map(|dc| dc.samples.iter())
+        .map(|s| s.depth.mm)
+        .max()
+        .unwrap_or(1)
+        .max(1) as f64;
+
+    let depth_points = depth_series(&active.samples, max_t, max_d);
+    let overlays: Vec<String> = dive
+        .computers
+        .iter()
+        .enumerate()
+        .filter(|(index, dc)| *index != dc_index && dc.samples.len() >= 2)
+        .map(|(_, dc)| depth_series(&dc.samples, max_t, max_d))
+        .collect();
 
     let temperature = series(
-        samples
+        active
+            .samples
             .iter()
             .filter_map(|s| s.temperature.map(|t| (s.time.seconds, t.mkelvin as i32))),
         max_t,
-        false,
     );
     let pressure = series(
-        samples.iter().filter_map(|s| {
+        active.samples.iter().filter_map(|s| {
             s.pressures
                 .iter()
                 .find(|p| p.sensor == 0)
@@ -58,10 +68,10 @@ pub fn DiveProfile(dive: Dive) -> Element {
                 .map(|p| (s.time.seconds, p.pressure.mbar))
         }),
         max_t,
-        false,
     );
 
-    let event_marks: Vec<(f64, String)> = events
+    let event_marks: Vec<(f64, String)> = active
+        .events
         .iter()
         .filter(|e| e.time.seconds >= 0)
         .map(|e| {
@@ -76,8 +86,8 @@ pub fn DiveProfile(dive: Dive) -> Element {
         })
         .collect();
 
-    let index = (cursor)().min(samples.len() - 1);
-    let sample = &samples[index];
+    let index = (cursor)().min(active.samples.len() - 1);
+    let sample = &active.samples[index];
     let cursor_x = sample.time.seconds as f64 / max_t * 100.0;
     let cursor_y = sample.depth.mm as f64 / max_d * 90.0 + 5.0;
 
@@ -107,6 +117,13 @@ pub fn DiveProfile(dive: Dive) -> Element {
                 class: "profile-svg",
                 view_box: "0 0 100 100",
                 preserve_aspect_ratio: "none",
+                for (n, points) in overlays.iter().enumerate() {
+                    polyline {
+                        key: "overlay-{n}",
+                        points: "{points}",
+                        style: "fill: none; stroke: #7f97ad; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5;",
+                    }
+                }
                 if pressure_on {
                     if let Some(points) = &pressure {
                         polyline {
@@ -173,7 +190,7 @@ pub fn DiveProfile(dive: Dive) -> Element {
                     class: "scrub",
                     r#type: "range",
                     min: "0",
-                    max: "{samples.len() - 1}",
+                    max: "{active.samples.len() - 1}",
                     value: "{index}",
                     oninput: move |evt| cursor.set(evt.value().parse().unwrap_or(0)),
                 }
@@ -182,9 +199,21 @@ pub fn DiveProfile(dive: Dive) -> Element {
     }
 }
 
+fn depth_series(samples: &[benthic_core::Sample], max_t: f64, max_d: f64) -> String {
+    samples
+        .iter()
+        .map(|s| {
+            let x = s.time.seconds as f64 / max_t * 100.0;
+            let y = s.depth.mm as f64 / max_d * 90.0 + 5.0;
+            format!("{x:.2},{y:.2}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Normalize a `(seconds, value)` series into SVG points, inverting the value
 /// axis so larger values sit higher on the chart.
-fn series(values: impl Iterator<Item = (i32, i32)>, max_t: f64, _invert: bool) -> Option<String> {
+fn series(values: impl Iterator<Item = (i32, i32)>, max_t: f64) -> Option<String> {
     let values: Vec<(i32, i32)> = values.collect();
     if values.len() < 2 {
         return None;

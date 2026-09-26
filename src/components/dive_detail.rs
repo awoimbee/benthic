@@ -76,6 +76,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
     let mut editing = use_signal(|| false);
     let mut form = use_signal(|| DiveForm::from_dive(&dive, site.as_ref()));
     let confirm_delete = use_signal(|| false);
+    let mut active_dc = use_signal(|| 0usize);
 
     let dive_id = dive.id;
     let is_editing = (editing)();
@@ -202,10 +203,20 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .or_else(|| dive.primary_computer().and_then(|dc| dc.air_temp))
         .map(|t| prefs.temperature(t))
         .unwrap_or_else(|| "—".to_string());
-    let computer = dive
-        .primary_computer()
-        .map(|dc| dc.model.clone())
-        .unwrap_or_else(|| "—".to_string());
+    let computer = {
+        let index = (active_dc)();
+        let model = dive
+            .computers
+            .get(index)
+            .map(|dc| dc.model.clone())
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| "—".to_string());
+        if dive.computers.len() > 1 {
+            format!("{model} ({}/{})", index + 1, dive.computers.len())
+        } else {
+            model
+        }
+    };
     let salinity = salinity_label(
         dive.salinity
             .unwrap_or_else(|| prefs.default_salinity.value()),
@@ -261,7 +272,20 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 p { class: "muted", "{when} · {site_name} · {trip_name}" }
             }
 
-            DiveProfile { dive: dive.clone() }
+            if dive.computers.len() > 1 {
+                div { class: "dc-tabs",
+                    for (index, computer) in dive.computers.iter().enumerate() {
+                        button {
+                            key: "{index}",
+                            class: if (active_dc)() == index { "dc-tab active" } else { "dc-tab" },
+                            onclick: move |_| active_dc.set(index),
+                            if computer.model.is_empty() { "Computer {index + 1}" } else { "{computer.model}" }
+                        }
+                    }
+                }
+            }
+
+            DiveProfile { dive: dive.clone(), dc_index: (active_dc)() }
 
             if is_editing {
                 div { class: "edit-form",

@@ -68,7 +68,7 @@ Guiding principles:
 - [ ] Overlays: NDL, TTS, CNS, SAC, heart rate
 - [x] Event markers on the profile
 - [ ] Deco ceiling / stop visualization and gas-switch markers
-- [ ] Multiple dive computers per dive, switchable, with difference view
+- [x] Multiple dive computers per dive, switchable, with an overlay comparison
 - [ ] Dive planner: Bühlmann ZH-L16 (GF) and VPM-B
 - [ ] Open-circuit, CCR and pSCR planning; bailout and gas needs
 - [ ] Plan ↔ actual comparison; save plans as dives

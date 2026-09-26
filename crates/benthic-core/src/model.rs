@@ -374,6 +374,11 @@ impl Dive {
         self.computers.first()
     }
 
+    /// A specific dive computer by index.
+    pub fn computer(&self, index: usize) -> Option<&DiveComputer> {
+        self.computers.get(index)
+    }
+
     /// Best-effort duration: explicit value, else the longest computer.
     pub fn duration(&self) -> Option<Duration> {
         self.duration.or_else(|| {
