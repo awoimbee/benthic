@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 
 use benthic_core::{DiveFilter, DiveLog, History};
 
-use crate::components::{DiveDetail, DiveList, Toolbar};
+use crate::components::{DiveDetail, DiveList, FilterBar, Toolbar};
 use crate::state::AppState;
 
 const CSS: &str = include_str!("../assets/main.css");
@@ -98,6 +98,7 @@ pub fn App() -> Element {
         link { rel: "icon", r#type: "image/svg+xml", href: "favicon.svg" }
         div { class: "app", tabindex: "0", onkeydown: on_keydown,
             Toolbar {}
+            FilterBar {}
             div { class: "panes",
                 DiveList {}
                 DiveDetail {}

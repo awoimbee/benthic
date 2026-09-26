@@ -496,6 +496,34 @@ textarea.field {
   gap: 0.4rem;
 }
 
+/* ---- Filter bar ---- */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 1rem;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.filter-bar .field {
+  width: auto;
+  min-width: 8rem;
+}
+
+.filter-bar .field.narrow {
+  min-width: 5rem;
+  width: 5rem;
+}
+
 @media (max-width: 720px) {
   .panes {
     grid-template-columns: 1fr;

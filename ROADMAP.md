@@ -47,9 +47,10 @@ Guiding principles:
 - [x] Keyboard shortcuts for undo/redo (`Ctrl/Cmd+Z`, `Shift+Z`, `Y`)
 - [x] Cylinder & weight editing with presets (AL80, LP85, steel 12/15, ...)
 - [x] Multi-select and bulk delete (one undo step)
+- [x] Filter UI for tags, rating and depth
+- [ ] Saveable filter presets
 - [ ] Trip create/rename/merge/split UI
 - [ ] Dive-site merge, map picker, and deduplication of inline locations
-- [ ] Filter UI for tags/rating/depth, plus saveable filter presets
 - [ ] Preferences: metric/imperial units, date/time formats, salinity, defaults
 - [ ] Command palette
 - [ ] Unsaved-change tracking and manual save/load of log files
