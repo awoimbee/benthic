@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
-use benthic_core::units::{format_duration, format_timestamp_utc, Weight};
+use benthic_core::units::{format_duration, Weight};
 use benthic_core::{Command, Cylinder, CylinderUse, Dive, DiveSite, Location, WeightSystem};
 
 use crate::actions;
@@ -183,7 +183,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
             }
         })
         .unwrap_or_else(|| "—".to_string());
-    let when = format_timestamp_utc(dive.when);
+    let when = prefs.timestamp(dive.when);
     let duration = dive
         .duration()
         .map(format_duration)

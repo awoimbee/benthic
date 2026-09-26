@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use benthic_core::UnitSystem;
+use benthic_core::{DateFormat, TimeFormat, UnitSystem};
 
 use crate::actions;
 use crate::state::AppState;
@@ -12,6 +12,16 @@ pub fn PreferencesDialog() -> Element {
     let mut prefs = state.prefs;
     let mut show_prefs = state.show_prefs;
     let current = (state.prefs)().units;
+    let current_date = (state.prefs)().date_format;
+    let current_time = (state.prefs)().time_format;
+    let date_index = DateFormat::ALL
+        .iter()
+        .position(|f| *f == current_date)
+        .unwrap_or(0);
+    let time_index = TimeFormat::ALL
+        .iter()
+        .position(|f| *f == current_time)
+        .unwrap_or(0);
 
     let backup_age = crate::storage::backup_age_secs();
     let has_backup = backup_age.is_some();
@@ -41,6 +51,32 @@ pub fn PreferencesDialog() -> Element {
                                 onchange: move |_| prefs.write().units = units,
                             }
                             span { "{units.label()} — {units_description(units)}" }
+                        }
+                    }
+                }
+                div { class: "pref-group",
+                    div { class: "field-label", "Date format" }
+                    select {
+                        class: "field",
+                        value: "{date_index}",
+                        onchange: move |evt| {
+                            let index = evt.value().parse::<usize>().unwrap_or(0);
+                            prefs.write().date_format = DateFormat::ALL[index.min(DateFormat::ALL.len() - 1)];
+                        },
+                        for (index, format) in DateFormat::ALL.iter().enumerate() {
+                            option { key: "{index}", value: "{index}", "{format.label()}" }
+                        }
+                    }
+                    div { class: "field-label", "Time format" }
+                    select {
+                        class: "field",
+                        value: "{time_index}",
+                        onchange: move |evt| {
+                            let index = evt.value().parse::<usize>().unwrap_or(0);
+                            prefs.write().time_format = TimeFormat::ALL[index.min(TimeFormat::ALL.len() - 1)];
+                        },
+                        for (index, format) in TimeFormat::ALL.iter().enumerate() {
+                            option { key: "{index}", value: "{index}", "{format.label()}" }
                         }
                     }
                 }

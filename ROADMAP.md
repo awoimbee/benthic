@@ -54,7 +54,8 @@ Guiding principles:
 - [ ] Trip merge/split
 - [x] Dive-site merge and de-duplication (by name + GPS)
 - [ ] Dive-site map picker
-- [ ] Preferences: date/time formats, salinity, defaults
+- [x] Preferences: date and time formats
+- [ ] Preferences: default salinity and other defaults
 - [ ] Command palette
 - [ ] Unsaved-change tracking and manual save/load of log files
 - [x] Data safety: hourly automatic backup, crash recovery, undoable deletes

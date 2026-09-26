@@ -30,6 +30,53 @@ impl UnitSystem {
     }
 }
 
+/// How to render dates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DateFormat {
+    /// `2024-05-12`.
+    #[default]
+    Iso,
+    /// `05/12/2024`.
+    Us,
+    /// `12/05/2024`.
+    European,
+}
+
+impl DateFormat {
+    pub const ALL: [DateFormat; 3] = [DateFormat::Iso, DateFormat::Us, DateFormat::European];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DateFormat::Iso => "YYYY-MM-DD",
+            DateFormat::Us => "MM/DD/YYYY",
+            DateFormat::European => "DD/MM/YYYY",
+        }
+    }
+}
+
+/// How to render times of day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeFormat {
+    /// 24-hour clock.
+    #[default]
+    H24,
+    /// 12-hour clock with AM/PM.
+    H12,
+}
+
+impl TimeFormat {
+    pub const ALL: [TimeFormat; 2] = [TimeFormat::H24, TimeFormat::H12];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TimeFormat::H24 => "24-hour",
+            TimeFormat::H12 => "12-hour",
+        }
+    }
+}
+
 /// Everything the user can configure. Serialized to local storage separately
 /// from the dive log so preferences survive replacing the log.
 ///
@@ -39,6 +86,10 @@ impl UnitSystem {
 pub struct Preferences {
     #[serde(default)]
     pub units: UnitSystem,
+    #[serde(default)]
+    pub date_format: DateFormat,
+    #[serde(default)]
+    pub time_format: TimeFormat,
 }
 
 impl Preferences {
@@ -49,6 +100,7 @@ impl Preferences {
     pub fn imperial() -> Self {
         Self {
             units: UnitSystem::Imperial,
+            ..Default::default()
         }
     }
 
@@ -163,6 +215,44 @@ impl Preferences {
             UnitSystem::Imperial => "psi",
         }
     }
+
+    /// Format just the date of a timestamp.
+    pub fn date(&self, timestamp: crate::units::Timestamp) -> String {
+        let dt = odt(timestamp);
+        let date = dt.date();
+        let (year, month, day) = (date.year(), u8::from(date.month()), date.day());
+        match self.date_format {
+            DateFormat::Iso => format!("{year:04}-{month:02}-{day:02}"),
+            DateFormat::Us => format!("{month:02}/{day:02}/{year:04}"),
+            DateFormat::European => format!("{day:02}/{month:02}/{year:04}"),
+        }
+    }
+
+    /// Format just the time of day of a timestamp.
+    pub fn time(&self, timestamp: crate::units::Timestamp) -> String {
+        let time = odt(timestamp).time();
+        let (hour, minute) = (time.hour(), time.minute());
+        match self.time_format {
+            TimeFormat::H24 => format!("{hour:02}:{minute:02}"),
+            TimeFormat::H12 => {
+                let suffix = if hour < 12 { "AM" } else { "PM" };
+                let hour12 = match hour % 12 {
+                    0 => 12,
+                    h => h,
+                };
+                format!("{hour12}:{minute:02} {suffix}")
+            }
+        }
+    }
+
+    /// Format a timestamp as date and time using the active preferences.
+    pub fn timestamp(&self, timestamp: crate::units::Timestamp) -> String {
+        format!("{} {}", self.date(timestamp), self.time(timestamp))
+    }
+}
+
+fn odt(timestamp: crate::units::Timestamp) -> time::OffsetDateTime {
+    time::OffsetDateTime::from_unix_timestamp(timestamp).unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
 }
 
 #[cfg(test)]
@@ -208,5 +298,28 @@ mod tests {
         assert!((prefs.pressure_value(pressure) - 3000.0).abs() < 1.0);
         let weight = prefs.weight_from_value(10.0);
         assert!((prefs.weight_value(weight) - 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn date_and_time_formats() {
+        // 2024-05-12 20:15:00 UTC.
+        let timestamp = 1_715_544_900;
+        let mut prefs = Preferences::metric();
+        assert_eq!(prefs.date(timestamp), "2024-05-12");
+        assert_eq!(prefs.time(timestamp), "20:15");
+        assert_eq!(prefs.timestamp(timestamp), "2024-05-12 20:15");
+
+        prefs.date_format = DateFormat::Us;
+        assert_eq!(prefs.date(timestamp), "05/12/2024");
+        prefs.date_format = DateFormat::European;
+        assert_eq!(prefs.date(timestamp), "12/05/2024");
+
+        prefs.date_format = DateFormat::Iso;
+        prefs.time_format = TimeFormat::H12;
+        assert_eq!(prefs.time(timestamp), "8:15 PM");
+        assert_eq!(prefs.timestamp(timestamp), "2024-05-12 8:15 PM");
+
+        // Midnight renders as 12:00 AM in 12-hour time.
+        assert_eq!(prefs.time(1_715_544_900 - 20 * 3600 - 15 * 60), "12:00 AM");
     }
 }
