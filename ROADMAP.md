@@ -57,7 +57,7 @@ Guiding principles:
 - [ ] Preferences: date/time formats, salinity, defaults
 - [ ] Command palette
 - [ ] Unsaved-change tracking and manual save/load of log files
-- [ ] Data safety: rotating local backups, crash recovery, "undo delete"
+- [x] Data safety: hourly automatic backup, crash recovery, undoable deletes
 
 ## Phase 2 — Profiles, decompression and planning
 

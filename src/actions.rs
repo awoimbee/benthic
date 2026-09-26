@@ -190,6 +190,26 @@ pub fn merge_duplicate_sites(state: AppState) {
     state.set_status(format!("Merged {removed} duplicate dive sites"));
 }
 
+/// Restore the most recent automatic backup over the current log.
+pub fn restore_backup(state: AppState) {
+    let Some(text) = crate::storage::load_backup() else {
+        state.set_status("No automatic backup available");
+        return;
+    };
+    match benthic_core::io::parse_auto(&text) {
+        Ok(parsed) => {
+            let before = (state.log)();
+            state.dispatch(Command::Snapshot {
+                label: "Restore backup".into(),
+                before: Box::new(before),
+                after: Box::new(parsed),
+            });
+            state.set_status("Restored the last automatic backup");
+        }
+        Err(e) => state.set_status(format!("Backup could not be read: {e}")),
+    }
+}
+
 /// Turn automatic trip grouping on/off, regrouping or ungrouping as needed.
 pub fn toggle_autogroup(state: AppState) {
     let mut after = (state.log)();

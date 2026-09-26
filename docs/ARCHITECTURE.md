@@ -90,6 +90,11 @@ represent everything (e.g. internal ids, some metadata) without ambiguity.
 Preferences are stored separately so they survive replacing the log; they are
 **display-only** (the model and all file formats remain canonical metric).
 
+An automatic backup of the previous log is kept, refreshed at most once an
+hour. If the primary log fails to parse at startup, the app loads the backup
+and reports the recovery; the unreadable primary is left untouched. The
+preferences dialog also offers a manual "Restore last backup".
+
 Autosave runs in a `use_effect` keyed on the log signal. It is intentionally
 synchronous and cheap; debouncing and incremental writes are future work.
 

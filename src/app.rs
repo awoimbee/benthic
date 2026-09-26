@@ -77,7 +77,23 @@ pub fn App() -> Element {
                 }
                 // Leave autosave disabled so the unreadable log is preserved
                 // for manual recovery instead of being overwritten.
-                Err(e) => status.set(format!("Could not read local log: {e}")),
+                Err(e) => match crate::storage::load_backup() {
+                    Some(backup) => match benthic_core::io::parse_auto(&backup) {
+                        Ok(parsed) => {
+                            if let Some(first) = parsed.dives_sorted().first().map(|d| d.id) {
+                                selected.set(Some(first));
+                            }
+                            let count = parsed.dives.len();
+                            log.set(parsed);
+                            loaded.set(true);
+                            status.set(format!(
+                                "Primary log was unreadable ({e}); recovered {count} dives from the backup",
+                            ));
+                        }
+                        Err(_) => status.set(format!("Could not read local log: {e}")),
+                    },
+                    None => status.set(format!("Could not read local log: {e}")),
+                },
             },
             None => {
                 loaded.set(true);
