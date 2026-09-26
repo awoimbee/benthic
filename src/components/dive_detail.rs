@@ -349,9 +349,14 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                 let value = evt.value();
                                 form.write().trip_id = if value.is_empty() { None } else { value.parse().ok() };
                             },
-                            option { value: "", "No trip" }
+                            option { value: "", selected: f.trip_id.is_none(), "No trip" }
                             for (id, label) in trips {
-                                option { key: "{id}", value: "{id}", "{label}" }
+                                option {
+                                    key: "{id}",
+                                    value: "{id}",
+                                    selected: f.trip_id == Some(id),
+                                    "{label}"
+                                }
                             }
                         }
                     }
@@ -399,9 +404,14 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                                 apply_preset(&mut w.cylinders[i], preset);
                                             }
                                         },
-                                        option { value: "", "Custom" }
+                                        option { value: "", selected: preset_value(cyl).is_empty(), "Custom" }
                                         for preset in CYLINDER_PRESETS {
-                                            option { key: "{preset.name}", value: "{preset.name}", "{preset.name}" }
+                                            option {
+                                                key: "{preset.name}",
+                                                value: "{preset.name}",
+                                                selected: preset_value(cyl) == preset.name,
+                                                "{preset.name}"
+                                            }
                                         }
                                     }
                                     label { class: "mini", "O2 %"
@@ -451,7 +461,12 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                                 form.write().cylinders[i].use_ = CylinderUse::from_index(index);
                                             },
                                             for use_ in CylinderUse::ALL {
-                                                option { key: "{use_.index()}", value: "{use_.index()}", "{use_.label()}" }
+                                                option {
+                                                    key: "{use_.index()}",
+                                                    value: "{use_.index()}",
+                                                    selected: cyl.use_ == use_,
+                                                    "{use_.label()}"
+                                                }
                                             }
                                         }
                                     }
