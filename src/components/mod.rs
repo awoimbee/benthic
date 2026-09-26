@@ -1,4 +1,5 @@
 mod command_palette;
+mod compare;
 mod dive_detail;
 mod dive_list;
 mod filter_bar;
@@ -10,6 +11,7 @@ mod toolbar;
 mod trips_dialog;
 
 pub use command_palette::CommandPalette;
+pub use compare::CompareDialog;
 pub use dive_detail::DiveDetail;
 pub use dive_list::DiveList;
 pub use filter_bar::FilterBar;

@@ -73,7 +73,7 @@ Guiding principles:
 - [ ] VPM-B algorithm
 - [x] Open-circuit gas needs (RMV-based)
 - [ ] CCR and pSCR planning; bailout
-- [ ] Plan ↔ actual comparison (save plans as dives is done)
+- [x] Dive comparison: overlay two dives (a saved plan vs the actual dive)
 - [x] Save plans as dives
 - [x] Gas calculations: MOD, END, EAD, best mix and ICD warnings
 - [x] Gas calculations: SAC/RMV

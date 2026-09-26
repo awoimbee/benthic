@@ -49,6 +49,14 @@ pub fn Toolbar() -> Element {
 
             if selected_count > 0 {
                 span { class: "selected-count", "{selected_count} selected" }
+                if selected_count == 2 {
+                    button {
+                        class: "btn",
+                        title: "Compare the two selected dives",
+                        onclick: move |_| actions::open_compare(state),
+                        "Compare"
+                    }
+                }
                 button {
                     class: "btn",
                     title: "Group the selected dives into a new trip",

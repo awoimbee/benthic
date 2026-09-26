@@ -239,6 +239,12 @@ pub fn open_planner(state: AppState) {
     show.set(true);
 }
 
+/// Open the two-dive comparison dialog.
+pub fn open_compare(state: AppState) {
+    let mut show = state.show_compare;
+    show.set(true);
+}
+
 /// Save a computed plan as a new dive.
 pub fn save_plan(state: AppState, plan: DivePlan) {
     let log = (state.log)();

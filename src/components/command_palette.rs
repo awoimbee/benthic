@@ -55,6 +55,11 @@ pub fn CommandPalette() -> Element {
             Action::Preferences,
         ),
         Item::new("Dive planner", "Bühlmann NDL and ceiling", Action::Planner),
+        Item::new(
+            "Compare dives",
+            "Overlay the two selected dives",
+            Action::Compare,
+        ),
     ];
     for dive in log.dives_sorted() {
         items.push(Item::new(
@@ -124,6 +129,7 @@ enum Action {
     Export,
     Preferences,
     Planner,
+    Compare,
     SelectDive(u32),
 }
 
@@ -160,6 +166,7 @@ fn run(state: AppState, action: Action) {
         Action::Export => actions::export_ssrf(state),
         Action::Preferences => actions::open_preferences(state),
         Action::Planner => actions::open_planner(state),
+        Action::Compare => actions::open_compare(state),
         Action::SelectDive(id) => {
             let mut selected = state.selected;
             selected.set(Some(id));
