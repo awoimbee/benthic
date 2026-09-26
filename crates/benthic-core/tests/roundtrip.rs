@@ -226,6 +226,38 @@ fn duration_formatting() {
 }
 
 #[test]
+fn average_depth_integrates_the_profile() {
+    use benthic_core::{Dive, DiveComputer, Sample};
+
+    // A symmetric triangle: 0 m -> 10 m -> 0 m over 20 s averages 5 m.
+    let samples = vec![
+        Sample {
+            time: Duration::new(0),
+            depth: Depth::from_meters(0.0),
+            ..Default::default()
+        },
+        Sample {
+            time: Duration::new(10),
+            depth: Depth::from_meters(10.0),
+            ..Default::default()
+        },
+        Sample {
+            time: Duration::new(20),
+            depth: Depth::from_meters(0.0),
+            ..Default::default()
+        },
+    ];
+    let dive = Dive {
+        computers: vec![DiveComputer {
+            samples,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert_eq!(dive.average_depth(), Some(Depth::from_meters(5.0)));
+}
+
+#[test]
 fn gas_naming() {
     assert_eq!(AIR.name(), "Air");
     assert_eq!(GasMix::percent(32.0, 0.0).name(), "EAN32");

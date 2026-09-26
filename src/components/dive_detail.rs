@@ -221,6 +221,13 @@ fn DiveDetailInner(dive: Dive) -> Element {
         dive.salinity
             .unwrap_or_else(|| prefs.default_salinity.value()),
     );
+    let salinity_value = dive
+        .salinity
+        .unwrap_or_else(|| prefs.default_salinity.value());
+    let avg_depth = dive
+        .average_depth()
+        .map(|d| prefs.depth(d))
+        .unwrap_or_else(|| "—".to_string());
 
     // --- edit-form values -------------------------------------------------
 
@@ -245,7 +252,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
     let cylinders: Vec<CylinderRow> = dive
         .cylinders
         .iter()
-        .map(|c| cylinder_row(c, &prefs))
+        .map(|c| cylinder_row(c, &prefs, salinity_value))
         .collect();
     let weights: Vec<WeightRow> = dive.weights.iter().map(|w| weight_row(w, &prefs)).collect();
 
@@ -509,6 +516,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 div { class: "facts",
                     Fact { label: "Duration", value: duration }
                     Fact { label: "Max depth", value: max_depth }
+                    Fact { label: "Avg depth", value: avg_depth }
                     Fact { label: "Water temp", value: water_temp }
                     Fact { label: "Air temp", value: air_temp }
                     Fact { label: "Computer", value: computer }
@@ -539,12 +547,13 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 if !cylinders.is_empty() {
                     div { class: "section-title", "Gas & equipment" }
                     table { class: "data-table",
-                        thead { tr { th { "Cylinder" } th { "Gas" } th { "Start" } th { "End" } } }
+                        thead { tr { th { "Cylinder" } th { "Gas" } th { "MOD" } th { "Start" } th { "End" } } }
                         tbody {
                             for row in cylinders {
                                 tr {
                                     td { "{row.description}" }
                                     td { "{row.gas}" }
+                                    td { "{row.mod_depth}" }
                                     td { "{row.start}" }
                                     td { "{row.end}" }
                                 }
@@ -585,6 +594,7 @@ fn Fact(label: &'static str, value: String) -> Element {
 struct CylinderRow {
     description: String,
     gas: String,
+    mod_depth: String,
     start: String,
     end: String,
 }
@@ -594,7 +604,17 @@ struct WeightRow {
     weight: String,
 }
 
-fn cylinder_row(cyl: &benthic_core::Cylinder, prefs: &benthic_core::Preferences) -> CylinderRow {
+fn cylinder_row(
+    cyl: &benthic_core::Cylinder,
+    prefs: &benthic_core::Preferences,
+    salinity: i32,
+) -> CylinderRow {
+    let mod_mm = benthic_core::gas::mod_depth_mm(
+        cyl.gas,
+        benthic_core::gas::DEFAULT_PO2_LIMIT_MBAR,
+        benthic_core::gas::SURFACE_PRESSURE_MBAR,
+        salinity,
+    );
     CylinderRow {
         description: if cyl.description.is_empty() {
             cyl.size
@@ -604,6 +624,7 @@ fn cylinder_row(cyl: &benthic_core::Cylinder, prefs: &benthic_core::Preferences)
             cyl.description.clone()
         },
         gas: cyl.gas.name(),
+        mod_depth: prefs.depth(benthic_core::Depth::new(mod_mm)),
         start: cyl
             .start_pressure
             .map(|p| prefs.pressure(p))

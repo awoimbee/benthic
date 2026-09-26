@@ -72,7 +72,8 @@ Guiding principles:
 - [ ] Dive planner: Bühlmann ZH-L16 (GF) and VPM-B
 - [ ] Open-circuit, CCR and pSCR planning; bailout and gas needs
 - [ ] Plan ↔ actual comparison; save plans as dives
-- [ ] Gas calculations: MOD/END/EAD, best mix, ICD warnings, SAC/RMV
+- [x] Gas calculations: MOD, END, EAD, best mix and ICD warnings
+- [ ] Gas calculations: SAC/RMV
 
 ## Phase 3 — The import ecosystem
 

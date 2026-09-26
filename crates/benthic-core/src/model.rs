@@ -402,6 +402,30 @@ impl Dive {
     pub fn total_weight(&self) -> Weight {
         Weight::new(self.weights.iter().map(|w| w.weight.grams).sum())
     }
+
+    /// Time-weighted average depth over the primary computer's samples.
+    pub fn average_depth(&self) -> Option<Depth> {
+        let samples = &self.primary_computer()?.samples;
+        match samples.len() {
+            0 => None,
+            1 => Some(samples[0].depth),
+            _ => {
+                let mut integral = 0.0f64;
+                for window in samples.windows(2) {
+                    let dt = (window[1].time.seconds - window[0].time.seconds) as f64;
+                    if dt <= 0.0 {
+                        continue;
+                    }
+                    integral += (window[0].depth.mm + window[1].depth.mm) as f64 / 2.0 * dt;
+                }
+                let total = (samples.last()?.time.seconds - samples.first()?.time.seconds) as f64;
+                if total <= 0.0 {
+                    return None;
+                }
+                Some(Depth::new((integral / total).round() as i32))
+            }
+        }
+    }
 }
 
 /// A group of dives that happened together (a dive trip/holiday).
