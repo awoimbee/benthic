@@ -756,3 +756,7 @@ textarea.field {
     max-height: 40vh;
   }
 }
+.zoom {
+  width: 5rem;
+  accent-color: var(--accent);
+}

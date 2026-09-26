@@ -63,7 +63,8 @@ Guiding principles:
 ## Phase 2 — Profiles, decompression and planning
 
 - [x] Profile scrubber with a time/depth/temperature/pressure readout
-- [ ] Hover crosshair, pan & zoom
+- [x] Pan & zoom on the profile (time window sliders)
+- [ ] Hover crosshair
 - [x] Overlays: temperature and cylinder pressure
 - [x] Overlays: NDL, TTS, heart rate and CNS (SAC is dive-level, shown as a fact)
 - [x] Deco ceiling visualization and gas-switch markers

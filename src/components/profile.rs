@@ -6,7 +6,8 @@ use benthic_core::Dive;
 use crate::state::AppState;
 
 /// An interactive SVG depth profile with overlays, event markers, a scrubber
-/// readout and (when a dive has several computers) the other computers' traces.
+/// readout, pan/zoom and (when a dive has several computers) the other
+/// computers' traces.
 #[component]
 pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let state = use_context::<AppState>();
@@ -20,6 +21,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let mut show_cns = use_signal(|| false);
     let mut show_deco = use_signal(|| true);
     let mut cursor = use_signal(|| 0usize);
+    let mut zoom = use_signal(|| 1.0f64);
+    let mut pan = use_signal(|| 0.5f64);
 
     let Some(active) = dive.computer(dc_index).or_else(|| dive.computers.first()) else {
         return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
@@ -47,13 +50,22 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         .unwrap_or(1)
         .max(1) as f64;
 
-    let depth_points = depth_series(&active.samples, max_t, max_d);
+    // Visible time window as fractions of the full profile.
+    let zoom_value = (zoom)().max(1.0);
+    let half = 0.5 / zoom_value;
+    let pan_value = (pan)();
+    let center = pan_value.clamp(half, 1.0 - half);
+    let win_start = (center - half).clamp(0.0, 1.0 - 1.0 / zoom_value);
+    let win_end = win_start + 1.0 / zoom_value;
+    let win_span = (win_end - win_start).max(1e-9);
+
+    let depth_points = depth_series(&active.samples, max_t, max_d, win_start, win_end);
     let overlays: Vec<String> = dive
         .computers
         .iter()
         .enumerate()
         .filter(|(index, dc)| *index != dc_index && dc.samples.len() >= 2)
-        .map(|(_, dc)| depth_series(&dc.samples, max_t, max_d))
+        .map(|(_, dc)| depth_series(&dc.samples, max_t, max_d, win_start, win_end))
         .collect();
 
     let temperature = series(
@@ -62,6 +74,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             .iter()
             .filter_map(|s| s.temperature.map(|t| (s.time.seconds, t.mkelvin as i32))),
         max_t,
+        win_start,
+        win_end,
     );
     let pressure = series(
         active.samples.iter().filter_map(|s| {
@@ -72,6 +86,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 .map(|p| (s.time.seconds, p.pressure.mbar))
         }),
         max_t,
+        win_start,
+        win_end,
     );
     let ndl = series(
         active.samples.iter().filter_map(|s| {
@@ -80,6 +96,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 .map(|d| (s.time.seconds, d.seconds))
         }),
         max_t,
+        win_start,
+        win_end,
     );
     let tts = series(
         active.samples.iter().filter_map(|s| {
@@ -88,6 +106,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 .map(|d| (s.time.seconds, d.seconds))
         }),
         max_t,
+        win_start,
+        win_end,
     );
     let heart = series(
         active
@@ -95,6 +115,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             .iter()
             .filter_map(|s| s.heartbeat.map(|h| (s.time.seconds, h as i32))),
         max_t,
+        win_start,
+        win_end,
     );
     let cns = series(
         active
@@ -102,6 +124,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             .iter()
             .filter_map(|s| s.cns.map(|c| (s.time.seconds, c as i32))),
         max_t,
+        win_start,
+        win_end,
     );
     let ceiling = series(
         active.samples.iter().filter_map(|s| {
@@ -110,27 +134,37 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 .map(|d| (s.time.seconds, d.mm))
         }),
         max_t,
+        win_start,
+        win_end,
     );
 
-    // Event markers, flagging gas switches.
+    // Event markers within the window, flagging gas switches.
     let event_marks: Vec<(f64, String, bool)> = active
         .events
         .iter()
         .filter(|e| e.time.seconds >= 0)
-        .map(|e| {
+        .filter_map(|e| {
+            let fraction = e.time.seconds as f64 / max_t;
+            if fraction < win_start || fraction > win_end {
+                return None;
+            }
             let name = if e.name.is_empty() {
                 "event".to_string()
             } else {
                 e.name.clone()
             };
-            let gas = e.is_gas_change();
-            (e.time.seconds as f64 / max_t * 100.0, name, gas)
+            Some((
+                (fraction - win_start) / win_span * 100.0,
+                name,
+                e.is_gas_change(),
+            ))
         })
         .collect();
 
     let index = (cursor)().min(active.samples.len() - 1);
     let sample = &active.samples[index];
-    let cursor_x = sample.time.seconds as f64 / max_t * 100.0;
+    let cursor_fraction = sample.time.seconds as f64 / max_t;
+    let cursor_x = (cursor_fraction - win_start) / win_span * 100.0;
     let cursor_y = sample.depth.mm as f64 / max_d * 90.0 + 5.0;
 
     let mut readout = vec![format_duration(sample.time), prefs.depth(sample.depth)];
@@ -280,6 +314,28 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 Toggle { label: "Heart", on: heart_on, onclick: move |_| show_heart.set(!heart_on) }
                 Toggle { label: "CNS", on: cns_on, onclick: move |_| show_cns.set(!cns_on) }
                 Toggle { label: "Deco", on: deco_on, onclick: move |_| show_deco.set(!deco_on) }
+                label { class: "check", "Zoom"
+                    input {
+                        class: "zoom",
+                        r#type: "range",
+                        min: "1",
+                        max: "20",
+                        step: "0.5",
+                        value: "{zoom_value}",
+                        oninput: move |evt| zoom.set(evt.value().parse().unwrap_or(1.0)),
+                    }
+                }
+                label { class: "check", "Pan"
+                    input {
+                        class: "zoom",
+                        r#type: "range",
+                        min: "0",
+                        max: "1",
+                        step: "0.01",
+                        value: "{pan_value}",
+                        oninput: move |evt| pan.set(evt.value().parse().unwrap_or(0.5)),
+                    }
+                }
                 input {
                     class: "scrub",
                     r#type: "range",
@@ -303,33 +359,59 @@ fn Toggle(label: &'static str, on: bool, onclick: EventHandler<()>) -> Element {
     }
 }
 
-fn depth_series(samples: &[benthic_core::Sample], max_t: f64, max_d: f64) -> String {
+fn depth_series(
+    samples: &[benthic_core::Sample],
+    max_t: f64,
+    max_d: f64,
+    start: f64,
+    end: f64,
+) -> String {
+    let span = (end - start).max(1e-9);
     samples
         .iter()
-        .map(|s| {
-            let x = s.time.seconds as f64 / max_t * 100.0;
+        .filter_map(|s| {
+            let fraction = s.time.seconds as f64 / max_t;
+            if fraction < start || fraction > end {
+                return None;
+            }
+            let x = (fraction - start) / span * 100.0;
             let y = s.depth.mm as f64 / max_d * 90.0 + 5.0;
-            format!("{x:.2},{y:.2}")
+            Some(format!("{x:.2},{y:.2}"))
         })
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-/// Normalize a `(seconds, value)` series into SVG points, inverting the value
-/// axis so larger values sit higher on the chart.
-fn series(values: impl Iterator<Item = (i32, i32)>, max_t: f64) -> Option<String> {
-    let values: Vec<(i32, i32)> = values.collect();
-    if values.len() < 2 {
+/// Normalize a `(seconds, value)` series into SVG points within the visible
+/// window, inverting the value axis so larger values sit higher on the chart.
+fn series(
+    values: impl Iterator<Item = (i32, i32)>,
+    max_t: f64,
+    start: f64,
+    end: f64,
+) -> Option<String> {
+    let span = (end - start).max(1e-9);
+    let visible: Vec<(f64, i32)> = values
+        .filter_map(|(t, v)| {
+            let fraction = t as f64 / max_t;
+            if fraction < start || fraction > end {
+                None
+            } else {
+                Some((fraction, v))
+            }
+        })
+        .collect();
+    if visible.len() < 2 {
         return None;
     }
-    let min = values.iter().map(|(_, v)| *v).min()?;
-    let max = values.iter().map(|(_, v)| *v).max()?;
+    let min = visible.iter().map(|(_, v)| *v).min()?;
+    let max = visible.iter().map(|(_, v)| *v).max()?;
     let range = (max - min).max(1) as f64;
     Some(
-        values
+        visible
             .iter()
-            .map(|(t, v)| {
-                let x = *t as f64 / max_t * 100.0;
+            .map(|(fraction, v)| {
+                let x = (fraction - start) / span * 100.0;
                 let y = 92.0 - (*v - min) as f64 / range * 84.0;
                 format!("{x:.2},{y:.2}")
             })
