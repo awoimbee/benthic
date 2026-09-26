@@ -14,9 +14,10 @@ A modern, cross-platform dive log — a ground-up rewrite of
 * **Web build on GitHub Pages.** `main` is continuously deployed to
   <https://awoimbee.github.io/benthic/>.
 
-> **Status: early.** The foundations (domain model, file formats, storage,
-> UI shell, CI/CD) are in place. The feature roadmap lives in
-> [ROADMAP.md](ROADMAP.md).
+> **Status: Phase 1 complete.** The core log is usable: import, create/edit,
+> search, filter and group dives, equipment editing, unit and format
+> preferences, undo/redo, a command palette, and automatic backups. Phase 2
+> (richer profiles and the dive planner) is next. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 

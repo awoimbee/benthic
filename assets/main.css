@@ -660,6 +660,18 @@ textarea.field {
   max-width: 55%;
 }
 
+.map-link {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: var(--accent);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.map-link:hover {
+  text-decoration: underline;
+}
+
 .pref-group {
   display: flex;
   flex-direction: column;

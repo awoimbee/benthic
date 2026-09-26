@@ -206,6 +206,10 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .primary_computer()
         .map(|dc| dc.model.clone())
         .unwrap_or_else(|| "—".to_string());
+    let salinity = salinity_label(
+        dive.salinity
+            .unwrap_or_else(|| prefs.default_salinity.value()),
+    );
 
     // --- edit-form values -------------------------------------------------
 
@@ -427,7 +431,16 @@ fn DiveDetailInner(dive: Dive) -> Element {
                         }
                         button {
                             class: "btn",
-                            onclick: move |_| form.write().cylinders.push(Cylinder::default()),
+                            onclick: move |_| {
+                                let cylinder = match prefs
+                                    .default_cylinder
+                                    .and_then(|index| CYLINDER_PRESETS.get(index))
+                                {
+                                    Some(preset) => Cylinder::from_preset(preset),
+                                    None => Cylinder::default(),
+                                };
+                                form.write().cylinders.push(cylinder);
+                            },
                             "+ Add cylinder"
                         }
                     }
@@ -478,6 +491,17 @@ fn DiveDetailInner(dive: Dive) -> Element {
                     Fact { label: "Buddy", value: dive.buddy.clone() }
                     Fact { label: "Dive master", value: dive.diveguide.clone() }
                     Fact { label: "Suit", value: dive.suit.clone() }
+                    Fact { label: "Salinity", value: salinity }
+                }
+
+                if let Some(location) = site.as_ref().and_then(|s| s.location).filter(|l| l.is_valid()) {
+                    a {
+                        class: "map-link",
+                        target: "_blank",
+                        rel: "noopener",
+                        href: "https://www.openstreetmap.org/?mlat={location.lat}&mlon={location.lon}#map=15/{location.lat}/{location.lon}",
+                        "Open site in map ↗"
+                    }
                 }
 
                 if !dive.tags.is_empty() {
@@ -576,6 +600,15 @@ fn weight_row(ws: &benthic_core::WeightSystem, prefs: &benthic_core::Preferences
         },
         weight: prefs.weight(ws.weight),
     }
+}
+
+/// A human label for a salinity value, e.g. 10200 -> "EN13319".
+fn salinity_label(value: i32) -> String {
+    benthic_core::Salinity::ALL
+        .iter()
+        .find(|s| s.value() == value)
+        .map(|s| s.label().to_string())
+        .unwrap_or_else(|| format!("{value} g/10L"))
 }
 
 /// The matching preset name for a cylinder, or empty when it is custom.

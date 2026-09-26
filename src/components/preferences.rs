@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use benthic_core::{DateFormat, TimeFormat, UnitSystem};
+use benthic_core::{DateFormat, Salinity, TimeFormat, UnitSystem};
 
 use crate::actions;
 use crate::state::AppState;
@@ -22,6 +22,14 @@ pub fn PreferencesDialog() -> Element {
         .iter()
         .position(|f| *f == current_time)
         .unwrap_or(0);
+    let salinity_index = Salinity::ALL
+        .iter()
+        .position(|s| *s == (state.prefs)().default_salinity)
+        .unwrap_or(2);
+    let cylinder_value = (state.prefs)()
+        .default_cylinder
+        .map(|i| i.to_string())
+        .unwrap_or_default();
 
     let backup_age = crate::storage::backup_age_secs();
     let has_backup = backup_age.is_some();
@@ -77,6 +85,33 @@ pub fn PreferencesDialog() -> Element {
                         },
                         for (index, format) in TimeFormat::ALL.iter().enumerate() {
                             option { key: "{index}", value: "{index}", "{format.label()}" }
+                        }
+                    }
+                }
+                div { class: "pref-group",
+                    div { class: "field-label", "Default salinity" }
+                    select {
+                        class: "field",
+                        value: "{salinity_index}",
+                        onchange: move |evt| {
+                            let index = evt.value().parse::<usize>().unwrap_or(0);
+                            prefs.write().default_salinity = Salinity::ALL[index.min(Salinity::ALL.len() - 1)];
+                        },
+                        for (index, salinity) in Salinity::ALL.iter().enumerate() {
+                            option { key: "{index}", value: "{index}", "{salinity.label()}" }
+                        }
+                    }
+                    div { class: "field-label", "Default cylinder for new rows" }
+                    select {
+                        class: "field",
+                        value: "{cylinder_value}",
+                        onchange: move |evt| {
+                            let value = evt.value();
+                            prefs.write().default_cylinder = if value.is_empty() { None } else { value.parse().ok() };
+                        },
+                        option { value: "", "None" }
+                        for (index, preset) in benthic_core::CYLINDER_PRESETS.iter().enumerate() {
+                            option { key: "{index}", value: "{index}", "{preset.name}" }
                         }
                     }
                 }

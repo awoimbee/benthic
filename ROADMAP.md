@@ -53,9 +53,9 @@ Guiding principles:
 - [x] Trip create (from selection), rename and delete
 - [x] Trip merge and split (split via 'New trip' from a selection)
 - [x] Dive-site merge and de-duplication (by name + GPS)
-- [ ] Dive-site map picker
+- [x] Dive-site map link (a full map picker comes with the Phase 4 map view)
 - [x] Preferences: date and time formats
-- [ ] Preferences: default salinity and other defaults
+- [x] Preferences: default salinity and default cylinder
 - [x] Command palette (`Ctrl/Cmd+K`)
 - [x] Manual load/save via import/export; autosave means there are no unsaved changes
 - [x] Data safety: hourly automatic backup, crash recovery, undoable deletes

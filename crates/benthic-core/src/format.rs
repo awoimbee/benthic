@@ -6,7 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::units::{Depth, Pressure, Temperature, Volume, Weight};
+use crate::units::{
+    Depth, Pressure, Temperature, Volume, Weight, BRACKISH_SALINITY, EN13319_SALINITY,
+    FRESHWATER_SALINITY, SEAWATER_SALINITY,
+};
 
 /// Which set of units to display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -77,6 +80,45 @@ impl TimeFormat {
     }
 }
 
+/// A water-salinity preset, used for pressure/depth conversions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Salinity {
+    Freshwater,
+    Brackish,
+    #[default]
+    En13319,
+    Seawater,
+}
+
+impl Salinity {
+    pub const ALL: [Salinity; 4] = [
+        Salinity::Freshwater,
+        Salinity::Brackish,
+        Salinity::En13319,
+        Salinity::Seawater,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Salinity::Freshwater => "Fresh water",
+            Salinity::Brackish => "Brackish",
+            Salinity::En13319 => "EN13319",
+            Salinity::Seawater => "Sea water",
+        }
+    }
+
+    /// The salinity in grams of salt per 10 litres of water.
+    pub fn value(self) -> i32 {
+        match self {
+            Salinity::Freshwater => FRESHWATER_SALINITY,
+            Salinity::Brackish => BRACKISH_SALINITY,
+            Salinity::En13319 => EN13319_SALINITY,
+            Salinity::Seawater => SEAWATER_SALINITY,
+        }
+    }
+}
+
 /// Everything the user can configure. Serialized to local storage separately
 /// from the dive log so preferences survive replacing the log.
 ///
@@ -90,6 +132,12 @@ pub struct Preferences {
     pub date_format: DateFormat,
     #[serde(default)]
     pub time_format: TimeFormat,
+    #[serde(default)]
+    pub default_salinity: Salinity,
+    /// Index into `equipment::CYLINDER_PRESETS` used for newly added
+    /// cylinders, or `None` for a plain default cylinder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_cylinder: Option<usize>,
 }
 
 impl Preferences {
@@ -321,5 +369,13 @@ mod tests {
 
         // Midnight renders as 12:00 AM in 12-hour time.
         assert_eq!(prefs.time(1_715_544_900 - 20 * 3600 - 15 * 60), "12:00 AM");
+    }
+
+    #[test]
+    fn salinity_presets() {
+        assert_eq!(Salinity::Freshwater.value(), FRESHWATER_SALINITY);
+        assert_eq!(Salinity::Seawater.value(), SEAWATER_SALINITY);
+        assert_eq!(Preferences::default().default_salinity, Salinity::En13319);
+        assert_eq!(Preferences::default().default_cylinder, None);
     }
 }

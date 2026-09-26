@@ -21,6 +21,7 @@ pub fn new_dive(state: AppState) {
     let mut dive = Dive::manual(crate::platform::now_secs());
     dive.id = log.next_id();
     dive.number = log.dives.iter().map(|d| d.number).max().unwrap_or(0) + 1;
+    dive.salinity = Some((state.prefs)().default_salinity.value());
     let index = log.dives.len();
     state.dispatch(Command::AddDive {
         dive: dive.clone(),
