@@ -579,6 +579,103 @@ impl DiveLog {
             .filter(|name| !name.is_empty())
     }
 
+    /// Find groups of dive sites that look like duplicates of each other.
+    ///
+    /// Two sites are duplicates when their names match (ignoring case and
+    /// extra whitespace) and their coordinates are compatible: either one is
+    /// missing, or they are within `radius_m` of each other. Returns groups of
+    /// site uuids, each of size >= 2.
+    pub fn mergeable_site_groups(&self, radius_m: f64) -> Vec<Vec<u32>> {
+        fn normalize(name: &str) -> String {
+            name.split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase()
+        }
+        let compatible = |a: Option<Location>, b: Option<Location>| match (a, b) {
+            (Some(a), Some(b)) => a.distance_m(b) <= radius_m,
+            _ => true,
+        };
+
+        let mut assigned = vec![false; self.sites.len()];
+        let mut groups: Vec<Vec<u32>> = Vec::new();
+        for i in 0..self.sites.len() {
+            if assigned[i] {
+                continue;
+            }
+            let site = &self.sites[i];
+            let name = normalize(&site.name);
+            if name.is_empty() {
+                continue;
+            }
+            let mut group = vec![site.uuid];
+            for (j, flag) in assigned.iter_mut().enumerate().skip(i + 1) {
+                if *flag {
+                    continue;
+                }
+                let other = &self.sites[j];
+                if normalize(&other.name) == name && compatible(site.location, other.location) {
+                    *flag = true;
+                    group.push(other.uuid);
+                }
+            }
+            if group.len() > 1 {
+                assigned[i] = true;
+                groups.push(group);
+            }
+        }
+        groups
+    }
+
+    /// Merge every group of duplicate sites, returning the number of sites
+    /// removed. Dives referencing a removed site are repointed at the kept one;
+    /// missing fields on the kept site are filled from the first duplicate that
+    /// has them. Useful after importing legacy logs that repeat inline site
+    /// names.
+    pub fn merge_duplicate_sites(&mut self, radius_m: f64) -> usize {
+        let groups = self.mergeable_site_groups(radius_m);
+        let mut removed = 0;
+        for group in groups {
+            let keep_uuid = group[0];
+            let remove: Vec<u32> = group[1..].to_vec();
+
+            // Fill in missing details on the kept site.
+            let extras: Vec<DiveSite> = remove
+                .iter()
+                .filter_map(|uuid| self.site_by_uuid(*uuid).cloned())
+                .collect();
+            if let Some(keep) = self.sites.iter_mut().find(|s| s.uuid == keep_uuid) {
+                for extra in &extras {
+                    if keep.location.is_none() {
+                        keep.location = extra.location;
+                    }
+                    if keep.description.is_empty() {
+                        keep.description = extra.description.clone();
+                    }
+                    if keep.notes.is_empty() {
+                        keep.notes = extra.notes.clone();
+                    }
+                    if keep.country.is_none() {
+                        keep.country = extra.country.clone();
+                    }
+                    if keep.ocean.is_none() {
+                        keep.ocean = extra.ocean.clone();
+                    }
+                }
+            }
+
+            for dive in &mut self.dives {
+                if dive.site_id.is_some_and(|id| remove.contains(&id)) {
+                    dive.site_id = Some(keep_uuid);
+                }
+            }
+            let before = self.sites.len();
+            self.sites.retain(|s| !remove.contains(&s.uuid));
+            removed += before - self.sites.len();
+        }
+        removed
+    }
+
     /// Remove all automatically-generated trips and clear the trip links of
     /// dives that referenced them. Manual trips are left untouched.
     pub fn clear_auto_trips(&mut self) {

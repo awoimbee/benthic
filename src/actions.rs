@@ -11,6 +11,10 @@ use crate::state::AppState;
 /// Days between consecutive dives before automatic grouping breaks a trip.
 pub const AUTOGROUP_MAX_GAP_DAYS: i64 = 3;
 
+/// Maximum distance between two same-named sites for them to be considered
+/// duplicates.
+pub const SITE_DEDUP_RADIUS_M: f64 = 500.0;
+
 /// Create an empty, manually-entered dive, select it, and open the editor.
 pub fn new_dive(state: AppState) {
     let log = (state.log)();
@@ -167,6 +171,23 @@ pub fn delete_trip(state: AppState, id: u32) {
     }
     state.dispatch_all("Delete trip", commands);
     state.set_status("Deleted trip");
+}
+
+/// Merge dive sites that share a name (and are close, or lack coordinates).
+pub fn merge_duplicate_sites(state: AppState) {
+    let before = (state.log)();
+    let mut after = before.clone();
+    let removed = after.merge_duplicate_sites(SITE_DEDUP_RADIUS_M);
+    if removed == 0 {
+        state.set_status("No duplicate dive sites found");
+        return;
+    }
+    state.dispatch(Command::Snapshot {
+        label: "Merge duplicate sites".into(),
+        before: Box::new(before),
+        after: Box::new(after),
+    });
+    state.set_status(format!("Merged {removed} duplicate dive sites"));
 }
 
 /// Turn automatic trip grouping on/off, regrouping or ungrouping as needed.

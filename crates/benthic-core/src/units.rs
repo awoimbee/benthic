@@ -238,6 +238,17 @@ impl Location {
             && (-90.0..=90.0).contains(&self.lat)
             && (-180.0..=180.0).contains(&self.lon)
     }
+
+    /// Great-circle distance to another location, in metres.
+    pub fn distance_m(self, other: Location) -> f64 {
+        const EARTH_RADIUS_M: f64 = 6_371_000.0;
+        let lat1 = self.lat.to_radians();
+        let lat2 = other.lat.to_radians();
+        let dlat = (other.lat - self.lat).to_radians();
+        let dlon = (other.lon - self.lon).to_radians();
+        let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+        2.0 * EARTH_RADIUS_M * a.sqrt().asin()
+    }
 }
 
 /// Format a [`Duration`] the way dive logs usually display it: `MM:SS` or `H:MM:SS`.

@@ -235,3 +235,64 @@ fn gas_naming() {
     assert!(GasMix::percent(21.0, 35.0).is_trimix());
     assert_eq!(GasMix::percent(21.0, 35.0).n2_permille(), 440);
 }
+
+#[test]
+fn location_distance_metres() {
+    use benthic_core::Location;
+
+    let a = Location::new(28.5721, 34.5367);
+    assert!(a.distance_m(a) < 1.0);
+    // About 1.1 km due north.
+    let b = Location::new(28.5821, 34.5367);
+    let distance = a.distance_m(b);
+    assert!(
+        (1000.0..1300.0).contains(&distance),
+        "distance was {distance}"
+    );
+}
+
+#[test]
+fn merge_duplicate_sites_by_name_and_gps() {
+    use benthic_core::{Dive, DiveLog, DiveSite, Location};
+
+    let mut log = DiveLog::new();
+    log.sites.push(DiveSite {
+        uuid: 1,
+        name: "Blue Hole".into(),
+        location: Some(Location::new(28.5, 34.5)),
+        ..Default::default()
+    });
+    // Same name, ~11 m away: a duplicate.
+    log.sites.push(DiveSite {
+        uuid: 2,
+        name: "blue  hole".into(),
+        location: Some(Location::new(28.5001, 34.5)),
+        ..Default::default()
+    });
+    // Same name but on the other side of the planet: keep separate.
+    log.sites.push(DiveSite {
+        uuid: 3,
+        name: "Blue Hole".into(),
+        location: Some(Location::new(10.0, 20.0)),
+        ..Default::default()
+    });
+    log.sites.push(DiveSite {
+        uuid: 4,
+        name: "Other".into(),
+        ..Default::default()
+    });
+    log.dives.push(Dive {
+        id: 1,
+        when: 0,
+        site_id: Some(2),
+        ..Default::default()
+    });
+
+    let groups = log.mergeable_site_groups(500.0);
+    assert_eq!(groups, vec![vec![1, 2]]);
+
+    let removed = log.merge_duplicate_sites(500.0);
+    assert_eq!(removed, 1);
+    assert_eq!(log.sites.len(), 3);
+    assert_eq!(log.dives[0].site_id, Some(1));
+}

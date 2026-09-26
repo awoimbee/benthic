@@ -32,6 +32,12 @@ pub fn Toolbar() -> Element {
                 onclick: move |_| actions::toggle_autogroup(state),
                 if log.autogroup { "Auto-group: on" } else { "Auto-group: off" }
             }
+            button {
+                class: "btn",
+                title: "Merge dive sites with the same name",
+                onclick: move |_| actions::merge_duplicate_sites(state),
+                "Merge sites"
+            }
 
             if selected_count > 0 {
                 span { class: "selected-count", "{selected_count} selected" }

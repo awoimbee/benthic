@@ -52,7 +52,8 @@ Guiding principles:
 - [x] Saveable filter presets
 - [x] Trip create (from selection), rename and delete
 - [ ] Trip merge/split
-- [ ] Dive-site merge, map picker, and deduplication of inline locations
+- [x] Dive-site merge and de-duplication (by name + GPS)
+- [ ] Dive-site map picker
 - [ ] Preferences: date/time formats, salinity, defaults
 - [ ] Command palette
 - [ ] Unsaved-change tracking and manual save/load of log files
