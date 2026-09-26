@@ -2,9 +2,9 @@
 
 use dioxus::prelude::*;
 
-use benthic_core::{DiveFilter, DiveLog, History};
+use benthic_core::{DiveFilter, DiveLog, History, Preferences};
 
-use crate::components::{DiveDetail, DiveList, FilterBar, Toolbar};
+use crate::components::{DiveDetail, DiveList, FilterBar, PreferencesDialog, Toolbar};
 use crate::state::AppState;
 
 const CSS: &str = include_str!("../assets/main.css");
@@ -17,6 +17,12 @@ pub fn App() -> Element {
     let status = use_signal(|| "Ready".to_string());
     let history = use_signal(History::new);
     let filter = use_signal(DiveFilter::default);
+    let prefs = use_signal(|| {
+        crate::storage::load_prefs()
+            .and_then(|text| serde_json::from_str::<Preferences>(&text).ok())
+            .unwrap_or_default()
+    });
+    let show_prefs = use_signal(|| false);
     // Autosave is gated until the initial load has completed, so we never
     // overwrite a stored log with the empty in-memory log on startup.
     let loaded = use_signal(|| false);
@@ -27,8 +33,18 @@ pub fn App() -> Element {
         status,
         history,
         filter,
+        prefs,
+        show_prefs,
     };
     use_context_provider(|| state);
+
+    // Preferences are small and load synchronously.
+    use_effect(move || {
+        let snapshot = prefs();
+        if let Ok(text) = serde_json::to_string(&snapshot) {
+            let _ = crate::storage::save_prefs(&text);
+        }
+    });
 
     // Load the autosaved log once at startup.
     use_future(move || async move {
@@ -102,6 +118,9 @@ pub fn App() -> Element {
             div { class: "panes",
                 DiveList {}
                 DiveDetail {}
+            }
+            if (show_prefs)() {
+                PreferencesDialog {}
             }
         }
     }

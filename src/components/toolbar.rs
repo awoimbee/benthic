@@ -14,6 +14,7 @@ pub fn Toolbar() -> Element {
     let selected_count = (state.selection)().len();
     let mut filter = state.filter;
     let mut selection = state.selection;
+    let mut show_prefs = state.show_prefs;
 
     rsx! {
         header { class: "toolbar",
@@ -70,6 +71,12 @@ pub fn Toolbar() -> Element {
                 title: "Redo (Ctrl/Cmd+Shift+Z)",
                 onclick: move |_| state.redo(),
                 "Redo"
+            }
+            button {
+                class: "btn",
+                title: "Preferences",
+                onclick: move |_| show_prefs.set(true),
+                "Preferences"
             }
             span { class: "status", "{status}" }
         }

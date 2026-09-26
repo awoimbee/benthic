@@ -13,6 +13,7 @@
 
 pub mod equipment;
 pub mod filter;
+pub mod format;
 pub mod gas;
 pub mod history;
 pub mod io;
@@ -21,6 +22,7 @@ pub mod units;
 
 pub use equipment::{apply_preset, cylinder_preset, CylinderPreset, CYLINDER_PRESETS};
 pub use filter::DiveFilter;
+pub use format::{Preferences, UnitSystem};
 pub use gas::GasMix;
 pub use history::{Command, History};
 pub use model::*;

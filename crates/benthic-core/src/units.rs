@@ -180,6 +180,10 @@ impl Volume {
             ml: (cuft * 28_316.846_6).round() as i32,
         }
     }
+
+    pub fn cubic_feet(self) -> f64 {
+        self.liters() / 28.316_846_6
+    }
 }
 
 impl Fraction {
@@ -209,6 +213,10 @@ impl Weight {
         Self {
             grams: (lbs * 453.592_37).round() as i32,
         }
+    }
+
+    pub fn lbs(self) -> f64 {
+        self.grams as f64 / 453.592_37
     }
 }
 

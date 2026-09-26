@@ -22,6 +22,7 @@ pub fn DiveList() -> Element {
     let mut selection = state.selection;
     let log = (state.log)();
     let filter = (state.filter)();
+    let prefs = (state.prefs)();
     let current = (state.selected)();
     let checked_ids = (state.selection)();
 
@@ -76,7 +77,7 @@ pub fn DiveList() -> Element {
                 "•".to_string()
             },
             title: crate::format::dive_title(dive, &log),
-            subtitle: crate::format::dive_subtitle(dive),
+            subtitle: crate::format::dive_subtitle(dive, &prefs),
             trailing: dive
                 .cylinders
                 .first()

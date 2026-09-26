@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use benthic_core::{Command, DiveFilter, DiveLog, History};
+use benthic_core::{Command, DiveFilter, DiveLog, History, Preferences};
 
 /// Signals shared across the app. `Signal` is `Copy`, so this whole struct is
 /// cheap to pass around and to provide as context.
@@ -20,6 +20,10 @@ pub struct AppState {
     pub history: Signal<History>,
     /// Active dive-list filter.
     pub filter: Signal<DiveFilter>,
+    /// Display preferences (units, ...).
+    pub prefs: Signal<Preferences>,
+    /// Whether the preferences dialog is open.
+    pub show_prefs: Signal<bool>,
 }
 
 impl AppState {

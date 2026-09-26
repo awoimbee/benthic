@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 
-use benthic_core::units::Depth;
 use benthic_core::DiveFilter;
 
 use crate::state::AppState;
@@ -14,6 +13,7 @@ pub fn FilterBar() -> Element {
     // the input while the user is still typing.
     let tags_text = use_signal(|| (state.filter)().tags.join(", "));
     let current = (state.filter)();
+    let prefs = (state.prefs)();
     let mut tags_text_signal = tags_text;
 
     let active = current.is_active();
@@ -58,19 +58,19 @@ pub fn FilterBar() -> Element {
             input {
                 class: "field narrow",
                 r#type: "number",
-                placeholder: "Min m",
-                value: current.min_depth.map(|d| format!("{:.0}", d.meters())).unwrap_or_default(),
+                placeholder: "Min {prefs.depth_unit()}",
+                value: current.min_depth.map(|d| format!("{:.0}", prefs.depth_value(d))).unwrap_or_default(),
                 oninput: move |evt| {
-                    filter.write().min_depth = evt.value().parse::<f64>().ok().map(Depth::from_meters);
+                    filter.write().min_depth = evt.value().parse::<f64>().ok().map(|v| prefs.depth_from_value(v));
                 },
             }
             input {
                 class: "field narrow",
                 r#type: "number",
-                placeholder: "Max m",
-                value: current.max_depth.map(|d| format!("{:.0}", d.meters())).unwrap_or_default(),
+                placeholder: "Max {prefs.depth_unit()}",
+                value: current.max_depth.map(|d| format!("{:.0}", prefs.depth_value(d))).unwrap_or_default(),
                 oninput: move |evt| {
-                    filter.write().max_depth = evt.value().parse::<f64>().ok().map(Depth::from_meters);
+                    filter.write().max_depth = evt.value().parse::<f64>().ok().map(|v| prefs.depth_from_value(v));
                 },
             }
             if active {

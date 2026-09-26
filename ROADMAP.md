@@ -48,10 +48,11 @@ Guiding principles:
 - [x] Cylinder & weight editing with presets (AL80, LP85, steel 12/15, ...)
 - [x] Multi-select and bulk delete (one undo step)
 - [x] Filter UI for tags, rating and depth
+- [x] Preferences: metric/imperial units, persisted separately from the log
 - [ ] Saveable filter presets
 - [ ] Trip create/rename/merge/split UI
 - [ ] Dive-site merge, map picker, and deduplication of inline locations
-- [ ] Preferences: metric/imperial units, date/time formats, salinity, defaults
+- [ ] Preferences: date/time formats, salinity, defaults
 - [ ] Command palette
 - [ ] Unsaved-change tracking and manual save/load of log files
 - [ ] Data safety: rotating local backups, crash recovery, "undo delete"

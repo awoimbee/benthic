@@ -27,7 +27,7 @@ reuse (e.g. a future CLI or a fullstack server), and free of UI lifetimes.
 ```
 src/main.rs        launch(App)
 src/app.rs         root component: load-once, autosave effect, shortcuts, layout
-src/state.rs       AppState { log, selected, status, history, filter } — Copy signals
+src/state.rs       AppState { log, selected, selection, status, history, filter, prefs, show_prefs }
 src/actions.rs     high-level user actions -> commands (new/duplicate/delete/...)
 src/storage.rs     autosave backend (localStorage | data dir), JSON
 src/platform.rs    export: Blob download (web) | file write (desktop), clock
@@ -79,14 +79,16 @@ future work.
 `storage.rs` exposes `load() -> Option<String>` and `save(&str) -> Result<(), String>`,
 implemented per target:
 
-| Target | Backend | Notes |
-| --- | --- | --- |
-| web | `localStorage` (`benthic.log`) | simple; ~5 MB limit. IndexedDB planned |
-| desktop | `ProjectDirs::data_dir()/log.benthic.json` | created on first save |
+| Target | Log backend | Preferences | Notes |
+| --- | --- | --- | --- |
+| web | `localStorage` (`benthic.log`) | `benthic.prefs` | ~5 MB limit; IndexedDB planned |
+| desktop | `ProjectDirs::data_dir()/log.benthic.json` | `prefs.json` | created on first save |
 
 The stored payload is the **native JSON** format, which is lossless. SSRF is an
 interchange format, not the autosave format, precisely because it cannot
 represent everything (e.g. internal ids, some metadata) without ambiguity.
+Preferences are stored separately so they survive replacing the log; they are
+**display-only** (the model and all file formats remain canonical metric).
 
 Autosave runs in a `use_effect` keyed on the log signal. It is intentionally
 synchronous and cheap; debouncing and incremental writes are future work.

@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
-use benthic_core::units::{format_duration, format_timestamp_utc, Pressure, Weight};
+use benthic_core::units::{format_duration, format_timestamp_utc, Weight};
 use benthic_core::{Command, Cylinder, CylinderUse, Dive, DiveSite, Location, WeightSystem};
 
 use crate::actions;
@@ -70,6 +70,7 @@ impl DiveForm {
 fn DiveDetailInner(dive: Dive) -> Element {
     let state = use_context::<AppState>();
     let log = (state.log)();
+    let prefs = (state.prefs)();
     let site = dive.site_id.and_then(|id| log.site_by_uuid(id)).cloned();
 
     let mut editing = use_signal(|| false);
@@ -189,17 +190,17 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .unwrap_or_else(|| "—".to_string());
     let max_depth = dive
         .max_depth()
-        .map(|d| format!("{:.1} m", d.meters()))
+        .map(|d| prefs.depth(d))
         .unwrap_or_else(|| "—".to_string());
     let water_temp = dive
         .water_temp
         .or_else(|| dive.primary_computer().and_then(|dc| dc.water_temp))
-        .map(|t| format!("{:.1} °C", t.celsius()))
+        .map(|t| prefs.temperature(t))
         .unwrap_or_else(|| "—".to_string());
     let air_temp = dive
         .air_temp
         .or_else(|| dive.primary_computer().and_then(|dc| dc.air_temp))
-        .map(|t| format!("{:.1} °C", t.celsius()))
+        .map(|t| prefs.temperature(t))
         .unwrap_or_else(|| "—".to_string());
     let computer = dive
         .primary_computer()
@@ -226,8 +227,12 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .collect();
     let current_trip = f.trip_id.map(|id| id.to_string()).unwrap_or_default();
 
-    let cylinders: Vec<CylinderRow> = dive.cylinders.iter().map(cylinder_row).collect();
-    let weights: Vec<WeightRow> = dive.weights.iter().map(weight_row).collect();
+    let cylinders: Vec<CylinderRow> = dive
+        .cylinders
+        .iter()
+        .map(|c| cylinder_row(c, &prefs))
+        .collect();
+    let weights: Vec<WeightRow> = dive.weights.iter().map(|w| weight_row(w, &prefs)).collect();
 
     rsx! {
         section { class: "detail",
@@ -380,21 +385,21 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                             },
                                         }
                                     }
-                                    label { class: "mini", "Start bar"
+                                    label { class: "mini", "Start {prefs.pressure_unit()}"
                                         input {
                                             class: "field",
-                                            value: cyl.start_pressure.map(|p| format!("{:.0}", p.bar())).unwrap_or_default(),
+                                            value: cyl.start_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
                                             oninput: move |evt| {
-                                                form.write().cylinders[i].start_pressure = evt.value().parse::<f64>().ok().map(Pressure::from_bar);
+                                                form.write().cylinders[i].start_pressure = evt.value().parse::<f64>().ok().map(|v| prefs.pressure_from_value(v));
                                             },
                                         }
                                     }
-                                    label { class: "mini", "End bar"
+                                    label { class: "mini", "End {prefs.pressure_unit()}"
                                         input {
                                             class: "field",
-                                            value: cyl.end_pressure.map(|p| format!("{:.0}", p.bar())).unwrap_or_default(),
+                                            value: cyl.end_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
                                             oninput: move |evt| {
-                                                form.write().cylinders[i].end_pressure = evt.value().parse::<f64>().ok().map(Pressure::from_bar);
+                                                form.write().cylinders[i].end_pressure = evt.value().parse::<f64>().ok().map(|v| prefs.pressure_from_value(v));
                                             },
                                         }
                                     }
@@ -431,12 +436,12 @@ fn DiveDetailInner(dive: Dive) -> Element {
                         div { class: "equip-list",
                             for (i, ws) in f.weights.iter().enumerate() {
                                 div { key: "{i}", class: "equip-row weight-row",
-                                    label { class: "mini", "kg"
+                                    label { class: "mini", "{prefs.weight_unit()}"
                                         input {
                                             class: "field",
-                                            value: format!("{:.2}", ws.weight.kg()),
+                                            value: format!("{:.2}", prefs.weight_value(ws.weight)),
                                             oninput: move |evt| {
-                                                form.write().weights[i].weight = Weight::from_kg(evt.value().parse::<f64>().unwrap_or(0.0));
+                                                form.write().weights[i].weight = prefs.weight_from_value(evt.value().parse::<f64>().unwrap_or(0.0));
                                             },
                                         }
                                     }
@@ -541,11 +546,11 @@ struct WeightRow {
     weight: String,
 }
 
-fn cylinder_row(cyl: &benthic_core::Cylinder) -> CylinderRow {
+fn cylinder_row(cyl: &benthic_core::Cylinder, prefs: &benthic_core::Preferences) -> CylinderRow {
     CylinderRow {
         description: if cyl.description.is_empty() {
             cyl.size
-                .map(|s| format!("{:.1} L", s.liters()))
+                .map(|s| prefs.volume(s))
                 .unwrap_or_else(|| "—".to_string())
         } else {
             cyl.description.clone()
@@ -553,23 +558,23 @@ fn cylinder_row(cyl: &benthic_core::Cylinder) -> CylinderRow {
         gas: cyl.gas.name(),
         start: cyl
             .start_pressure
-            .map(|p| format!("{:.0} bar", p.bar()))
+            .map(|p| prefs.pressure(p))
             .unwrap_or_else(|| "—".to_string()),
         end: cyl
             .end_pressure
-            .map(|p| format!("{:.0} bar", p.bar()))
+            .map(|p| prefs.pressure(p))
             .unwrap_or_else(|| "—".to_string()),
     }
 }
 
-fn weight_row(ws: &benthic_core::WeightSystem) -> WeightRow {
+fn weight_row(ws: &benthic_core::WeightSystem, prefs: &benthic_core::Preferences) -> WeightRow {
     WeightRow {
         description: if ws.description.is_empty() {
             "—".to_string()
         } else {
             ws.description.clone()
         },
-        weight: format!("{:.2} kg", ws.weight.kg()),
+        weight: prefs.weight(ws.weight),
     }
 }
 

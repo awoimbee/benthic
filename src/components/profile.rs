@@ -1,11 +1,15 @@
 use dioxus::prelude::*;
 
-use benthic_core::units::format_duration;
+use benthic_core::units::{format_duration, Depth};
 use benthic_core::Dive;
+
+use crate::state::AppState;
 
 /// A lightweight SVG depth profile for the selected dive.
 #[component]
 pub fn DiveProfile(dive: Dive) -> Element {
+    let state = use_context::<AppState>();
+    let prefs = (state.prefs)();
     let samples = dive
         .primary_computer()
         .map(|dc| dc.samples.clone())
@@ -29,11 +33,11 @@ pub fn DiveProfile(dive: Dive) -> Element {
         .join(" ");
 
     let caption = format!(
-        "{} · max {:.1} m · {} samples",
+        "{} · max {} · {} samples",
         dive.duration()
             .map(format_duration)
             .unwrap_or_else(|| "—".to_string()),
-        max_d / 1000.0,
+        prefs.depth(Depth::new(max_d as i32)),
         samples.len()
     );
 
