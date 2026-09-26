@@ -468,13 +468,13 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                Toggle { label: "Pressure", color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, onclick: move |_| show_pressure.set(!pressure_on) }
-                Toggle { label: "Temperature", color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, onclick: move |_| show_temp.set(!temp_on) }
-                Toggle { label: "NDL", color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, onclick: move |_| show_ndl.set(!ndl_on) }
-                Toggle { label: "TTS", color: COLOR_TTS, on: tts_on, disabled: !available.tts, onclick: move |_| show_tts.set(!tts_on) }
-                Toggle { label: "Heart", color: COLOR_HEART, on: heart_on, disabled: !available.heart, onclick: move |_| show_heart.set(!heart_on) }
-                Toggle { label: "CNS", color: COLOR_CNS, on: cns_on, disabled: !available.cns, onclick: move |_| show_cns.set(!cns_on) }
-                Toggle { label: "Deco", color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, onclick: move |_| show_deco.set(!deco_on) }
+                Toggle { label: "Pressure", color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: "Cylinder pressure during the dive", onclick: move |_| show_pressure.set(!pressure_on) }
+                Toggle { label: "Temperature", color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: "Water temperature during the dive", onclick: move |_| show_temp.set(!temp_on) }
+                Toggle { label: "NDL", color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: "No-decompression limit: how much longer you can stay at this depth without requiring a stop", onclick: move |_| show_ndl.set(!ndl_on) }
+                Toggle { label: "TTS", color: COLOR_TTS, on: tts_on, disabled: !available.tts, title: "Time to surface: estimated ascent time including any decompression stops", onclick: move |_| show_tts.set(!tts_on) }
+                Toggle { label: "Heart", color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: "Heart rate in beats per minute", onclick: move |_| show_heart.set(!heart_on) }
+                Toggle { label: "CNS", color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: "Central nervous system oxygen toxicity, as a share of the NOAA limit", onclick: move |_| show_cns.set(!cns_on) }
+                Toggle { label: "Deco", color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: "Decompression ceiling: the shallowest depth you may ascend to", onclick: move |_| show_deco.set(!deco_on) }
                 label { class: "check", "Zoom"
                     input {
                         class: "zoom",
@@ -514,6 +514,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
 fn Toggle(
     label: &'static str,
     color: &'static str,
+    title: &'static str,
     on: bool,
     disabled: bool,
     onclick: EventHandler<()>,
@@ -522,7 +523,7 @@ fn Toggle(
     let box_style = format!("accent-color: {color};");
     let class = if disabled { "check disabled" } else { "check" };
     rsx! {
-        label { class: "{class}",
+        label { class: "{class}", title: "{title}",
             input {
                 r#type: "checkbox",
                 checked: on,
