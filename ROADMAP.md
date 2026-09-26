@@ -72,7 +72,8 @@ Guiding principles:
 - [x] Ascent planner with decompression stops and a saveable profile
 - [ ] VPM-B algorithm
 - [x] Open-circuit gas needs (RMV-based)
-- [ ] CCR and pSCR planning; bailout
+- [x] CCR planning (diluent + setpoint, loop gas, CCR schedule)
+- [ ] pSCR planning and bailout
 - [x] Dive comparison: overlay two dives (a saved plan vs the actual dive)
 - [x] Save plans as dives
 - [x] Gas calculations: MOD, END, EAD, best mix and ICD warnings

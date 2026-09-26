@@ -10,7 +10,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::gas::{ambient_mbar, he_fraction, n2_fraction, GasMix, SURFACE_PRESSURE_MBAR};
+use crate::gas::{
+    ambient_mbar, he_fraction, n2_fraction, o2_fraction, GasMix, SURFACE_PRESSURE_MBAR,
+};
 use crate::units::{Depth, Duration, EN13319_SALINITY};
 
 const COMPARTMENTS: usize = 16;
@@ -48,6 +50,60 @@ const HE_B: [f64; COMPARTMENTS] = [
     0.4245, 0.5747, 0.6527, 0.7223, 0.7582, 0.7957, 0.8279, 0.8553, 0.8757, 0.8903, 0.8997, 0.9073,
     0.9122, 0.9171, 0.9217, 0.9267,
 ];
+
+/// The loop gas for a rebreather at an ambient pressure and setpoint, given a
+/// diluent. Oxygen is added to meet the setpoint; the diluent's inert-gas
+/// ratio is preserved.
+pub fn loop_gas(diluent: GasMix, ambient_bar: f64, setpoint_bar: f64) -> GasMix {
+    let p_amb = ambient_bar.max(0.001);
+    let f_o2 = (setpoint_bar / p_amb).clamp(o2_fraction(diluent), 1.0);
+    let f_o2_dil = o2_fraction(diluent);
+    let f_he = if f_o2_dil < 1.0 {
+        he_fraction(diluent) * (1.0 - f_o2) / (1.0 - f_o2_dil)
+    } else {
+        0.0
+    };
+    GasMix::new(
+        (f_o2 * 1000.0).round() as u16,
+        (f_he * 1000.0).max(0.0).round() as u16,
+    )
+}
+
+/// How the diver breathes during a segment.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BreathingMode {
+    /// Open circuit on a fixed mix.
+    OpenCircuit(GasMix),
+    /// Closed circuit on a diluent with a pO2 setpoint.
+    ClosedCircuit { diluent: GasMix, setpoint_bar: f64 },
+}
+
+impl Default for BreathingMode {
+    fn default() -> Self {
+        BreathingMode::OpenCircuit(crate::gas::AIR)
+    }
+}
+
+impl BreathingMode {
+    /// The inspired gas at a given ambient pressure.
+    pub fn gas_at(&self, ambient_bar: f64) -> GasMix {
+        match self {
+            BreathingMode::OpenCircuit(gas) => *gas,
+            BreathingMode::ClosedCircuit {
+                diluent,
+                setpoint_bar,
+            } => loop_gas(*diluent, ambient_bar, *setpoint_bar),
+        }
+    }
+
+    /// The gas carried in the cylinder (the mix itself, or the diluent).
+    pub fn cylinder_gas(&self) -> GasMix {
+        match self {
+            BreathingMode::OpenCircuit(gas) => *gas,
+            BreathingMode::ClosedCircuit { diluent, .. } => *diluent,
+        }
+    }
+}
 
 /// A decompression stop.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -189,9 +245,47 @@ impl Buhlmann {
     /// The gradient factor interpolates linearly from `gf_low` at the first
     /// stop to `gf_high` at the surface. Returns the stops deepest-first; the
     /// bottom itself is not included.
+    /// Ambient pressure at a depth, in bar.
+    pub fn ambient_bar(&self, depth: Depth) -> f64 {
+        ambient_mbar(depth.mm, self.surface_bar * 1000.0, self.salinity) / 1000.0
+    }
+
+    /// Off-gas / on-gas at a constant depth for a number of minutes on a
+    /// rebreather at a setpoint.
+    pub fn add_segment_ccr(
+        &mut self,
+        depth: Depth,
+        minutes: f64,
+        diluent: GasMix,
+        setpoint_bar: f64,
+    ) {
+        let gas = loop_gas(diluent, self.ambient_bar(depth), setpoint_bar);
+        self.add_segment_minutes(depth, minutes, gas);
+    }
+
+    /// The no-decompression limit on a rebreather at a setpoint.
+    pub fn ndl_ccr(
+        &self,
+        depth: Depth,
+        diluent: GasMix,
+        setpoint_bar: f64,
+        gf: f64,
+    ) -> Option<Duration> {
+        let gas = loop_gas(diluent, self.ambient_bar(depth), setpoint_bar);
+        self.ndl(depth, gas, gf)
+    }
+
+    /// Compute a decompression schedule after a bottom segment.
+    ///
+    /// Ascends in steps of `stop_step` metres at `ascent_rate`, holding at each
+    /// stop until the gradient-factor-adjusted ceiling allows the next step.
+    /// The gradient factor interpolates linearly from `gf_low` at the first
+    /// stop to `gf_high` at the surface. Returns the stops deepest-first; the
+    /// bottom itself is not included.
     pub fn deco_schedule(&self, plan: &DecoSegment) -> Vec<Stop> {
         let mut tissues = self.clone();
-        tissues.add_segment_minutes(plan.bottom_depth, plan.bottom_minutes, plan.gas);
+        let bottom_gas = plan.mode.gas_at(self.ambient_bar(plan.bottom_depth));
+        tissues.add_segment_minutes(plan.bottom_depth, plan.bottom_minutes, bottom_gas);
 
         let ceiling = tissues.ceiling_depth(plan.gf_low).meters();
         if ceiling <= 0.0 {
@@ -215,7 +309,10 @@ impl Buhlmann {
             let gf_next = gf_at(next);
             let mut minutes: f64 = 0.0;
             while tissues.ceiling_depth(gf_next).meters() > next + 0.05 {
-                tissues.add_segment_minutes(Depth::from_meters(depth), 1.0, plan.gas);
+                let gas = plan
+                    .mode
+                    .gas_at(self.ambient_bar(Depth::from_meters(depth)));
+                tissues.add_segment_minutes(Depth::from_meters(depth), 1.0, gas);
                 minutes += 1.0;
                 if minutes > 600.0 {
                     break;
@@ -227,12 +324,10 @@ impl Buhlmann {
                     duration: Duration::from_minutes(minutes.round() as i32),
                 });
             }
+            let mid = (depth + next) / 2.0;
             let ascent_minutes = (depth - next) / plan.ascent_rate;
-            tissues.add_segment_minutes(
-                Depth::from_meters((depth + next) / 2.0),
-                ascent_minutes,
-                plan.gas,
-            );
+            let gas = plan.mode.gas_at(self.ambient_bar(Depth::from_meters(mid)));
+            tissues.add_segment_minutes(Depth::from_meters(mid), ascent_minutes, gas);
             depth = next;
         }
         stops
@@ -244,7 +339,7 @@ impl Buhlmann {
 pub struct DecoSegment {
     pub bottom_depth: Depth,
     pub bottom_minutes: f64,
-    pub gas: GasMix,
+    pub mode: BreathingMode,
     pub gf_low: f64,
     pub gf_high: f64,
     /// Distance between stops, in metres.
@@ -258,7 +353,7 @@ impl Default for DecoSegment {
         Self {
             bottom_depth: Depth::from_meters(30.0),
             bottom_minutes: 20.0,
-            gas: crate::gas::AIR,
+            mode: BreathingMode::default(),
             gf_low: 0.30,
             gf_high: 0.70,
             stop_step: 3.0,
@@ -340,6 +435,56 @@ mod tests {
             model.add_segment_minutes(Depth::from_meters(3.0), 10.0, AIR);
         }
         assert_eq!(model.ceiling_depth(1.0), Depth::ZERO);
+    }
+
+    #[test]
+    fn ccr_loop_is_oxygen_rich() {
+        // At 30 m (about 4 bar) with a 1.3 bar setpoint, the loop is ~32% O2.
+        let gas = loop_gas(AIR, 4.0, 1.3);
+        let fo2 = gas.o2_permille as f64 / 1000.0;
+        assert!((0.30..0.35).contains(&fo2), "loop O2 was {fo2}");
+        assert_eq!(gas.he_permille, 0);
+        // A trimix diluent keeps some helium in the loop.
+        let gas = loop_gas(GasMix::percent(18.0, 45.0), 6.0, 1.3);
+        assert!(gas.he_permille > 0, "expected helium in the loop");
+    }
+
+    #[test]
+    fn ccr_ndl_exceeds_open_circuit() {
+        let model = Buhlmann::default();
+        let oc = minutes(model.ndl(Depth::from_meters(30.0), AIR, 1.0));
+        let ccr = minutes(model.ndl_ccr(Depth::from_meters(30.0), AIR, 1.3, 1.0));
+        assert!(ccr > oc, "CCR {ccr} should exceed OC {oc}");
+    }
+
+    #[test]
+    fn ccr_schedule_uses_the_loop_gas() {
+        let model = Buhlmann::default();
+        let oc = model.deco_schedule(&DecoSegment {
+            bottom_depth: Depth::from_meters(40.0),
+            bottom_minutes: 40.0,
+            mode: BreathingMode::OpenCircuit(AIR),
+            gf_low: 1.0,
+            gf_high: 1.0,
+            ..Default::default()
+        });
+        let ccr = model.deco_schedule(&DecoSegment {
+            bottom_depth: Depth::from_meters(40.0),
+            bottom_minutes: 40.0,
+            mode: BreathingMode::ClosedCircuit {
+                diluent: AIR,
+                setpoint_bar: 1.3,
+            },
+            gf_low: 1.0,
+            gf_high: 1.0,
+            ..Default::default()
+        });
+        assert!(
+            total_deco(&ccr) < total_deco(&oc),
+            "CCR {} should be less than OC {}",
+            total_deco(&ccr),
+            total_deco(&oc)
+        );
     }
 
     fn total_deco(stops: &[Stop]) -> i32 {

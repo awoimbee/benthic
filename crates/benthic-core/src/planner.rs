@@ -3,9 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::deco::{Buhlmann, DecoSegment, Stop};
+use crate::deco::{BreathingMode, Buhlmann, DecoSegment, Stop};
 use crate::gas::{ambient_mbar, GasMix};
-use crate::model::{Cylinder, Dive, DiveComputer, Sample};
+use crate::model::{Cylinder, Dive, DiveComputer, Divemode, Sample};
 use crate::units::*;
 
 /// A computed dive plan.
@@ -13,7 +13,7 @@ use crate::units::*;
 pub struct DivePlan {
     pub depth: Depth,
     pub bottom_time: Duration,
-    pub gas: GasMix,
+    pub mode: BreathingMode,
     pub gf_low: f64,
     pub gf_high: f64,
     pub stops: Vec<Stop>,
@@ -26,7 +26,7 @@ impl DivePlan {
     pub fn compute(
         depth: Depth,
         bottom_time: Duration,
-        gas: GasMix,
+        mode: BreathingMode,
         gf_low: f64,
         gf_high: f64,
         surface_bar: f64,
@@ -36,7 +36,7 @@ impl DivePlan {
         let stops = model.deco_schedule(&DecoSegment {
             bottom_depth: depth,
             bottom_minutes: bottom_time.seconds as f64 / 60.0,
-            gas,
+            mode,
             gf_low,
             gf_high,
             ..Default::default()
@@ -44,13 +44,18 @@ impl DivePlan {
         Self {
             depth,
             bottom_time,
-            gas,
+            mode,
             gf_low,
             gf_high,
             stops,
             descent_rate: 20.0,
             ascent_rate: 10.0,
         }
+    }
+
+    /// The gas carried in the cylinder (the mix, or the diluent).
+    pub fn gas(&self) -> GasMix {
+        self.mode.cylinder_gas()
     }
 
     /// The planned profile as dive samples.
@@ -145,11 +150,17 @@ impl DivePlan {
 
     /// A human-readable plan summary, suitable for dive notes.
     pub fn summary(&self) -> String {
+        let mode = match self.mode {
+            BreathingMode::OpenCircuit(_) => "OC".to_string(),
+            BreathingMode::ClosedCircuit { setpoint_bar, .. } => {
+                format!("CCR, setpoint {setpoint_bar:.1} bar")
+            }
+        };
         let mut out = format!(
-            "Planned dive: {} for {} on {} (GF {:.0}/{:.0})\n",
+            "Planned dive: {} for {} on {} ({mode}, GF {:.0}/{:.0})\n",
             format_depth_m(self.depth),
             format_duration(self.bottom_time),
-            self.gas.name(),
+            self.gas().name(),
             self.gf_low * 100.0,
             self.gf_high * 100.0,
         );
@@ -175,8 +186,22 @@ impl DivePlan {
     /// Build a dive from this plan. The caller assigns the id and number and
     /// may adjust the start time.
     pub fn to_dive(&self, when: Timestamp, salinity: i32) -> Dive {
-        let samples = self.samples();
+        let (gas, setpoint, divemode) = match self.mode {
+            BreathingMode::OpenCircuit(gas) => (gas, None, Divemode::OpenCircuit),
+            BreathingMode::ClosedCircuit {
+                diluent,
+                setpoint_bar,
+            } => (diluent, Some(setpoint_bar), Divemode::Ccr),
+        };
+
+        let mut samples = self.samples();
+        if let Some(setpoint) = setpoint {
+            for sample in &mut samples {
+                sample.setpoint = Some(O2Pressure::from_bar(setpoint));
+            }
+        }
         let duration = samples.last().map(|s| s.time).unwrap_or_default();
+
         Dive {
             when,
             duration: Some(duration),
@@ -185,11 +210,12 @@ impl DivePlan {
             notes: self.summary(),
             tags: vec!["planned".to_string()],
             cylinders: vec![Cylinder {
-                gas: self.gas,
+                gas,
                 ..Default::default()
             }],
             computers: vec![DiveComputer {
                 model: "Planner".to_string(),
+                divemode,
                 duration: Some(duration),
                 max_depth: Some(self.depth),
                 samples,
@@ -205,12 +231,16 @@ mod tests {
     use super::*;
     use crate::gas::AIR;
 
+    fn oc() -> BreathingMode {
+        BreathingMode::OpenCircuit(AIR)
+    }
+
     #[test]
     fn deep_plan_has_stops_and_a_profile() {
         let plan = DivePlan::compute(
             Depth::from_meters(40.0),
             Duration::from_minutes(40),
-            AIR,
+            oc(),
             1.0,
             1.0,
             1.01325,
@@ -230,11 +260,32 @@ mod tests {
     }
 
     #[test]
+    fn ccr_plan_saves_a_setpoint_dive() {
+        let plan = DivePlan::compute(
+            Depth::from_meters(30.0),
+            Duration::from_minutes(30),
+            BreathingMode::ClosedCircuit {
+                diluent: AIR,
+                setpoint_bar: 1.3,
+            },
+            0.3,
+            0.7,
+            1.01325,
+            EN13319_SALINITY,
+        );
+        let dive = plan.to_dive(1_000, EN13319_SALINITY);
+        let computer = dive.primary_computer().unwrap();
+        assert_eq!(computer.divemode, Divemode::Ccr);
+        assert!(computer.samples.iter().all(|s| s.setpoint.is_some()));
+        assert!(dive.notes.contains("CCR"));
+    }
+
+    #[test]
     fn gas_needs_scale_with_depth_and_time() {
         let plan = DivePlan::compute(
             Depth::from_meters(30.0),
             Duration::from_minutes(20),
-            AIR,
+            oc(),
             1.0,
             1.0,
             1.01325,
@@ -253,7 +304,7 @@ mod tests {
         let plan = DivePlan::compute(
             Depth::from_meters(15.0),
             Duration::from_minutes(20),
-            AIR,
+            oc(),
             1.0,
             1.0,
             1.01325,

@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use benthic_core::deco::BreathingMode;
 use benthic_core::gas::{
     ambient_mbar, end_depth_mm, mod_depth_mm, GasMix, DEFAULT_PO2_LIMIT_MBAR, SURFACE_PRESSURE_MBAR,
 };
@@ -25,32 +26,60 @@ pub fn PlannerDialog() -> Element {
     let mut gf_low = use_signal(|| 0.30f64);
     let mut gf_high = use_signal(|| 0.70f64);
     let mut rmv = use_signal(|| 20.0f64);
+    let mut ccr = use_signal(|| false);
+    let mut setpoint = use_signal(|| 1.3f64);
 
     let target_depth = prefs.depth_from_value((depth)());
     let bottom_time = Duration::from_minutes((bottom)().round().max(0.0) as i32);
-    let gas = GasMix::percent((o2)(), (he)());
+    let diluent = GasMix::percent((o2)(), (he)());
     let gf_low_value = (gf_low)();
     let gf_high_value = (gf_high)();
+    let ccr_on = (ccr)();
+    let setpoint_value = (setpoint)();
+    let mode = if ccr_on {
+        BreathingMode::ClosedCircuit {
+            diluent,
+            setpoint_bar: setpoint_value,
+        }
+    } else {
+        BreathingMode::OpenCircuit(diluent)
+    };
 
     let model = Buhlmann::new(SURFACE_PRESSURE_MBAR / 1000.0, salinity);
-    let ndl = model.ndl(target_depth, gas, gf_high_value);
+    let ndl = if ccr_on {
+        model.ndl_ccr(target_depth, diluent, setpoint_value, gf_high_value)
+    } else {
+        model.ndl(target_depth, diluent, gf_high_value)
+    };
     let plan = DivePlan::compute(
         target_depth,
         bottom_time,
-        gas,
+        mode,
         gf_low_value,
         gf_high_value,
         SURFACE_PRESSURE_MBAR / 1000.0,
         salinity,
     );
 
-    let mod_mm = mod_depth_mm(gas, DEFAULT_PO2_LIMIT_MBAR, SURFACE_PRESSURE_MBAR, salinity);
+    let mod_mm = mod_depth_mm(
+        diluent,
+        DEFAULT_PO2_LIMIT_MBAR,
+        SURFACE_PRESSURE_MBAR,
+        salinity,
+    );
     let gas_needs = plan.gas_needs_liters((rmv)(), SURFACE_PRESSURE_MBAR / 1000.0, salinity);
     let gas_bar_12l = gas_needs / 12.0;
-    let end_mm = end_depth_mm(gas, target_depth.mm, SURFACE_PRESSURE_MBAR, salinity, false);
+    let end_mm = end_depth_mm(
+        diluent,
+        target_depth.mm,
+        SURFACE_PRESSURE_MBAR,
+        salinity,
+        false,
+    );
     let over_mod = target_depth.mm > mod_mm;
     let ambient = ambient_mbar(target_depth.mm, SURFACE_PRESSURE_MBAR, salinity) / 1000.0;
     let depth_string = format!("{:.1}", prefs.depth_value(target_depth));
+    let gas_label: &'static str = if ccr_on { "Diluent" } else { "Gas" };
 
     let ndl_text = ndl
         .map(|d| {
@@ -116,6 +145,27 @@ pub fn PlannerDialog() -> Element {
                             oninput: move |evt| he.set(evt.value().parse().unwrap_or(0.0)),
                         }
                     }
+                    label { class: "field-label", "Closed circuit"
+                        div { class: "check",
+                            input {
+                                r#type: "checkbox",
+                                checked: ccr_on,
+                                onchange: move |_| ccr.set(!ccr_on),
+                            }
+                            span { "CCR (diluent + setpoint)" }
+                        }
+                    }
+                    if ccr_on {
+                        label { class: "field-label", "Setpoint (bar)"
+                            input {
+                                class: "field",
+                                r#type: "number",
+                                step: "0.1",
+                                value: "{setpoint_value}",
+                                oninput: move |evt| setpoint.set(evt.value().parse().unwrap_or(1.3)),
+                            }
+                        }
+                    }
                     label { class: "field-label", "GF low"
                         input {
                             class: "field",
@@ -148,15 +198,19 @@ pub fn PlannerDialog() -> Element {
                     }
                 }
                 div { class: "facts planner-results",
-                    Result { label: "Gas", value: gas.name() }
+                    Result { label: gas_label, value: diluent.name() }
                     Result { label: "Ambient", value: format!("{ambient:.2} bar") }
                     Result { label: "MOD (1.4)", value: prefs.depth(Depth::new(mod_mm)) }
                     Result { label: "END", value: prefs.depth(Depth::new(end_mm)) }
                     Result { label: "NDL", value: ndl_text }
                     Result { label: "Runtime", value: format_duration(plan.total_time()) }
                     Result { label: "Deco time", value: format_duration(plan.deco_time()) }
-                    Result { label: "Gas needed", value: format!("{gas_needs:.0} L") }
-                    Result { label: "≈ 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
+                    if ccr_on {
+                        Result { label: "Setpoint", value: format!("{setpoint_value:.1} bar") }
+                    } else {
+                        Result { label: "Gas needed", value: format!("{gas_needs:.0} L") }
+                        Result { label: "≈ 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
+                    }
                 }
                 if over_mod {
                     p { class: "warn", "Warning: depth exceeds the gas MOD at a 1.4 bar pO2 limit." }
