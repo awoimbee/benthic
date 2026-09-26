@@ -11,6 +11,7 @@
 //! Everything above this crate (storage, import/export UX, rendering) is
 //! provided by the application crate.
 
+pub mod deco;
 pub mod equipment;
 pub mod filter;
 pub mod format;
@@ -20,6 +21,7 @@ pub mod io;
 pub mod model;
 pub mod units;
 
+pub use deco::Buhlmann;
 pub use equipment::{apply_preset, cylinder_preset, CylinderPreset, CYLINDER_PRESETS};
 pub use filter::{DiveFilter, FilterPreset};
 pub use format::{DateFormat, Preferences, Salinity, TimeFormat, UnitSystem};

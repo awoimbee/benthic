@@ -16,6 +16,7 @@ pub fn Toolbar() -> Element {
     let mut selection = state.selection;
     let mut show_prefs = state.show_prefs;
     let mut show_palette = state.show_palette;
+    let mut show_planner = state.show_planner;
 
     rsx! {
         header { class: "toolbar",
@@ -102,6 +103,12 @@ pub fn Toolbar() -> Element {
                 title: "Command palette (Ctrl/Cmd+K)",
                 onclick: move |_| show_palette.set(true),
                 "Commands"
+            }
+            button {
+                class: "btn",
+                title: "Bühlmann dive planner",
+                onclick: move |_| show_planner.set(true),
+                "Planner"
             }
             span { class: "status", "{status}" }
         }

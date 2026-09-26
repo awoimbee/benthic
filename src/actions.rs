@@ -233,6 +233,12 @@ pub fn open_trips(state: AppState) {
     show.set(true);
 }
 
+/// Open the dive planner dialog.
+pub fn open_planner(state: AppState) {
+    let mut show = state.show_planner;
+    show.set(true);
+}
+
 /// Merge the `remove` trip into the `keep` trip as one undo step.
 pub fn merge_trips(state: AppState, keep: u32, remove: u32) {
     let before = (state.log)();

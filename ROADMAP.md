@@ -69,7 +69,8 @@ Guiding principles:
 - [x] Event markers on the profile
 - [ ] Deco ceiling / stop visualization and gas-switch markers
 - [x] Multiple dive computers per dive, switchable, with an overlay comparison
-- [ ] Dive planner: Bühlmann ZH-L16 (GF) and VPM-B
+- [x] Bühlmann ZH-L16C tissue model with gradient factors (ceiling, NDL)
+- [ ] Full ascent/deco-stop planner and VPM-B
 - [ ] Open-circuit, CCR and pSCR planning; bailout and gas needs
 - [ ] Plan ↔ actual comparison; save plans as dives
 - [x] Gas calculations: MOD, END, EAD, best mix and ICD warnings

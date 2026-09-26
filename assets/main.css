@@ -645,6 +645,16 @@ textarea.field {
   white-space: nowrap;
 }
 
+.warn {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.planner-results {
+  margin: 1rem 0;
+}
+
 /* ---- Command palette ---- */
 .palette {
   background: var(--bg-alt);

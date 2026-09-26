@@ -30,6 +30,8 @@ pub struct AppState {
     pub show_palette: Signal<bool>,
     /// Whether the trips manager is open.
     pub show_trips: Signal<bool>,
+    /// Whether the dive planner is open.
+    pub show_planner: Signal<bool>,
 }
 
 impl AppState {

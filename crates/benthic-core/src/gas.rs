@@ -118,6 +118,21 @@ fn effective_n2(gas: GasMix) -> i32 {
     1000 - effective_o2(gas) - gas.he_permille as i32
 }
 
+/// Oxygen fraction as a 0..1 value, treating a zero as air.
+pub fn o2_fraction(gas: GasMix) -> f64 {
+    effective_o2(gas) as f64 / 1000.0
+}
+
+/// Nitrogen fraction as a 0..1 value, treating a zero O2 as air.
+pub fn n2_fraction(gas: GasMix) -> f64 {
+    effective_n2(gas) as f64 / 1000.0
+}
+
+/// Helium fraction as a 0..1 value.
+pub fn he_fraction(gas: GasMix) -> f64 {
+    gas.he_permille as f64 / 1000.0
+}
+
 /// Ambient pressure at `depth_mm`, in millibar.
 ///
 /// `salinity` is grams of salt per 10 litres, which equals the water density in

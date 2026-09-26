@@ -54,6 +54,7 @@ pub fn CommandPalette() -> Element {
             "Units, formats and backups",
             Action::Preferences,
         ),
+        Item::new("Dive planner", "Bühlmann NDL and ceiling", Action::Planner),
     ];
     for dive in log.dives_sorted() {
         items.push(Item::new(
@@ -122,6 +123,7 @@ enum Action {
     DeleteSelected,
     Export,
     Preferences,
+    Planner,
     SelectDive(u32),
 }
 
@@ -157,6 +159,7 @@ fn run(state: AppState, action: Action) {
         Action::DeleteSelected => actions::delete_selected(state),
         Action::Export => actions::export_ssrf(state),
         Action::Preferences => actions::open_preferences(state),
+        Action::Planner => actions::open_planner(state),
         Action::SelectDive(id) => {
             let mut selected = state.selected;
             selected.set(Some(id));
