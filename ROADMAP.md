@@ -86,6 +86,7 @@ Guiding principles:
 - [ ] Dive computer download via `libdivecomputer`
       (desktop: serial/USB/Bluetooth; web: WebSerial + Web Bluetooth where available)
 - [ ] Device management, firmware/settings, dive computer nicknames
+- [x] CSV import (one dive per row, header-based column mapping)
 - [ ] CSV import with user-defined column mapping (Subsurface templates)
 - [x] GPX import (dive sites from waypoints and tracks)
 - [ ] Additional importers: UDDF, DL7, Cobalt, Shearwater, Suunto,

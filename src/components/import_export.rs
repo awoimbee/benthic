@@ -20,7 +20,7 @@ pub fn ImportExport() -> Element {
             let name = file.name();
 
             match file.read_string().await {
-                Ok(text) => match benthic_core::io::parse_auto(&text) {
+                Ok(text) => match benthic_core::io::parse_named(&name, &text) {
                     Ok(incoming) => {
                         let (dives, sites) = actions::merge_log(state, incoming);
                         if selected().is_none() {
@@ -45,7 +45,7 @@ pub fn ImportExport() -> Element {
             "Import"
             input {
                 r#type: "file",
-                accept: ".ssrf,.xml,.json,.gpx",
+                accept: ".ssrf,.xml,.json,.gpx,.csv,.tsv",
                 class: "hidden-input",
                 onchange: on_import,
             }

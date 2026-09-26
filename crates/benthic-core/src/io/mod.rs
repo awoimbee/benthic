@@ -1,5 +1,6 @@
 //! Serialization formats and format detection.
 
+pub mod csv;
 pub mod gpx;
 pub mod json;
 pub mod ssrf;
@@ -17,6 +18,8 @@ pub enum Format {
     SubsurfaceXml,
     /// GPS Exchange Format (`.gpx`), imported as dive sites.
     Gpx,
+    /// A one-dive-per-row CSV export.
+    Csv,
 }
 
 impl Format {
@@ -46,6 +49,8 @@ impl Format {
             Some(Format::SubsurfaceXml)
         } else if lower.ends_with(".gpx") {
             Some(Format::Gpx)
+        } else if lower.ends_with(".csv") || lower.ends_with(".tsv") {
+            Some(Format::Csv)
         } else {
             None
         }
@@ -60,6 +65,7 @@ impl Format {
                 log.sites = gpx::parse_sites(contents)?;
                 Ok(log)
             }
+            Format::Csv => csv::parse_str(contents),
         }
     }
 }
@@ -74,9 +80,19 @@ pub fn parse_auto(contents: &str) -> Result<DiveLog> {
             log.sites = gpx::parse_sites(contents)?;
             Ok(log)
         }
+        Some(Format::Csv) => csv::parse_str(contents),
         None => Err(crate::Error::Parse {
             what: "dive log format",
             value: contents.chars().take(64).collect(),
         }),
+    }
+}
+
+/// Parse a dive log, preferring the format implied by the filename and falling
+/// back to content sniffing.
+pub fn parse_named(name: &str, contents: &str) -> Result<DiveLog> {
+    match Format::from_extension(name) {
+        Some(format) => format.parse(contents),
+        None => parse_auto(contents),
     }
 }
