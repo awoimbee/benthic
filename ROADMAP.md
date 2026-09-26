@@ -65,9 +65,9 @@ Guiding principles:
 - [x] Profile scrubber with a time/depth/temperature/pressure readout
 - [ ] Hover crosshair, pan & zoom
 - [x] Overlays: temperature and cylinder pressure
-- [ ] Overlays: NDL, TTS, CNS, SAC, heart rate
-- [x] Event markers on the profile
-- [ ] Deco ceiling / stop visualization and gas-switch markers
+- [x] Overlays: NDL, TTS and heart rate
+- [ ] Overlays: CNS and SAC
+- [x] Deco ceiling visualization and gas-switch markers
 - [x] Multiple dive computers per dive, switchable, with an overlay comparison
 - [x] Bühlmann ZH-L16C tissue model with gradient factors (ceiling, NDL)
 - [ ] Full ascent/deco-stop planner and VPM-B

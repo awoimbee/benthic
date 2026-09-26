@@ -5,16 +5,19 @@ use benthic_core::Dive;
 
 use crate::state::AppState;
 
-/// An interactive SVG depth profile with temperature/pressure overlays, event
-/// markers, a scrubber readout and (when a dive has several computers) an
-/// overlay of the other computers' depth traces.
+/// An interactive SVG depth profile with overlays, event markers, a scrubber
+/// readout and (when a dive has several computers) the other computers' traces.
 #[component]
 pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let state = use_context::<AppState>();
     let prefs = (state.prefs)();
 
-    let mut show_temp = use_signal(|| false);
     let mut show_pressure = use_signal(|| true);
+    let mut show_temp = use_signal(|| false);
+    let mut show_ndl = use_signal(|| false);
+    let mut show_tts = use_signal(|| false);
+    let mut show_heart = use_signal(|| false);
+    let mut show_deco = use_signal(|| true);
     let mut cursor = use_signal(|| 0usize);
 
     let Some(active) = dive.computer(dc_index).or_else(|| dive.computers.first()) else {
@@ -69,20 +72,51 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         }),
         max_t,
     );
+    let ndl = series(
+        active.samples.iter().filter_map(|s| {
+            s.ndl
+                .filter(|d| d.seconds >= 0)
+                .map(|d| (s.time.seconds, d.seconds))
+        }),
+        max_t,
+    );
+    let tts = series(
+        active.samples.iter().filter_map(|s| {
+            s.tts
+                .filter(|d| d.seconds > 0)
+                .map(|d| (s.time.seconds, d.seconds))
+        }),
+        max_t,
+    );
+    let heart = series(
+        active
+            .samples
+            .iter()
+            .filter_map(|s| s.heartbeat.map(|h| (s.time.seconds, h as i32))),
+        max_t,
+    );
+    let ceiling = series(
+        active.samples.iter().filter_map(|s| {
+            s.stop_depth
+                .filter(|d| d.mm > 0)
+                .map(|d| (s.time.seconds, d.mm))
+        }),
+        max_t,
+    );
 
-    let event_marks: Vec<(f64, String)> = active
+    // Event markers, flagging gas switches.
+    let event_marks: Vec<(f64, String, bool)> = active
         .events
         .iter()
         .filter(|e| e.time.seconds >= 0)
         .map(|e| {
-            (
-                e.time.seconds as f64 / max_t * 100.0,
-                if e.name.is_empty() {
-                    "event".to_string()
-                } else {
-                    e.name.clone()
-                },
-            )
+            let name = if e.name.is_empty() {
+                "event".to_string()
+            } else {
+                e.name.clone()
+            };
+            let gas = e.is_gas_change();
+            (e.time.seconds as f64 / max_t * 100.0, name, gas)
         })
         .collect();
 
@@ -103,13 +137,26 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     {
         readout.push(prefs.pressure(p.pressure));
     }
-    if let Some(ndl) = sample.ndl {
+    if let Some(ndl) = sample.ndl.filter(|d| d.seconds >= 0) {
         readout.push(format!("NDL {}", format_duration(ndl)));
+    }
+    if let Some(tts) = sample.tts.filter(|d| d.seconds > 0) {
+        readout.push(format!("TTS {}", format_duration(tts)));
+    }
+    if let Some(heart) = sample.heartbeat {
+        readout.push(format!("{heart} bpm"));
+    }
+    if let Some(ceiling) = sample.stop_depth.filter(|d| d.mm > 0) {
+        readout.push(format!("Ceiling {}", prefs.depth(ceiling)));
     }
     let readout = readout.join("  ·  ");
 
-    let temp_on = (show_temp)();
     let pressure_on = (show_pressure)();
+    let temp_on = (show_temp)();
+    let ndl_on = (show_ndl)();
+    let tts_on = (show_tts)();
+    let heart_on = (show_heart)();
+    let deco_on = (show_deco)();
 
     rsx! {
         div { class: "profile",
@@ -140,18 +187,54 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         }
                     }
                 }
+                if ndl_on {
+                    if let Some(points) = &ndl {
+                        polyline {
+                            points: "{points}",
+                            style: "fill: none; stroke: #a8dadc; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8; stroke-dasharray: 3 2;",
+                        }
+                    }
+                }
+                if tts_on {
+                    if let Some(points) = &tts {
+                        polyline {
+                            points: "{points}",
+                            style: "fill: none; stroke: #f28fad; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                        }
+                    }
+                }
+                if heart_on {
+                    if let Some(points) = &heart {
+                        polyline {
+                            points: "{points}",
+                            style: "fill: none; stroke: #d0ffb7; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                        }
+                    }
+                }
                 polyline {
                     points: "{depth_points}",
                     style: "fill: none; stroke: #4cc9f0; stroke-width: 1.5; vector-effect: non-scaling-stroke;",
                 }
-                for (x, name) in event_marks {
+                if deco_on {
+                    if let Some(points) = &ceiling {
+                        polyline {
+                            points: "{points}",
+                            style: "fill: none; stroke: #c792ea; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.9;",
+                        }
+                    }
+                }
+                for (x, name, gas) in event_marks {
                     line {
                         key: "{name}-{x}",
                         x1: "{x}",
                         y1: "4",
                         x2: "{x}",
                         y2: "10",
-                        style: "stroke: #c792ea; stroke-width: 1; vector-effect: non-scaling-stroke;",
+                        style: if gas {
+                            "stroke: #f28fad; stroke-width: 1.4; vector-effect: non-scaling-stroke;"
+                        } else {
+                            "stroke: #c792ea; stroke-width: 1; vector-effect: non-scaling-stroke;"
+                        },
                     }
                 }
                 line {
@@ -170,22 +253,12 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                label { class: "check",
-                    input {
-                        r#type: "checkbox",
-                        checked: pressure_on,
-                        onchange: move |_| show_pressure.set(!pressure_on),
-                    }
-                    " Pressure"
-                }
-                label { class: "check",
-                    input {
-                        r#type: "checkbox",
-                        checked: temp_on,
-                        onchange: move |_| show_temp.set(!temp_on),
-                    }
-                    " Temperature"
-                }
+                Toggle { label: "Pressure", on: pressure_on, onclick: move |_| show_pressure.set(!pressure_on) }
+                Toggle { label: "Temperature", on: temp_on, onclick: move |_| show_temp.set(!temp_on) }
+                Toggle { label: "NDL", on: ndl_on, onclick: move |_| show_ndl.set(!ndl_on) }
+                Toggle { label: "TTS", on: tts_on, onclick: move |_| show_tts.set(!tts_on) }
+                Toggle { label: "Heart", on: heart_on, onclick: move |_| show_heart.set(!heart_on) }
+                Toggle { label: "Deco", on: deco_on, onclick: move |_| show_deco.set(!deco_on) }
                 input {
                     class: "scrub",
                     r#type: "range",
@@ -195,6 +268,16 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                     oninput: move |evt| cursor.set(evt.value().parse().unwrap_or(0)),
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn Toggle(label: &'static str, on: bool, onclick: EventHandler<()>) -> Element {
+    rsx! {
+        label { class: "check",
+            input { r#type: "checkbox", checked: on, onchange: move |_| onclick.call(()) }
+            " {label}"
         }
     }
 }
