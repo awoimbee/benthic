@@ -345,6 +345,31 @@ body {
   font-size: 0.7rem;
 }
 
+.trip-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.trip-actions .icon-btn {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
+}
+
+.trip-rename {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.2rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+.trip-rename:focus {
+  outline: none;
+}
+
 /* ---- Editable detail ---- */
 .detail-head {
   margin-bottom: 1rem;

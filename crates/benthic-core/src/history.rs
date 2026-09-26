@@ -181,6 +181,27 @@ pub fn delete_dives(log: &DiveLog, ids: &[u32]) -> Vec<Command> {
         .collect()
 }
 
+/// Build the commands that delete a trip, unassigning its dives first.
+///
+/// Returns an empty vector if the trip does not exist. The result is a single
+/// undo step when dispatched via [`Command::Compound`].
+pub fn delete_trip(log: &DiveLog, trip_id: u32) -> Vec<Command> {
+    let Some(trip) = log.trip_by_id(trip_id).cloned() else {
+        return Vec::new();
+    };
+    let mut commands: Vec<Command> = Vec::new();
+    for dive in log.dives.iter().filter(|d| d.trip_id == Some(trip_id)) {
+        let mut after = dive.clone();
+        after.trip_id = None;
+        commands.push(Command::UpdateDive {
+            before: dive.clone(),
+            after,
+        });
+    }
+    commands.push(Command::DeleteTrip { trip });
+    commands
+}
+
 /// An undo/redo stack of commands.
 #[derive(Debug, Clone, PartialEq)]
 pub struct History {
@@ -485,5 +506,36 @@ mod tests {
         let log = sample_log();
         let commands = delete_dives(&log, &[1, 999]);
         assert_eq!(commands.len(), 1);
+    }
+
+    #[test]
+    fn delete_trip_unassigns_and_reverts() {
+        let mut log = sample_log();
+        log.dives.push(Dive {
+            id: 2,
+            when: 2_000,
+            trip_id: Some(9),
+            ..Default::default()
+        });
+        log.trips.push(DiveTrip {
+            id: 9,
+            location: "Dahab".into(),
+            ..Default::default()
+        });
+        let before = log.clone();
+
+        let mut history = History::new();
+        history.record(
+            Command::Compound {
+                label: "delete trip".into(),
+                commands: delete_trip(&log, 9),
+            },
+            &mut log,
+        );
+        assert!(log.trips.is_empty());
+        assert_eq!(log.dive_by_id(2).unwrap().trip_id, None);
+
+        history.undo(&mut log);
+        assert_eq!(log, before);
     }
 }

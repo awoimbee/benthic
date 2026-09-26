@@ -50,7 +50,8 @@ Guiding principles:
 - [x] Filter UI for tags, rating and depth
 - [x] Preferences: metric/imperial units, persisted separately from the log
 - [ ] Saveable filter presets
-- [ ] Trip create/rename/merge/split UI
+- [x] Trip create (from selection), rename and delete
+- [ ] Trip merge/split
 - [ ] Dive-site merge, map picker, and deduplication of inline locations
 - [ ] Preferences: date/time formats, salinity, defaults
 - [ ] Command palette

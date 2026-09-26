@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::actions;
 use crate::state::AppState;
 
 /// One row in the dive list; either a trip header or a dive.
@@ -9,6 +10,7 @@ struct Row {
     is_trip: bool,
     checked: bool,
     dive_id: Option<u32>,
+    trip_id: Option<u32>,
     number: String,
     title: String,
     subtitle: String,
@@ -25,6 +27,9 @@ pub fn DiveList() -> Element {
     let prefs = (state.prefs)();
     let current = (state.selected)();
     let checked_ids = (state.selection)();
+    let mut renaming_trip = use_signal(|| None::<u32>);
+    let mut rename_text = use_signal(String::new);
+    let renaming = (renaming_trip)();
 
     let filtered: Vec<&benthic_core::Dive> = log
         .dives_sorted()
@@ -53,6 +58,7 @@ pub fn DiveList() -> Element {
                         is_trip: true,
                         checked: false,
                         dive_id: None,
+                        trip_id: Some(trip_id),
                         number: String::new(),
                         title,
                         subtitle: format!("{count} dives"),
@@ -71,6 +77,7 @@ pub fn DiveList() -> Element {
             is_trip: false,
             checked: checked_ids.contains(&dive.id),
             dive_id: Some(dive.id),
+            trip_id: None,
             number: if dive.number != 0 {
                 dive.number.to_string()
             } else {
@@ -113,8 +120,57 @@ pub fn DiveList() -> Element {
                             }
                         },
                         if row.is_trip {
-                            span { class: "trip-title", "{row.title}" }
-                            span { class: "trip-subtitle", "{row.subtitle}" }
+                            if let Some(trip_id) = row.trip_id {
+                                if renaming == Some(trip_id) {
+                                    input {
+                                        class: "trip-rename",
+                                        value: "{rename_text()}",
+                                        oninput: move |evt| rename_text.set(evt.value()),
+                                        onkeydown: move |evt| {
+                                            if evt.key() == Key::Enter {
+                                                actions::rename_trip(state, trip_id, &rename_text());
+                                                renaming_trip.set(None);
+                                            } else if evt.key() == Key::Escape {
+                                                renaming_trip.set(None);
+                                            }
+                                        },
+                                        onblur: move |_| {
+                                            if renaming_trip() == Some(trip_id) {
+                                                actions::rename_trip(state, trip_id, &rename_text());
+                                                renaming_trip.set(None);
+                                            }
+                                        },
+                                    }
+                                } else {
+                                    span { class: "trip-title", "{row.title}" }
+                                    span { class: "trip-subtitle", "{row.subtitle}" }
+                                    div { class: "trip-actions",
+                                        button {
+                                            class: "icon-btn",
+                                            title: "Rename trip",
+                                            onclick: move |evt| {
+                                                evt.stop_propagation();
+                                                let name = (state.log)()
+                                                    .trip_by_id(trip_id)
+                                                    .map(|t| t.location.clone())
+                                                    .unwrap_or_default();
+                                                rename_text.set(name);
+                                                renaming_trip.set(Some(trip_id));
+                                            },
+                                            "✎"
+                                        }
+                                        button {
+                                            class: "icon-btn",
+                                            title: "Delete trip (dives are kept)",
+                                            onclick: move |evt| {
+                                                evt.stop_propagation();
+                                                actions::delete_trip(state, trip_id);
+                                            },
+                                            "✕"
+                                        }
+                                    }
+                                }
+                            }
                         } else {
                             input {
                                 r#type: "checkbox",

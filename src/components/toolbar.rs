@@ -36,6 +36,12 @@ pub fn Toolbar() -> Element {
             if selected_count > 0 {
                 span { class: "selected-count", "{selected_count} selected" }
                 button {
+                    class: "btn",
+                    title: "Group the selected dives into a new trip",
+                    onclick: move |_| actions::create_trip_from_selection(state),
+                    "New trip"
+                }
+                button {
                     class: "btn danger",
                     onclick: move |_| actions::delete_selected(state),
                     "Delete selected"

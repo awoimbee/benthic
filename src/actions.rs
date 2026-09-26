@@ -3,7 +3,7 @@
 //! Each action builds one or more [`Command`]s and dispatches them through the
 //! [`AppState`] so that it is automatically undoable.
 
-use benthic_core::{Command, Dive};
+use benthic_core::{Command, Dive, DiveTrip};
 use dioxus::prelude::WritableExt;
 
 use crate::state::AppState;
@@ -97,6 +97,76 @@ pub fn delete_selected(state: AppState) {
         selected.set((state.log)().dives_sorted().first().map(|d| d.id));
     }
     state.set_status(format!("Deleted {} dives", ids.len()));
+}
+
+/// Create a trip from the ticked dives and assign them to it.
+pub fn create_trip_from_selection(state: AppState) {
+    let ids: Vec<u32> = (state.selection)().iter().copied().collect();
+    if ids.is_empty() {
+        return;
+    }
+    let log = (state.log)();
+    let selected: Vec<&Dive> = log.dives.iter().filter(|d| ids.contains(&d.id)).collect();
+    if selected.is_empty() {
+        return;
+    }
+
+    let id = log.next_trip_id();
+    let date = selected.iter().map(|d| d.when).min();
+    let location = selected
+        .first()
+        .and_then(|d| log.site_name_of(d))
+        .unwrap_or("")
+        .to_string();
+
+    let mut commands = vec![Command::AddTrip {
+        trip: DiveTrip {
+            id,
+            date,
+            location,
+            ..Default::default()
+        },
+    }];
+    for dive in selected {
+        let mut after = dive.clone();
+        after.trip_id = Some(id);
+        commands.push(Command::UpdateDive {
+            before: dive.clone(),
+            after,
+        });
+    }
+
+    let count = commands.len() - 1;
+    state.dispatch_all("Create trip", commands);
+    let mut selection = state.selection;
+    selection.write().clear();
+    state.set_status(format!("Created a trip with {count} dives"));
+}
+
+/// Rename a trip (no-op when unchanged).
+pub fn rename_trip(state: AppState, id: u32, name: &str) {
+    let log = (state.log)();
+    let Some(before) = log.trip_by_id(id).cloned() else {
+        return;
+    };
+    let mut after = before.clone();
+    after.location = name.trim().to_string();
+    if after == before {
+        return;
+    }
+    state.dispatch(Command::UpdateTrip { before, after });
+    state.set_status("Renamed trip");
+}
+
+/// Delete a trip, unassigning its dives as one undo step.
+pub fn delete_trip(state: AppState, id: u32) {
+    let log = (state.log)();
+    let commands = benthic_core::history::delete_trip(&log, id);
+    if commands.is_empty() {
+        return;
+    }
+    state.dispatch_all("Delete trip", commands);
+    state.set_status("Deleted trip");
 }
 
 /// Turn automatic trip grouping on/off, regrouping or ungrouping as needed.
