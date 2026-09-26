@@ -1,4 +1,4 @@
-//! Developer utility: print a Bühlmann schedule for a dive.
+//! Developer utility: print the NDL and a Bühlmann schedule for a dive.
 //!
 //! Usage: `cargo run -p benthic-core --example plan -- [depth_m] [minutes] [gf_low] [gf_high]`
 
@@ -14,7 +14,15 @@ fn main() {
     let gf_high: f64 = args.next().and_then(|a| a.parse().ok()).unwrap_or(1.0);
 
     let depth = Depth::from_meters(depth_m);
-    let stops = Buhlmann::default().deco_schedule(&DecoSegment {
+    let model = Buhlmann::default();
+
+    let ndl = model
+        .ndl(depth, AIR, 1.0)
+        .map(format_duration)
+        .unwrap_or_else(|| "> 24 h".to_string());
+    println!("NDL (GF 100/100) at {depth_m} m on air: {ndl}");
+
+    let stops = model.deco_schedule(&DecoSegment {
         bottom_depth: depth,
         bottom_minutes: minutes,
         mode: BreathingMode::OpenCircuit(AIR),
@@ -24,7 +32,7 @@ fn main() {
     });
 
     println!(
-        "Bühlmann GF {:.0}/{:.0}, {depth_m} m for {minutes} min on air:",
+        "\nBühlmann GF {:.0}/{:.0}, {depth_m} m for {minutes} min on air:",
         gf_low * 100.0,
         gf_high * 100.0
     );

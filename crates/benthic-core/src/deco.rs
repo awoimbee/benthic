@@ -1,4 +1,4 @@
-//! Bühlmann ZH-L16C tissue model, ceilings and no-decompression limits.
+//! Bühlmann ZH-L16B tissue model, ceilings and no-decompression limits.
 //!
 //! This is the foundation of the dive planner. It tracks nitrogen and helium
 //! loading in the 16 ZH-L16 compartments and can answer the two questions a
@@ -19,34 +19,35 @@ const COMPARTMENTS: usize = 16;
 const LN2: f64 = std::f64::consts::LN_2;
 /// Alveolar water-vapour pressure in bar (Bühlmann, Rq = 1.0).
 const WATER_VAPOUR_BAR: f64 = 0.0627;
-// ZH-L16C nitrogen half-times (minutes).
+// ZH-L16B nitrogen half-times (minutes). This is the variant Subsurface
+// uses; only the first compartment differs from ZH-L16C.
 const N2_HALF_TIMES: [f64; COMPARTMENTS] = [
-    4.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0,
+    5.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0,
     635.0,
 ];
-// ZH-L16C helium half-times (minutes).
+// ZH-L16B helium half-times (minutes).
 const HE_HALF_TIMES: [f64; COMPARTMENTS] = [
     1.88, 3.02, 4.72, 6.99, 10.21, 14.48, 20.53, 29.11, 41.20, 55.19, 70.69, 90.34, 115.29, 147.42,
     188.24, 240.03,
 ];
-// ZH-L16C nitrogen `a` coefficients (bar).
+// ZH-L16B nitrogen `a` coefficients (bar).
 const N2_A: [f64; COMPARTMENTS] = [
-    1.2599, 1.0000, 0.8618, 0.7562, 0.6200, 0.5043, 0.4410, 0.4000, 0.3750, 0.3500, 0.3295, 0.3065,
-    0.2835, 0.2610, 0.2480, 0.2327,
+    1.1696, 1.0, 0.8618, 0.7562, 0.62, 0.5043, 0.441, 0.4, 0.375, 0.35, 0.3295, 0.3065, 0.2835,
+    0.261, 0.248, 0.2327,
 ];
-// ZH-L16C nitrogen `b` coefficients (dimensionless).
+// ZH-L16B nitrogen `b` coefficients (dimensionless).
 const N2_B: [f64; COMPARTMENTS] = [
-    0.5050, 0.6514, 0.7222, 0.7825, 0.8126, 0.8434, 0.8693, 0.8910, 0.9092, 0.9222, 0.9319, 0.9403,
+    0.5578, 0.6514, 0.7222, 0.7825, 0.8126, 0.8434, 0.8693, 0.8910, 0.9092, 0.9222, 0.9319, 0.9403,
     0.9477, 0.9544, 0.9602, 0.9653,
 ];
-// ZH-L16C helium `a` coefficients (bar).
+// ZH-L16B helium `a` coefficients (bar).
 const HE_A: [f64; COMPARTMENTS] = [
-    1.7424, 1.3830, 1.1919, 1.0458, 0.9220, 0.8205, 0.7305, 0.6502, 0.5950, 0.5545, 0.5333, 0.5189,
+    1.6189, 1.383, 1.1919, 1.0458, 0.922, 0.8205, 0.7305, 0.6502, 0.595, 0.5545, 0.5333, 0.5189,
     0.5181, 0.5176, 0.5172, 0.5119,
 ];
-// ZH-L16C helium `b` coefficients (dimensionless).
+// ZH-L16B helium `b` coefficients (dimensionless).
 const HE_B: [f64; COMPARTMENTS] = [
-    0.4245, 0.5747, 0.6527, 0.7223, 0.7582, 0.7957, 0.8279, 0.8553, 0.8757, 0.8903, 0.8997, 0.9073,
+    0.4770, 0.5747, 0.6527, 0.7223, 0.7582, 0.7957, 0.8279, 0.8553, 0.8757, 0.8903, 0.8997, 0.9073,
     0.9122, 0.9171, 0.9217, 0.9267,
 ];
 
@@ -209,7 +210,7 @@ impl Default for Tissues {
     }
 }
 
-/// A Bühlmann ZH-L16C model instance.
+/// A Bühlmann ZH-L16B model instance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Buhlmann {
     pub tissues: Tissues,
@@ -259,10 +260,16 @@ impl Buhlmann {
             }
             let a = (N2_A[i] * p_n2 + HE_A[i] * p_he) / p_total;
             let b = (N2_B[i] * p_n2 + HE_B[i] * p_he) / p_total;
-            // Ambient pressure tolerated by this compartment at the raw limit.
-            let p_tol = (p_total - a) * b;
-            // Gradient-factor-adjusted tolerated ambient pressure.
-            let p_gf = p_total - gf * (p_total - p_tol);
+            // Bühlmann's M-line is `P_tissue_tol = a + P / b`, so the raw
+            // tolerated ambient pressure is `(P_tissue - a) * b`. The
+            // gradient factor interpolates on the tissue axis (Baker):
+            //   P_tol_gf = b * (P_tissue - GF * a) / (b + GF * (1 - b))
+            let denominator = b + gf * (1.0 - b);
+            let p_gf = if denominator > 0.0 {
+                b * (p_total - gf * a) / denominator
+            } else {
+                0.0
+            };
             if p_gf > ceiling_bar {
                 ceiling_bar = p_gf;
             }
@@ -427,6 +434,33 @@ mod tests {
     fn surface_is_equilibrated() {
         let model = Buhlmann::default();
         assert_eq!(model.ceiling_depth(1.0), Depth::ZERO);
+    }
+
+    #[test]
+    fn ceiling_follows_the_baker_gradient_factor_formula() {
+        let mut model = Buhlmann::default();
+        for i in 0..16 {
+            model.tissues.n2[i] = 0.5;
+            model.tissues.he[i] = 0.0;
+        }
+        // Make compartment 3 the controlling one.
+        model.tissues.n2[3] = 3.0;
+
+        let surface_mbar = model.surface_bar * 1000.0;
+        let (a, b) = (N2_A[3], N2_B[3]);
+
+        // Raw M-line (GF = 1): P_tol = (P - a) * b.
+        let raw_bar = (3.0 - a) * b;
+        let raw_mm = crate::gas::depth_mm_at(raw_bar * 1000.0, surface_mbar, model.salinity).max(0);
+        assert_eq!(model.ceiling_depth(1.0).mm, raw_mm);
+
+        // Baker's gradient factor: P_tol_gf = b * (P - GF*a) / (b + GF*(1-b)).
+        let gf = 0.3;
+        let gf_bar = b * (3.0 - gf * a) / (b + gf * (1.0 - b));
+        let gf_mm = crate::gas::depth_mm_at(gf_bar * 1000.0, surface_mbar, model.salinity).max(0);
+        assert_eq!(model.ceiling_depth(gf).mm, gf_mm);
+        // A gradient factor below 1 must give a deeper ceiling.
+        assert!(model.ceiling_depth(gf).mm > model.ceiling_depth(1.0).mm);
     }
 
     #[test]
