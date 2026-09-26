@@ -22,12 +22,14 @@ pub fn ImportExport() -> Element {
             match file.read_string().await {
                 Ok(text) => match benthic_core::io::parse_auto(&text) {
                     Ok(incoming) => {
-                        let count = actions::merge_log(state, incoming);
+                        let (dives, sites) = actions::merge_log(state, incoming);
                         if selected().is_none() {
                             let first = (state.log)().dives_sorted().first().map(|d| d.id);
                             selected.set(first);
                         }
-                        status.set(format!("Imported {count} dives from {name}"));
+                        status.set(format!(
+                            "Imported {dives} dives and {sites} sites from {name}"
+                        ));
                     }
                     Err(e) => status.set(format!("Import failed: {e}")),
                 },
@@ -43,7 +45,7 @@ pub fn ImportExport() -> Element {
             "Import"
             input {
                 r#type: "file",
-                accept: ".ssrf,.xml,.json",
+                accept: ".ssrf,.xml,.json,.gpx",
                 class: "hidden-input",
                 onchange: on_import,
             }

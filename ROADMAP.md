@@ -87,7 +87,8 @@ Guiding principles:
       (desktop: serial/USB/Bluetooth; web: WebSerial + Web Bluetooth where available)
 - [ ] Device management, firmware/settings, dive computer nicknames
 - [ ] CSV import with user-defined column mapping (Subsurface templates)
-- [ ] Additional importers: UDDF, DL7, GPX, Cobalt, Shearwater, Suunto,
+- [x] GPX import (dive sites from waypoints and tracks)
+- [ ] Additional importers: UDDF, DL7, Cobalt, Shearwater, Suunto,
       Diving Log, SeaBear, Cochran, ...
 - [ ] Subsurface cloud storage and git-backed logs
 - [ ] CSV/HTML/JSON bulk export; Subsurface-compatible export options

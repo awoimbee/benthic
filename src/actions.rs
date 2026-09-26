@@ -299,16 +299,18 @@ pub fn toggle_autogroup(state: AppState) {
 }
 
 /// Merge an imported log into the current one as a single undoable step.
-pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> usize {
+/// Returns the number of dives and sites added.
+pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {
     incoming.fixup_all();
-    let count = incoming.dives.len();
+    let dives = incoming.dives.len();
+    let sites = incoming.sites.len();
     let before = (state.log)();
     let mut after = before.clone();
     after.merge(incoming);
     state.dispatch(Command::Snapshot {
-        label: format!("Import {count} dives"),
+        label: format!("Import {dives} dives, {sites} sites"),
         before: Box::new(before),
         after: Box::new(after),
     });
-    count
+    (dives, sites)
 }

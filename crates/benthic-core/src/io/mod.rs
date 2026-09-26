@@ -1,7 +1,9 @@
 //! Serialization formats and format detection.
 
+pub mod gpx;
 pub mod json;
 pub mod ssrf;
+pub(crate) mod xml;
 
 use crate::model::DiveLog;
 use crate::Result;
@@ -13,6 +15,8 @@ pub enum Format {
     BenthicJson,
     /// Subsurface's XML format (`.ssrf`, `Subsurface <version> XML`).
     SubsurfaceXml,
+    /// GPS Exchange Format (`.gpx`), imported as dive sites.
+    Gpx,
 }
 
 impl Format {
@@ -27,6 +31,9 @@ impl Format {
         {
             return Some(Format::SubsurfaceXml);
         }
+        if trimmed.starts_with('<') && trimmed.contains("<gpx") {
+            return Some(Format::Gpx);
+        }
         None
     }
 
@@ -37,6 +44,8 @@ impl Format {
             Some(Format::BenthicJson)
         } else if lower.ends_with(".ssrf") || lower.ends_with(".xml") {
             Some(Format::SubsurfaceXml)
+        } else if lower.ends_with(".gpx") {
+            Some(Format::Gpx)
         } else {
             None
         }
@@ -46,6 +55,11 @@ impl Format {
         match self {
             Format::BenthicJson => json::from_str(contents),
             Format::SubsurfaceXml => ssrf::parse_str(contents),
+            Format::Gpx => {
+                let mut log = DiveLog::new();
+                log.sites = gpx::parse_sites(contents)?;
+                Ok(log)
+            }
         }
     }
 }
@@ -55,6 +69,11 @@ pub fn parse_auto(contents: &str) -> Result<DiveLog> {
     match Format::detect(contents) {
         Some(Format::BenthicJson) => json::from_str(contents),
         Some(Format::SubsurfaceXml) => ssrf::parse_str(contents),
+        Some(Format::Gpx) => {
+            let mut log = DiveLog::new();
+            log.sites = gpx::parse_sites(contents)?;
+            Ok(log)
+        }
         None => Err(crate::Error::Parse {
             what: "dive log format",
             value: contents.chars().take(64).collect(),
