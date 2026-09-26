@@ -17,6 +17,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let mut show_ndl = use_signal(|| false);
     let mut show_tts = use_signal(|| false);
     let mut show_heart = use_signal(|| false);
+    let mut show_cns = use_signal(|| false);
     let mut show_deco = use_signal(|| true);
     let mut cursor = use_signal(|| 0usize);
 
@@ -95,6 +96,13 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             .filter_map(|s| s.heartbeat.map(|h| (s.time.seconds, h as i32))),
         max_t,
     );
+    let cns = series(
+        active
+            .samples
+            .iter()
+            .filter_map(|s| s.cns.map(|c| (s.time.seconds, c as i32))),
+        max_t,
+    );
     let ceiling = series(
         active.samples.iter().filter_map(|s| {
             s.stop_depth
@@ -146,6 +154,9 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     if let Some(heart) = sample.heartbeat {
         readout.push(format!("{heart} bpm"));
     }
+    if let Some(cns) = sample.cns {
+        readout.push(format!("CNS {cns}%"));
+    }
     if let Some(ceiling) = sample.stop_depth.filter(|d| d.mm > 0) {
         readout.push(format!("Ceiling {}", prefs.depth(ceiling)));
     }
@@ -156,6 +167,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let ndl_on = (show_ndl)();
     let tts_on = (show_tts)();
     let heart_on = (show_heart)();
+    let cns_on = (show_cns)();
     let deco_on = (show_deco)();
 
     rsx! {
@@ -211,6 +223,14 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         }
                     }
                 }
+                if cns_on {
+                    if let Some(points) = &cns {
+                        polyline {
+                            points: "{points}",
+                            style: "fill: none; stroke: #ffd166; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                        }
+                    }
+                }
                 polyline {
                     points: "{depth_points}",
                     style: "fill: none; stroke: #4cc9f0; stroke-width: 1.5; vector-effect: non-scaling-stroke;",
@@ -258,6 +278,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 Toggle { label: "NDL", on: ndl_on, onclick: move |_| show_ndl.set(!ndl_on) }
                 Toggle { label: "TTS", on: tts_on, onclick: move |_| show_tts.set(!tts_on) }
                 Toggle { label: "Heart", on: heart_on, onclick: move |_| show_heart.set(!heart_on) }
+                Toggle { label: "CNS", on: cns_on, onclick: move |_| show_cns.set(!cns_on) }
                 Toggle { label: "Deco", on: deco_on, onclick: move |_| show_deco.set(!deco_on) }
                 input {
                     class: "scrub",
