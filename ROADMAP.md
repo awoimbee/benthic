@@ -64,14 +64,18 @@ Guiding principles:
 
 - [x] Profile scrubber with a time/depth/temperature/pressure readout
 - [x] Pan & zoom on the profile (time window sliders)
-- [ ] Hover crosshair
+- [x] Hover crosshair (pointer readout snapped to the nearest sample)
 - [x] Overlays: temperature and cylinder pressure
 - [x] Overlays: NDL, TTS, heart rate and CNS (SAC is dive-level, shown as a fact)
 - [x] Deco ceiling visualization and gas-switch markers
 - [x] Multiple dive computers per dive, switchable, with an overlay comparison
 - [x] Bühlmann ZH-L16C tissue model with gradient factors (ceiling, NDL)
 - [x] Ascent planner with decompression stops and a saveable profile
-- [ ] VPM-B algorithm
+- [ ] VPM-B algorithm (deferred: a prototype reproduced Subsurface's
+      equations but produced schedules far longer than reference profiles
+      and could not be validated here. Shipping an unvalidated
+      decompression model is not acceptable; it needs validation against
+      Baker's reference tables or Subsurface's planner before it is added.)
 - [x] Open-circuit gas needs (RMV-based)
 - [x] CCR planning (diluent + setpoint, loop gas, CCR schedule)
 - [x] Bailout / ascent gas requirement

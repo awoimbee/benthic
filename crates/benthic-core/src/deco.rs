@@ -17,9 +17,8 @@ use crate::units::{Depth, Duration, EN13319_SALINITY};
 
 const COMPARTMENTS: usize = 16;
 const LN2: f64 = std::f64::consts::LN_2;
-/// Alveolar water-vapour pressure in bar.
+/// Alveolar water-vapour pressure in bar (Bühlmann, Rq = 1.0).
 const WATER_VAPOUR_BAR: f64 = 0.0627;
-
 // ZH-L16C nitrogen half-times (minutes).
 const N2_HALF_TIMES: [f64; COMPARTMENTS] = [
     4.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0,
@@ -181,6 +180,24 @@ pub struct Tissues {
     pub he: [f64; COMPARTMENTS],
 }
 
+/// Load the tissues at a constant ambient pressure for a number of minutes,
+/// using the given alveolar water-vapour pressure.
+fn load_inert_gas(tissues: &mut Tissues, p_amb: f64, minutes: f64, gas: GasMix, water_vapour: f64) {
+    if minutes <= 0.0 {
+        return;
+    }
+    let p_alv = (p_amb - water_vapour).max(0.0);
+    let p_alv_n2 = p_alv * n2_fraction(gas);
+    let p_alv_he = p_alv * he_fraction(gas);
+
+    for i in 0..COMPARTMENTS {
+        let k_n2 = LN2 / N2_HALF_TIMES[i];
+        let k_he = LN2 / HE_HALF_TIMES[i];
+        tissues.n2[i] = p_alv_n2 + (tissues.n2[i] - p_alv_n2) * (-k_n2 * minutes).exp();
+        tissues.he[i] = p_alv_he + (tissues.he[i] - p_alv_he) * (-k_he * minutes).exp();
+    }
+}
+
 impl Default for Tissues {
     /// A diver equilibrated at the surface on air.
     fn default() -> Self {
@@ -219,22 +236,8 @@ impl Buhlmann {
 
     /// Off-gas / on-gas at a constant depth for a number of minutes.
     pub fn add_segment_minutes(&mut self, depth: Depth, minutes: f64, gas: GasMix) {
-        if minutes <= 0.0 {
-            return;
-        }
         let p_amb = ambient_mbar(depth.mm, self.surface_bar * 1000.0, self.salinity) / 1000.0;
-        let p_alv = (p_amb - WATER_VAPOUR_BAR).max(0.0);
-        let p_alv_n2 = p_alv * n2_fraction(gas);
-        let p_alv_he = p_alv * he_fraction(gas);
-
-        for i in 0..COMPARTMENTS {
-            let k_n2 = LN2 / N2_HALF_TIMES[i];
-            let k_he = LN2 / HE_HALF_TIMES[i];
-            self.tissues.n2[i] =
-                p_alv_n2 + (self.tissues.n2[i] - p_alv_n2) * (-k_n2 * minutes).exp();
-            self.tissues.he[i] =
-                p_alv_he + (self.tissues.he[i] - p_alv_he) * (-k_he * minutes).exp();
-        }
+        load_inert_gas(&mut self.tissues, p_amb, minutes, gas, WATER_VAPOUR_BAR);
     }
 
     /// Off-gas / on-gas at a constant depth for a duration.
@@ -619,6 +622,8 @@ mod tests {
         // Deepest first, and never deeper than the bottom.
         assert!(stops[0].depth.mm >= stops[stops.len() - 1].depth.mm);
         assert!(stops[0].depth.mm <= 40_000);
+        // Deeper stops are shorter than the shallow ones on a square profile.
+        assert!(stops[0].duration.seconds <= stops[stops.len() - 1].duration.seconds);
     }
 
     #[test]

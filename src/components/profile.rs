@@ -23,6 +23,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let mut cursor = use_signal(|| 0usize);
     let mut zoom = use_signal(|| 1.0f64);
     let mut pan = use_signal(|| 0.5f64);
+    let mut hover = use_signal(|| None::<f64>);
+    let mut plot_width = use_signal(|| 0.0f64);
 
     let Some(active) = dive.computer(dc_index).or_else(|| dive.computers.first()) else {
         return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
@@ -161,7 +163,17 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         })
         .collect();
 
-    let index = (cursor)().min(active.samples.len() - 1);
+    // The active point is the hovered sample when the pointer is over the
+    // chart, otherwise the scrubber position.
+    let hover_fraction = (hover)();
+    let index = match hover_fraction {
+        Some(fraction) => sample_index_at(
+            win_start + fraction * win_span,
+            &active.samples,
+            max_t,
+        ),
+        None => (cursor)().min(active.samples.len() - 1),
+    };
     let sample = &active.samples[index];
     let cursor_fraction = sample.time.seconds as f64 / max_t;
     let cursor_x = (cursor_fraction - win_start) / win_span * 100.0;
@@ -210,6 +222,19 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 class: "profile-svg",
                 view_box: "0 0 100 100",
                 preserve_aspect_ratio: "none",
+                onmounted: move |evt: MountedEvent| async move {
+                    if let Ok(rect) = evt.get_client_rect().await {
+                        plot_width.set(rect.size.width.max(1.0));
+                    }
+                },
+                onmousemove: move |evt: MouseEvent| {
+                    let width = (plot_width)();
+                    if width > 1.0 {
+                        let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
+                        hover.set(Some(fraction));
+                    }
+                },
+                onmouseleave: move |_| hover.set(None),
                 for (n, points) in overlays.iter().enumerate() {
                     polyline {
                         key: "overlay-{n}",
@@ -356,6 +381,29 @@ fn Toggle(label: &'static str, on: bool, onclick: EventHandler<()>) -> Element {
             input { r#type: "checkbox", checked: on, onchange: move |_| onclick.call(()) }
             " {label}"
         }
+    }
+}
+
+/// The index of the sample whose time is closest to `fraction` of the full
+/// profile. Samples are assumed to be ordered by time.
+fn sample_index_at(fraction: f64, samples: &[benthic_core::Sample], max_t: f64) -> usize {
+    if samples.is_empty() {
+        return 0;
+    }
+    let target = fraction * max_t;
+    let index = samples.partition_point(|s| (s.time.seconds as f64) < target);
+    if index == 0 {
+        return 0;
+    }
+    if index >= samples.len() {
+        return samples.len() - 1;
+    }
+    let before = samples[index - 1].time.seconds as f64;
+    let after = samples[index].time.seconds as f64;
+    if (target - before).abs() <= (after - target).abs() {
+        index - 1
+    } else {
+        index
     }
 }
 
