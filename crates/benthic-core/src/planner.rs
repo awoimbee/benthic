@@ -148,6 +148,32 @@ impl DivePlan {
         liters
     }
 
+    /// Litres of open-circuit gas needed to ascend from the end of the bottom
+    /// time to the surface, following the schedule.
+    ///
+    /// This is the bailout requirement for a rebreather plan, and the ascent
+    /// requirement for an open-circuit one.
+    pub fn bailout_liters(&self, rmv_l_per_min: f64, surface_bar: f64, salinity: i32) -> f64 {
+        let surface_mbar = surface_bar * 1000.0;
+        let samples = self.samples();
+        let bottom_mm = self.depth.mm;
+        let start = samples
+            .iter()
+            .rposition(|s| s.depth.mm >= bottom_mm)
+            .unwrap_or(0);
+        let mut liters = 0.0;
+        for window in samples[start..].windows(2) {
+            let dt_min = (window[1].time.seconds - window[0].time.seconds) as f64 / 60.0;
+            if dt_min <= 0.0 {
+                continue;
+            }
+            let avg_depth_mm = (window[0].depth.mm + window[1].depth.mm) / 2;
+            let ambient_ata = ambient_mbar(avg_depth_mm, surface_mbar, salinity) / surface_mbar;
+            liters += rmv_l_per_min * dt_min * ambient_ata;
+        }
+        liters
+    }
+
     /// A human-readable plan summary, suitable for dive notes.
     pub fn summary(&self) -> String {
         let mode = match self.mode {
@@ -297,6 +323,37 @@ mod tests {
         // A lower RMV needs proportionally less gas.
         let half = plan.gas_needs_liters(10.0, 1.01325, EN13319_SALINITY);
         assert!((half * 2.0 - liters).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bailout_is_less_than_total_gas() {
+        let plan = DivePlan::compute(
+            Depth::from_meters(40.0),
+            Duration::from_minutes(40),
+            oc(),
+            1.0,
+            1.0,
+            1.01325,
+            EN13319_SALINITY,
+        );
+        let total = plan.gas_needs_liters(20.0, 1.01325, EN13319_SALINITY);
+        let bailout = plan.bailout_liters(20.0, 1.01325, EN13319_SALINITY);
+        assert!(bailout > 0.0);
+        assert!(
+            bailout < total,
+            "bailout {bailout} should be below total {total}"
+        );
+        // A no-stop dive still needs gas to get back up.
+        let shallow = DivePlan::compute(
+            Depth::from_meters(18.0),
+            Duration::from_minutes(20),
+            oc(),
+            1.0,
+            1.0,
+            1.01325,
+            EN13319_SALINITY,
+        );
+        assert!(shallow.bailout_liters(20.0, 1.01325, EN13319_SALINITY) > 0.0);
     }
 
     #[test]

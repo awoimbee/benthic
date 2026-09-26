@@ -69,6 +69,8 @@ pub fn PlannerDialog() -> Element {
     );
     let gas_needs = plan.gas_needs_liters((rmv)(), SURFACE_PRESSURE_MBAR / 1000.0, salinity);
     let gas_bar_12l = gas_needs / 12.0;
+    let bailout = plan.bailout_liters((rmv)(), SURFACE_PRESSURE_MBAR / 1000.0, salinity);
+    let bailout_bar_12l = bailout / 12.0;
     let end_mm = end_depth_mm(
         diluent,
         target_depth.mm,
@@ -211,6 +213,8 @@ pub fn PlannerDialog() -> Element {
                         Result { label: "Gas needed", value: format!("{gas_needs:.0} L") }
                         Result { label: "≈ 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
                     }
+                    Result { label: "OC bailout", value: format!("{bailout:.0} L") }
+                    Result { label: "≈ 12 L bailout", value: format!("{bailout_bar_12l:.0} bar") }
                 }
                 if over_mod {
                     p { class: "warn", "Warning: depth exceeds the gas MOD at a 1.4 bar pO2 limit." }
