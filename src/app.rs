@@ -13,6 +13,7 @@ const CSS: &str = include_str!("../assets/main.css");
 pub fn App() -> Element {
     let log = use_signal(DiveLog::new);
     let selected = use_signal(|| None::<u32>);
+    let selection = use_signal(std::collections::BTreeSet::new);
     let status = use_signal(|| "Ready".to_string());
     let history = use_signal(History::new);
     let filter = use_signal(DiveFilter::default);
@@ -22,6 +23,7 @@ pub fn App() -> Element {
     let state = AppState {
         log,
         selected,
+        selection,
         status,
         history,
         filter,

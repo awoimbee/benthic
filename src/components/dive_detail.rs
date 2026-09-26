@@ -1,7 +1,8 @@
 use dioxus::prelude::*;
 
-use benthic_core::units::{format_duration, format_timestamp_utc};
-use benthic_core::{Command, Dive, DiveSite, Location};
+use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
+use benthic_core::units::{format_duration, format_timestamp_utc, Pressure, Weight};
+use benthic_core::{Command, Cylinder, CylinderUse, Dive, DiveSite, Location, WeightSystem};
 
 use crate::actions;
 use crate::components::DiveProfile;
@@ -39,6 +40,8 @@ struct DiveForm {
     trip_id: Option<u32>,
     site_name: String,
     site_gps: String,
+    cylinders: Vec<Cylinder>,
+    weights: Vec<WeightSystem>,
 }
 
 impl DiveForm {
@@ -57,6 +60,8 @@ impl DiveForm {
                 .and_then(|s| s.location)
                 .map(|l| format!("{:.6}, {:.6}", l.lat, l.lon))
                 .unwrap_or_default(),
+            cylinders: dive.cylinders.clone(),
+            weights: dive.weights.clone(),
         }
     }
 }
@@ -94,6 +99,8 @@ fn DiveDetailInner(dive: Dive) -> Element {
             after.rating = f.rating;
             after.tags = parse_tags(&f.tags);
             after.trip_id = f.trip_id;
+            after.cylinders = f.cylinders;
+            after.weights = f.weights;
 
             let mut commands: Vec<Command> = Vec::new();
             let name = f.site_name.trim().to_string();
@@ -334,6 +341,127 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             oninput: move |evt| form.write().notes = evt.value(),
                         }
                     }
+
+                    div { class: "field-label full", "Cylinders"
+                        div { class: "equip-list",
+                            for (i, cyl) in f.cylinders.iter().enumerate() {
+                                div { key: "{i}", class: "equip-row cylinder-row",
+                                    select {
+                                        class: "field",
+                                        value: preset_value(cyl),
+                                        onchange: move |evt| {
+                                            if let Some(preset) = cylinder_preset(&evt.value()) {
+                                                let mut w = form.write();
+                                                apply_preset(&mut w.cylinders[i], preset);
+                                            }
+                                        },
+                                        option { value: "", "Custom" }
+                                        for preset in CYLINDER_PRESETS {
+                                            option { key: "{preset.name}", value: "{preset.name}", "{preset.name}" }
+                                        }
+                                    }
+                                    label { class: "mini", "O2 %"
+                                        input {
+                                            class: "field",
+                                            value: format!("{:.1}", cyl.gas.o2_percent()),
+                                            oninput: move |evt| {
+                                                let permille = evt.value().parse::<f64>().map(|v| (v * 10.0).round() as u16).unwrap_or(0);
+                                                form.write().cylinders[i].gas.o2_permille = permille;
+                                            },
+                                        }
+                                    }
+                                    label { class: "mini", "He %"
+                                        input {
+                                            class: "field",
+                                            value: format!("{:.1}", cyl.gas.he_percent()),
+                                            oninput: move |evt| {
+                                                let permille = evt.value().parse::<f64>().map(|v| (v * 10.0).round() as u16).unwrap_or(0);
+                                                form.write().cylinders[i].gas.he_permille = permille;
+                                            },
+                                        }
+                                    }
+                                    label { class: "mini", "Start bar"
+                                        input {
+                                            class: "field",
+                                            value: cyl.start_pressure.map(|p| format!("{:.0}", p.bar())).unwrap_or_default(),
+                                            oninput: move |evt| {
+                                                form.write().cylinders[i].start_pressure = evt.value().parse::<f64>().ok().map(Pressure::from_bar);
+                                            },
+                                        }
+                                    }
+                                    label { class: "mini", "End bar"
+                                        input {
+                                            class: "field",
+                                            value: cyl.end_pressure.map(|p| format!("{:.0}", p.bar())).unwrap_or_default(),
+                                            oninput: move |evt| {
+                                                form.write().cylinders[i].end_pressure = evt.value().parse::<f64>().ok().map(Pressure::from_bar);
+                                            },
+                                        }
+                                    }
+                                    label { class: "mini", "Use"
+                                        select {
+                                            class: "field",
+                                            value: "{cyl.use_.index()}",
+                                            onchange: move |evt| {
+                                                let index = evt.value().parse::<usize>().unwrap_or(0);
+                                                form.write().cylinders[i].use_ = CylinderUse::from_index(index);
+                                            },
+                                            for use_ in CylinderUse::ALL {
+                                                option { key: "{use_.index()}", value: "{use_.index()}", "{use_.label()}" }
+                                            }
+                                        }
+                                    }
+                                    button {
+                                        class: "icon-btn",
+                                        title: "Remove cylinder",
+                                        onclick: move |_| { form.write().cylinders.remove(i); },
+                                        "✕"
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            class: "btn",
+                            onclick: move |_| form.write().cylinders.push(Cylinder::default()),
+                            "+ Add cylinder"
+                        }
+                    }
+
+                    div { class: "field-label full", "Weights"
+                        div { class: "equip-list",
+                            for (i, ws) in f.weights.iter().enumerate() {
+                                div { key: "{i}", class: "equip-row weight-row",
+                                    label { class: "mini", "kg"
+                                        input {
+                                            class: "field",
+                                            value: format!("{:.2}", ws.weight.kg()),
+                                            oninput: move |evt| {
+                                                form.write().weights[i].weight = Weight::from_kg(evt.value().parse::<f64>().unwrap_or(0.0));
+                                            },
+                                        }
+                                    }
+                                    label { class: "mini wide", "Description"
+                                        input {
+                                            class: "field",
+                                            value: "{ws.description}",
+                                            oninput: move |evt| form.write().weights[i].description = evt.value(),
+                                        }
+                                    }
+                                    button {
+                                        class: "icon-btn",
+                                        title: "Remove weight",
+                                        onclick: move |_| { form.write().weights.remove(i); },
+                                        "✕"
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            class: "btn",
+                            onclick: move |_| form.write().weights.push(WeightSystem::new(Weight::from_kg(0.0), "belt")),
+                            "+ Add weight"
+                        }
+                    }
                 }
             } else {
                 div { class: "facts",
@@ -442,6 +570,15 @@ fn weight_row(ws: &benthic_core::WeightSystem) -> WeightRow {
             ws.description.clone()
         },
         weight: format!("{:.2} kg", ws.weight.kg()),
+    }
+}
+
+/// The matching preset name for a cylinder, or empty when it is custom.
+fn preset_value(cylinder: &Cylinder) -> String {
+    if is_preset(&cylinder.description) {
+        cylinder.description.clone()
+    } else {
+        String::new()
     }
 }
 

@@ -45,8 +45,8 @@ Guiding principles:
 - [x] Dive-site create/edit (name + GPS) from the dive form
 - [x] Filter model with full-text search and rating/tag/depth constraints
 - [x] Keyboard shortcuts for undo/redo (`Ctrl/Cmd+Z`, `Shift+Z`, `Y`)
-- [ ] Multi-select and bulk edit/delete
-- [ ] Cylinder & weight editing UI (presets: AL80, LP85, steel 12/15, ...)
+- [x] Cylinder & weight editing with presets (AL80, LP85, steel 12/15, ...)
+- [x] Multi-select and bulk delete (one undo step)
 - [ ] Trip create/rename/merge/split UI
 - [ ] Dive-site merge, map picker, and deduplication of inline locations
 - [ ] Filter UI for tags/rating/depth, plus saveable filter presets

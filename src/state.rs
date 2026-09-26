@@ -12,6 +12,8 @@ pub struct AppState {
     pub log: Signal<DiveLog>,
     /// Currently selected dive id, if any.
     pub selected: Signal<Option<u32>>,
+    /// Dives ticked for bulk actions.
+    pub selection: Signal<std::collections::BTreeSet<u32>>,
     /// A short human-readable status message shown in the toolbar.
     pub status: Signal<String>,
     /// Undo/redo stack.

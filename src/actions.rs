@@ -79,6 +79,26 @@ pub fn delete_dive(state: AppState, id: u32) {
     state.set_status("Deleted dive");
 }
 
+/// Delete every ticked dive as a single undo step.
+pub fn delete_selected(state: AppState) {
+    let ids: Vec<u32> = (state.selection)().iter().copied().collect();
+    if ids.is_empty() {
+        return;
+    }
+    let log = (state.log)();
+    let commands = benthic_core::history::delete_dives(&log, &ids);
+    state.dispatch_all(format!("Delete {} dives", ids.len()), commands);
+
+    let mut selection = state.selection;
+    selection.write().clear();
+
+    let mut selected = state.selected;
+    if selected().is_some_and(|id| ids.contains(&id)) {
+        selected.set((state.log)().dives_sorted().first().map(|d| d.id));
+    }
+    state.set_status(format!("Deleted {} dives", ids.len()));
+}
+
 /// Turn automatic trip grouping on/off, regrouping or ungrouping as needed.
 pub fn toggle_autogroup(state: AppState) {
     let mut after = (state.log)();

@@ -11,7 +11,9 @@ pub fn Toolbar() -> Element {
     let log = (state.log)();
     let can_undo = state.can_undo();
     let can_redo = state.can_redo();
+    let selected_count = (state.selection)().len();
     let mut filter = state.filter;
+    let mut selection = state.selection;
 
     rsx! {
         header { class: "toolbar",
@@ -28,6 +30,20 @@ pub fn Toolbar() -> Element {
                 title: "Automatically group nearby dives into trips",
                 onclick: move |_| actions::toggle_autogroup(state),
                 if log.autogroup { "Auto-group: on" } else { "Auto-group: off" }
+            }
+
+            if selected_count > 0 {
+                span { class: "selected-count", "{selected_count} selected" }
+                button {
+                    class: "btn danger",
+                    onclick: move |_| actions::delete_selected(state),
+                    "Delete selected"
+                }
+                button {
+                    class: "btn",
+                    onclick: move |_| { selection.write().clear(); },
+                    "Clear"
+                }
             }
 
             ImportExport {}

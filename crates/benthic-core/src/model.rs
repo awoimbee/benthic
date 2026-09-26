@@ -52,6 +52,31 @@ pub enum CylinderUse {
 }
 
 impl CylinderUse {
+    /// Every variant, in display order.
+    pub const ALL: [CylinderUse; 5] = [
+        CylinderUse::OcGas,
+        CylinderUse::Diluent,
+        CylinderUse::Oxygen,
+        CylinderUse::NotUsed,
+        CylinderUse::TravelOc,
+    ];
+
+    /// Position of this variant within [`CylinderUse::ALL`].
+    pub fn index(self) -> usize {
+        match self {
+            CylinderUse::OcGas => 0,
+            CylinderUse::Diluent => 1,
+            CylinderUse::Oxygen => 2,
+            CylinderUse::NotUsed => 3,
+            CylinderUse::TravelOc => 4,
+        }
+    }
+
+    /// Inverse of [`CylinderUse::index`]; falls back to [`CylinderUse::OcGas`].
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL.get(index).copied().unwrap_or_default()
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             CylinderUse::OcGas => "OC gas",
@@ -230,6 +255,16 @@ pub struct WeightSystem {
     pub description: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_filled: bool,
+}
+
+impl WeightSystem {
+    pub fn new(weight: Weight, description: impl Into<String>) -> Self {
+        Self {
+            weight,
+            description: description.into(),
+            auto_filled: false,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

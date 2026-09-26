@@ -158,6 +158,29 @@ impl Command {
     }
 }
 
+/// Build the commands that delete several dives as one undo step.
+///
+/// Commands are ordered by *decreasing* original index, so applying them in
+/// sequence never invalidates a later index. [`Command::Compound`] reverts in
+/// reverse order, which restores every dive to its original position.
+/// Unknown ids are ignored.
+pub fn delete_dives(log: &DiveLog, ids: &[u32]) -> Vec<Command> {
+    let mut pairs: Vec<(usize, Dive)> = ids
+        .iter()
+        .filter_map(|id| {
+            log.dives
+                .iter()
+                .position(|d| d.id == *id)
+                .map(|index| (index, log.dives[index].clone()))
+        })
+        .collect();
+    pairs.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+    pairs
+        .into_iter()
+        .map(|(index, dive)| Command::DeleteDive { dive, index })
+        .collect()
+}
+
 /// An undo/redo stack of commands.
 #[derive(Debug, Clone, PartialEq)]
 pub struct History {
@@ -425,5 +448,42 @@ mod tests {
         }
         assert_eq!(undone, 3);
         assert_eq!(log.dives.len(), 7);
+    }
+
+    #[test]
+    fn bulk_delete_is_exactly_reversible() {
+        let mut log = DiveLog::new();
+        for i in 0..5u32 {
+            log.dives.push(Dive {
+                id: i + 1,
+                when: i as Timestamp,
+                ..Default::default()
+            });
+        }
+        let before = log.clone();
+        let mut history = History::new();
+
+        let commands = delete_dives(&log, &[2, 4, 5]);
+        history.record(
+            Command::Compound {
+                label: "delete dives".into(),
+                commands,
+            },
+            &mut log,
+        );
+        assert_eq!(
+            log.dives.iter().map(|d| d.id).collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+
+        history.undo(&mut log);
+        assert_eq!(log, before);
+    }
+
+    #[test]
+    fn delete_dives_ignores_unknown_ids() {
+        let log = sample_log();
+        let commands = delete_dives(&log, &[1, 999]);
+        assert_eq!(commands.len(), 1);
     }
 }
