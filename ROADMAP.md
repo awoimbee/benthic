@@ -71,7 +71,8 @@ Guiding principles:
 - [x] Bühlmann ZH-L16C tissue model with gradient factors (ceiling, NDL)
 - [x] Ascent planner with decompression stops and a saveable profile
 - [ ] VPM-B algorithm
-- [ ] Open-circuit, CCR and pSCR planning; bailout and gas needs
+- [x] Open-circuit gas needs (RMV-based)
+- [ ] CCR and pSCR planning; bailout
 - [ ] Plan ↔ actual comparison (save plans as dives is done)
 - [x] Save plans as dives
 - [x] Gas calculations: MOD, END, EAD, best mix and ICD warnings

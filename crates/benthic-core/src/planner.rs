@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::deco::{Buhlmann, DecoSegment, Stop};
-use crate::gas::GasMix;
+use crate::gas::{ambient_mbar, GasMix};
 use crate::model::{Cylinder, Dive, DiveComputer, Sample};
 use crate::units::*;
 
@@ -122,6 +122,27 @@ impl DivePlan {
         Duration::new(self.stops.iter().map(|s| s.duration.seconds).sum())
     }
 
+    /// Litres of gas needed to run the plan at a given surface RMV
+    /// (respiratory minute volume).
+    ///
+    /// Integrates the planned profile: for each segment the average ambient
+    /// pressure scales the surface consumption.
+    pub fn gas_needs_liters(&self, rmv_l_per_min: f64, surface_bar: f64, salinity: i32) -> f64 {
+        let surface_mbar = surface_bar * 1000.0;
+        let samples = self.samples();
+        let mut liters = 0.0;
+        for window in samples.windows(2) {
+            let dt_min = (window[1].time.seconds - window[0].time.seconds) as f64 / 60.0;
+            if dt_min <= 0.0 {
+                continue;
+            }
+            let avg_depth_mm = (window[0].depth.mm + window[1].depth.mm) / 2;
+            let ambient_ata = ambient_mbar(avg_depth_mm, surface_mbar, salinity) / surface_mbar;
+            liters += rmv_l_per_min * dt_min * ambient_ata;
+        }
+        liters
+    }
+
     /// A human-readable plan summary, suitable for dive notes.
     pub fn summary(&self) -> String {
         let mut out = format!(
@@ -206,6 +227,25 @@ mod tests {
         assert_eq!(computer.samples.last().unwrap().depth, Depth::ZERO);
         assert!(dive.notes.contains("Total runtime"));
         assert!(dive.average_depth().is_some());
+    }
+
+    #[test]
+    fn gas_needs_scale_with_depth_and_time() {
+        let plan = DivePlan::compute(
+            Depth::from_meters(30.0),
+            Duration::from_minutes(20),
+            AIR,
+            1.0,
+            1.0,
+            1.01325,
+            EN13319_SALINITY,
+        );
+        // About 20 min at ~4 ATA at 20 L/min is ~1600 L, plus descent/ascent.
+        let liters = plan.gas_needs_liters(20.0, 1.01325, EN13319_SALINITY);
+        assert!((1_500.0..2_200.0).contains(&liters), "gas was {liters}");
+        // A lower RMV needs proportionally less gas.
+        let half = plan.gas_needs_liters(10.0, 1.01325, EN13319_SALINITY);
+        assert!((half * 2.0 - liters).abs() < 1e-6);
     }
 
     #[test]

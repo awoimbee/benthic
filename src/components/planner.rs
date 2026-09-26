@@ -24,6 +24,7 @@ pub fn PlannerDialog() -> Element {
     let mut he = use_signal(|| 0.0f64);
     let mut gf_low = use_signal(|| 0.30f64);
     let mut gf_high = use_signal(|| 0.70f64);
+    let mut rmv = use_signal(|| 20.0f64);
 
     let target_depth = prefs.depth_from_value((depth)());
     let bottom_time = Duration::from_minutes((bottom)().round().max(0.0) as i32);
@@ -44,6 +45,8 @@ pub fn PlannerDialog() -> Element {
     );
 
     let mod_mm = mod_depth_mm(gas, DEFAULT_PO2_LIMIT_MBAR, SURFACE_PRESSURE_MBAR, salinity);
+    let gas_needs = plan.gas_needs_liters((rmv)(), SURFACE_PRESSURE_MBAR / 1000.0, salinity);
+    let gas_bar_12l = gas_needs / 12.0;
     let end_mm = end_depth_mm(gas, target_depth.mm, SURFACE_PRESSURE_MBAR, salinity, false);
     let over_mod = target_depth.mm > mod_mm;
     let ambient = ambient_mbar(target_depth.mm, SURFACE_PRESSURE_MBAR, salinity) / 1000.0;
@@ -135,6 +138,14 @@ pub fn PlannerDialog() -> Element {
                             oninput: move |evt| gf_high.set(evt.value().parse::<f64>().unwrap_or(0.7).clamp(0.1, 1.0)),
                         }
                     }
+                    label { class: "field-label", "RMV (L/min)"
+                        input {
+                            class: "field",
+                            r#type: "number",
+                            value: "{rmv}",
+                            oninput: move |evt| rmv.set(evt.value().parse().unwrap_or(20.0)),
+                        }
+                    }
                 }
                 div { class: "facts planner-results",
                     Result { label: "Gas", value: gas.name() }
@@ -144,6 +155,8 @@ pub fn PlannerDialog() -> Element {
                     Result { label: "NDL", value: ndl_text }
                     Result { label: "Runtime", value: format_duration(plan.total_time()) }
                     Result { label: "Deco time", value: format_duration(plan.deco_time()) }
+                    Result { label: "Gas needed", value: format!("{gas_needs:.0} L") }
+                    Result { label: "≈ 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
                 }
                 if over_mod {
                     p { class: "warn", "Warning: depth exceeds the gas MOD at a 1.4 bar pO2 limit." }
