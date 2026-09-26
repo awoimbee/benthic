@@ -15,6 +15,7 @@ pub fn Toolbar() -> Element {
     let mut filter = state.filter;
     let mut selection = state.selection;
     let mut show_prefs = state.show_prefs;
+    let mut show_palette = state.show_palette;
 
     rsx! {
         header { class: "toolbar",
@@ -89,6 +90,12 @@ pub fn Toolbar() -> Element {
                 title: "Preferences",
                 onclick: move |_| show_prefs.set(true),
                 "Preferences"
+            }
+            button {
+                class: "btn",
+                title: "Command palette (Ctrl/Cmd+K)",
+                onclick: move |_| show_palette.set(true),
+                "Commands"
             }
             span { class: "status", "{status}" }
         }

@@ -4,7 +4,9 @@ use dioxus::prelude::*;
 
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
-use crate::components::{DiveDetail, DiveList, FilterBar, PreferencesDialog, Toolbar};
+use crate::components::{
+    CommandPalette, DiveDetail, DiveList, FilterBar, PreferencesDialog, Toolbar,
+};
 use crate::state::AppState;
 
 const CSS: &str = include_str!("../assets/main.css");
@@ -23,6 +25,7 @@ pub fn App() -> Element {
             .unwrap_or_default()
     });
     let show_prefs = use_signal(|| false);
+    let show_palette = use_signal(|| false);
     let presets = use_signal(|| {
         crate::storage::load_presets()
             .and_then(|text| serde_json::from_str::<Vec<FilterPreset>>(&text).ok())
@@ -41,6 +44,7 @@ pub fn App() -> Element {
         presets,
         prefs,
         show_prefs,
+        show_palette,
     };
     use_context_provider(|| state);
 
@@ -121,6 +125,11 @@ pub fn App() -> Element {
             return;
         }
         match evt.key() {
+            Key::Character(ref c) if c.as_str() == "k" => {
+                let mut palette = state.show_palette;
+                palette.set(!(state.show_palette)());
+                evt.prevent_default();
+            }
             Key::Character(ref c) if c.as_str() == "z" => {
                 if modifiers.contains(Modifiers::SHIFT) {
                     state.redo();
@@ -140,7 +149,7 @@ pub fn App() -> Element {
     rsx! {
         style { dangerous_inner_html: CSS }
         link { rel: "icon", r#type: "image/svg+xml", href: "favicon.svg" }
-        div { class: "app", tabindex: "0", onkeydown: on_keydown,
+        div { class: "app", tabindex: "0", autofocus: true, onkeydown: on_keydown,
             Toolbar {}
             FilterBar {}
             div { class: "panes",
@@ -149,6 +158,9 @@ pub fn App() -> Element {
             }
             if (show_prefs)() {
                 PreferencesDialog {}
+            }
+            if (show_palette)() {
+                CommandPalette {}
             }
         }
     }

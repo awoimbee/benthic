@@ -36,15 +36,7 @@ pub fn ImportExport() -> Element {
         }
     };
 
-    let on_export = move |_| {
-        let mut status = state.status;
-        let log = (state.log)();
-        let text = benthic_core::io::ssrf::write_string(&log);
-        match crate::platform::save_file("benthic.ssrf", &text) {
-            Ok(message) => status.set(message),
-            Err(e) => status.set(format!("Export failed: {e}")),
-        }
-    };
+    let on_export = move |_| actions::export_ssrf(state);
 
     rsx! {
         label { class: "btn",

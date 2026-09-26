@@ -210,7 +210,23 @@ pub fn restore_backup(state: AppState) {
     }
 }
 
-/// Turn automatic trip grouping on/off, regrouping or ungrouping as needed.
+/// Export the log as Subsurface XML (browser download or file write).
+pub fn export_ssrf(state: AppState) {
+    let log = (state.log)();
+    let text = benthic_core::io::ssrf::write_string(&log);
+    match crate::platform::save_file("benthic.ssrf", &text) {
+        Ok(message) => state.set_status(message),
+        Err(e) => state.set_status(format!("Export failed: {e}")),
+    }
+}
+
+/// Open the preferences dialog.
+pub fn open_preferences(state: AppState) {
+    let mut show = state.show_prefs;
+    show.set(true);
+}
+
+/// Toggle automatic trip grouping on/off, regrouping or ungrouping as needed.
 pub fn toggle_autogroup(state: AppState) {
     let mut after = (state.log)();
     let before = after.clone();

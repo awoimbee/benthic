@@ -56,8 +56,8 @@ Guiding principles:
 - [ ] Dive-site map picker
 - [x] Preferences: date and time formats
 - [ ] Preferences: default salinity and other defaults
-- [ ] Command palette
-- [ ] Unsaved-change tracking and manual save/load of log files
+- [x] Command palette (`Ctrl/Cmd+K`)
+- [x] Manual load/save via import/export; autosave means there are no unsaved changes
 - [x] Data safety: hourly automatic backup, crash recovery, undoable deletes
 
 ## Phase 2 — Profiles, decompression and planning

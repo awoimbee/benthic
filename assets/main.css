@@ -582,6 +582,66 @@ textarea.field {
   font-size: 1.1rem;
 }
 
+/* ---- Command palette ---- */
+.palette {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: min(560px, 92vw);
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.palette-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+}
+
+.palette-input:focus {
+  outline: none;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
+  overflow-y: auto;
+}
+
+.palette-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.palette-item:hover {
+  background: var(--accent-dim);
+}
+
+.palette-label {
+  font-size: 0.9rem;
+}
+
+.palette-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
 .pref-group {
   display: flex;
   flex-direction: column;

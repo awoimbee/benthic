@@ -1,3 +1,4 @@
+mod command_palette;
 mod dive_detail;
 mod dive_list;
 mod filter_bar;
@@ -6,6 +7,7 @@ mod preferences;
 mod profile;
 mod toolbar;
 
+pub use command_palette::CommandPalette;
 pub use dive_detail::DiveDetail;
 pub use dive_list::DiveList;
 pub use filter_bar::FilterBar;

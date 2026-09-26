@@ -26,6 +26,8 @@ pub struct AppState {
     pub prefs: Signal<Preferences>,
     /// Whether the preferences dialog is open.
     pub show_prefs: Signal<bool>,
+    /// Whether the command palette is open.
+    pub show_palette: Signal<bool>,
 }
 
 impl AppState {
