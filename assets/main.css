@@ -197,10 +197,65 @@ body {
   margin-bottom: 1rem;
 }
 
-.profile-svg {
-  width: 100%;
+.profile-plot {
+  display: flex;
+  align-items: stretch;
   height: 180px;
+  margin-bottom: 1.15rem;
+}
+
+.profile-svg {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   display: block;
+}
+
+.axis-rail {
+  position: relative;
+  flex: none;
+}
+
+.axis-left {
+  width: 2.9rem;
+}
+
+.axis-right {
+  display: flex;
+}
+
+.axis-scale {
+  position: relative;
+  width: 3.1rem;
+  flex: none;
+}
+
+.axis-name {
+  position: absolute;
+  bottom: -1rem;
+  left: 0.15rem;
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.axis-label {
+  position: absolute;
+  left: 0.15rem;
+  transform: translateY(-50%);
+  font-size: 0.58rem;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.profile-gridline {
+  stroke: var(--border);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.45;
 }
 
 .dc-tabs {

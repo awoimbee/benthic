@@ -1,13 +1,25 @@
 use dioxus::prelude::*;
 
-use benthic_core::units::format_duration;
-use benthic_core::Dive;
+use benthic_core::units::{format_duration, Depth, Duration, Pressure, Temperature};
+use benthic_core::{Dive, Preferences};
 
 use crate::state::AppState;
+
+const COLOR_DEPTH: &str = "#4cc9f0";
+const COLOR_PRESSURE: &str = "#7ee787";
+const COLOR_TEMP: &str = "#f5a623";
+const COLOR_NDL: &str = "#a8dadc";
+const COLOR_TTS: &str = "#f28fad";
+const COLOR_HEART: &str = "#d0ffb7";
+const COLOR_CNS: &str = "#ffd166";
+const COLOR_CEILING: &str = "#c792ea";
 
 /// An interactive SVG depth profile with overlays, event markers, a scrubber
 /// readout, pan/zoom and (when a dive has several computers) the other
 /// computers' traces.
+///
+/// The plot keeps a vertical scale for every displayed metric: depth on the
+/// left and one colour-coded scale per overlay on the right.
 #[component]
 pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let state = use_context::<AppState>();
@@ -61,13 +73,40 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let win_end = win_start + 1.0 / zoom_value;
     let win_span = (win_end - win_start).max(1e-9);
 
-    let depth_points = depth_series(&active.samples, max_t, max_d, win_start, win_end);
+    // Depth uses the shared depth scale; the ceiling is a depth too and must
+    // line up with it.
+    let depth_points = scaled_series(
+        active.samples.iter().map(|s| (s.time.seconds, s.depth.mm)),
+        max_d,
+        max_t,
+        win_start,
+        win_end,
+    );
+    let ceiling = scaled_series(
+        active.samples.iter().filter_map(|s| {
+            s.stop_depth
+                .filter(|d| d.mm > 0)
+                .map(|d| (s.time.seconds, d.mm))
+        }),
+        max_d,
+        max_t,
+        win_start,
+        win_end,
+    );
     let overlays: Vec<String> = dive
         .computers
         .iter()
         .enumerate()
         .filter(|(index, dc)| *index != dc_index && dc.samples.len() >= 2)
-        .map(|(_, dc)| depth_series(&dc.samples, max_t, max_d, win_start, win_end))
+        .map(|(_, dc)| {
+            scaled_series(
+                dc.samples.iter().map(|s| (s.time.seconds, s.depth.mm)),
+                max_d,
+                max_t,
+                win_start,
+                win_end,
+            )
+        })
         .collect();
 
     let temperature = series(
@@ -129,16 +168,86 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         win_start,
         win_end,
     );
-    let ceiling = series(
-        active.samples.iter().filter_map(|s| {
-            s.stop_depth
-                .filter(|d| d.mm > 0)
-                .map(|d| (s.time.seconds, d.mm))
-        }),
-        max_t,
-        win_start,
-        win_end,
-    );
+
+    let pressure_on = (show_pressure)();
+    let temp_on = (show_temp)();
+    let ndl_on = (show_ndl)();
+    let tts_on = (show_tts)();
+    let heart_on = (show_heart)();
+    let cns_on = (show_cns)();
+    let deco_on = (show_deco)();
+
+    // Vertical scales: depth on the left, one column per active overlay on the
+    // right. Each tick is `(y percent, style, label)`.
+    let depth_ticks = depth_axis(max_d, &prefs);
+    let depth_name_style = format!("color: {COLOR_DEPTH};");
+
+    let mut right_axes: Vec<(&'static str, String, Vec<Tick>)> = Vec::new();
+    if pressure_on {
+        if let Some(Series { min, max, .. }) = &pressure {
+            right_axes.push((
+                "Pressure",
+                format!("color: {COLOR_PRESSURE};"),
+                value_axis(*min, *max, COLOR_PRESSURE, |v| {
+                    prefs.pressure(Pressure::new(v))
+                }),
+            ));
+        }
+    }
+    if temp_on {
+        if let Some(Series { min, max, .. }) = &temperature {
+            right_axes.push((
+                "Temp",
+                format!("color: {COLOR_TEMP};"),
+                value_axis(*min, *max, COLOR_TEMP, |v| {
+                    prefs.temperature(Temperature::new(v as u32))
+                }),
+            ));
+        }
+    }
+    if ndl_on {
+        if let Some(Series { min, max, .. }) = &ndl {
+            right_axes.push((
+                "NDL",
+                format!("color: {COLOR_NDL};"),
+                value_axis(*min, *max, COLOR_NDL, |v| format_duration(Duration::new(v))),
+            ));
+        }
+    }
+    if tts_on {
+        if let Some(Series { min, max, .. }) = &tts {
+            right_axes.push((
+                "TTS",
+                format!("color: {COLOR_TTS};"),
+                value_axis(*min, *max, COLOR_TTS, |v| format_duration(Duration::new(v))),
+            ));
+        }
+    }
+    if heart_on {
+        if let Some(Series { min, max, .. }) = &heart {
+            right_axes.push((
+                "Heart",
+                format!("color: {COLOR_HEART};"),
+                value_axis(*min, *max, COLOR_HEART, |v| format!("{v} bpm")),
+            ));
+        }
+    }
+    if cns_on {
+        if let Some(Series { min, max, .. }) = &cns {
+            right_axes.push((
+                "CNS",
+                format!("color: {COLOR_CNS};"),
+                value_axis(*min, *max, COLOR_CNS, |v| format!("{v}%")),
+            ));
+        }
+    }
+    if deco_on && !ceiling.is_empty() {
+        right_axes.push((
+            "Ceiling",
+            format!("color: {COLOR_CEILING};"),
+            depth_ticks.clone(),
+        ));
+    }
 
     // Event markers within the window, flagging gas switches.
     let event_marks: Vec<(f64, String, bool)> = active
@@ -204,137 +313,160 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     }
     let readout = readout.join("  ·  ");
 
-    let pressure_on = (show_pressure)();
-    let temp_on = (show_temp)();
-    let ndl_on = (show_ndl)();
-    let tts_on = (show_tts)();
-    let heart_on = (show_heart)();
-    let cns_on = (show_cns)();
-    let deco_on = (show_deco)();
-
     rsx! {
         div { class: "profile",
-            svg {
-                class: "profile-svg",
-                view_box: "0 0 100 100",
-                preserve_aspect_ratio: "none",
-                onmounted: move |evt: MountedEvent| async move {
-                    if let Ok(rect) = evt.get_client_rect().await {
-                        plot_width.set(rect.size.width.max(1.0));
+            div { class: "profile-plot",
+                div { class: "axis-rail axis-left",
+                    span { class: "axis-name", style: "{depth_name_style}", "Depth" }
+                    for (_, style, label) in depth_ticks.iter() {
+                        span { key: "depth-{label}", class: "axis-label", style: "{style}", "{label}" }
                     }
-                },
-                onmousemove: move |evt: MouseEvent| {
-                    let width = (plot_width)();
-                    if width > 1.0 {
-                        let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
-                        hover.set(Some(fraction));
+                }
+                svg {
+                    class: "profile-svg",
+                    view_box: "0 0 100 100",
+                    preserve_aspect_ratio: "none",
+                    onmounted: move |evt: MountedEvent| async move {
+                        if let Ok(rect) = evt.get_client_rect().await {
+                            plot_width.set(rect.size.width.max(1.0));
+                        }
+                    },
+                    onmousemove: move |evt: MouseEvent| {
+                        let width = (plot_width)();
+                        if width > 1.0 {
+                            let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
+                            hover.set(Some(fraction));
+                        }
+                    },
+                    onmouseleave: move |_| hover.set(None),
+                    for (y, _, _) in depth_ticks.iter() {
+                        line {
+                            key: "grid-{y}",
+                            class: "profile-gridline",
+                            x1: "0",
+                            y1: "{y}",
+                            x2: "100",
+                            y2: "{y}",
+                        }
                     }
-                },
-                onmouseleave: move |_| hover.set(None),
-                for (n, points) in overlays.iter().enumerate() {
+                    for (n, points) in overlays.iter().enumerate() {
+                        polyline {
+                            key: "overlay-{n}",
+                            points: "{points}",
+                            style: "fill: none; stroke: #7f97ad; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5;",
+                        }
+                    }
+                    if pressure_on {
+                        if let Some(Series { points, .. }) = &pressure {
+                            polyline {
+                                points: "{points}",
+                                style: "fill: none; stroke: {COLOR_PRESSURE}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                            }
+                        }
+                    }
+                    if temp_on {
+                        if let Some(Series { points, .. }) = &temperature {
+                            polyline {
+                                points: "{points}",
+                                style: "fill: none; stroke: {COLOR_TEMP}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                            }
+                        }
+                    }
+                    if ndl_on {
+                        if let Some(Series { points, .. }) = &ndl {
+                            polyline {
+                                points: "{points}",
+                                style: "fill: none; stroke: {COLOR_NDL}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8; stroke-dasharray: 3 2;",
+                            }
+                        }
+                    }
+                    if tts_on {
+                        if let Some(Series { points, .. }) = &tts {
+                            polyline {
+                                points: "{points}",
+                                style: "fill: none; stroke: {COLOR_TTS}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                            }
+                        }
+                    }
+                    if heart_on {
+                        if let Some(Series { points, .. }) = &heart {
+                            polyline {
+                                points: "{points}",
+                                style: "fill: none; stroke: {COLOR_HEART}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                            }
+                        }
+                    }
+                    if cns_on {
+                        if let Some(Series { points, .. }) = &cns {
+                            polyline {
+                                points: "{points}",
+                                style: "fill: none; stroke: {COLOR_CNS}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                            }
+                        }
+                    }
                     polyline {
-                        key: "overlay-{n}",
-                        points: "{points}",
-                        style: "fill: none; stroke: #7f97ad; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5;",
+                        points: "{depth_points}",
+                        style: "fill: none; stroke: {COLOR_DEPTH}; stroke-width: 1.5; vector-effect: non-scaling-stroke;",
                     }
-                }
-                if pressure_on {
-                    if let Some(points) = &pressure {
+                    if deco_on && !ceiling.is_empty() {
                         polyline {
-                            points: "{points}",
-                            style: "fill: none; stroke: #7ee787; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                            points: "{ceiling}",
+                            style: "fill: none; stroke: {COLOR_CEILING}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.9;",
                         }
                     }
-                }
-                if temp_on {
-                    if let Some(points) = &temperature {
-                        polyline {
-                            points: "{points}",
-                            style: "fill: none; stroke: #f5a623; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                    for (x, name, gas) in event_marks {
+                        line {
+                            key: "{name}-{x}",
+                            x1: "{x}",
+                            y1: "4",
+                            x2: "{x}",
+                            y2: "10",
+                            style: if gas {
+                                "stroke: #f28fad; stroke-width: 1.4; vector-effect: non-scaling-stroke;"
+                            } else {
+                                "stroke: #c792ea; stroke-width: 1; vector-effect: non-scaling-stroke;"
+                            },
                         }
                     }
-                }
-                if ndl_on {
-                    if let Some(points) = &ndl {
-                        polyline {
-                            points: "{points}",
-                            style: "fill: none; stroke: #a8dadc; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8; stroke-dasharray: 3 2;",
-                        }
-                    }
-                }
-                if tts_on {
-                    if let Some(points) = &tts {
-                        polyline {
-                            points: "{points}",
-                            style: "fill: none; stroke: #f28fad; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
-                        }
-                    }
-                }
-                if heart_on {
-                    if let Some(points) = &heart {
-                        polyline {
-                            points: "{points}",
-                            style: "fill: none; stroke: #d0ffb7; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
-                        }
-                    }
-                }
-                if cns_on {
-                    if let Some(points) = &cns {
-                        polyline {
-                            points: "{points}",
-                            style: "fill: none; stroke: #ffd166; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
-                        }
-                    }
-                }
-                polyline {
-                    points: "{depth_points}",
-                    style: "fill: none; stroke: #4cc9f0; stroke-width: 1.5; vector-effect: non-scaling-stroke;",
-                }
-                if deco_on {
-                    if let Some(points) = &ceiling {
-                        polyline {
-                            points: "{points}",
-                            style: "fill: none; stroke: #c792ea; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.9;",
-                        }
-                    }
-                }
-                for (x, name, gas) in event_marks {
                     line {
-                        key: "{name}-{x}",
-                        x1: "{x}",
-                        y1: "4",
-                        x2: "{x}",
-                        y2: "10",
-                        style: if gas {
-                            "stroke: #f28fad; stroke-width: 1.4; vector-effect: non-scaling-stroke;"
-                        } else {
-                            "stroke: #c792ea; stroke-width: 1; vector-effect: non-scaling-stroke;"
-                        },
+                        x1: "{cursor_x}",
+                        y1: "0",
+                        x2: "{cursor_x}",
+                        y2: "100",
+                        style: "stroke: #dce8f2; stroke-width: 0.5; vector-effect: non-scaling-stroke; opacity: 0.6;",
+                    }
+                    circle {
+                        cx: "{cursor_x}",
+                        cy: "{cursor_y}",
+                        r: "1.4",
+                        style: "fill: #dce8f2;",
                     }
                 }
-                line {
-                    x1: "{cursor_x}",
-                    y1: "0",
-                    x2: "{cursor_x}",
-                    y2: "100",
-                    style: "stroke: #dce8f2; stroke-width: 0.5; vector-effect: non-scaling-stroke; opacity: 0.6;",
-                }
-                circle {
-                    cx: "{cursor_x}",
-                    cy: "{cursor_y}",
-                    r: "1.4",
-                    style: "fill: #dce8f2;",
+                div { class: "axis-rail axis-right",
+                    for (i, (name, name_style, ticks)) in right_axes.iter().enumerate() {
+                        div { key: "axis-{i}", class: "axis-scale",
+                            span { class: "axis-name", style: "{name_style}", "{name}" }
+                            for (j, (_, style, label)) in ticks.iter().enumerate() {
+                                span {
+                                    key: "tick-{i}-{j}",
+                                    class: "axis-label",
+                                    style: "{style}",
+                                    "{label}"
+                                }
+                            }
+                        }
+                    }
                 }
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                Toggle { label: "Pressure", on: pressure_on, onclick: move |_| show_pressure.set(!pressure_on) }
-                Toggle { label: "Temperature", on: temp_on, onclick: move |_| show_temp.set(!temp_on) }
-                Toggle { label: "NDL", on: ndl_on, onclick: move |_| show_ndl.set(!ndl_on) }
-                Toggle { label: "TTS", on: tts_on, onclick: move |_| show_tts.set(!tts_on) }
-                Toggle { label: "Heart", on: heart_on, onclick: move |_| show_heart.set(!heart_on) }
-                Toggle { label: "CNS", on: cns_on, onclick: move |_| show_cns.set(!cns_on) }
-                Toggle { label: "Deco", on: deco_on, onclick: move |_| show_deco.set(!deco_on) }
+                Toggle { label: "Pressure", color: COLOR_PRESSURE, on: pressure_on, onclick: move |_| show_pressure.set(!pressure_on) }
+                Toggle { label: "Temperature", color: COLOR_TEMP, on: temp_on, onclick: move |_| show_temp.set(!temp_on) }
+                Toggle { label: "NDL", color: COLOR_NDL, on: ndl_on, onclick: move |_| show_ndl.set(!ndl_on) }
+                Toggle { label: "TTS", color: COLOR_TTS, on: tts_on, onclick: move |_| show_tts.set(!tts_on) }
+                Toggle { label: "Heart", color: COLOR_HEART, on: heart_on, onclick: move |_| show_heart.set(!heart_on) }
+                Toggle { label: "CNS", color: COLOR_CNS, on: cns_on, onclick: move |_| show_cns.set(!cns_on) }
+                Toggle { label: "Deco", color: COLOR_CEILING, on: deco_on, onclick: move |_| show_deco.set(!deco_on) }
                 label { class: "check", "Zoom"
                     input {
                         class: "zoom",
@@ -371,13 +503,33 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
 }
 
 #[component]
-fn Toggle(label: &'static str, on: bool, onclick: EventHandler<()>) -> Element {
+fn Toggle(
+    label: &'static str,
+    color: &'static str,
+    on: bool,
+    onclick: EventHandler<()>,
+) -> Element {
+    let name_style = format!("color: {color};");
+    let box_style = format!("accent-color: {color};");
     rsx! {
         label { class: "check",
-            input { r#type: "checkbox", checked: on, onchange: move |_| onclick.call(()) }
-            " {label}"
+            input {
+                r#type: "checkbox",
+                checked: on,
+                style: "{box_style}",
+                onchange: move |_| onclick.call(()),
+            }
+            span { style: "{name_style}", " {label}" }
         }
     }
+}
+
+/// A normalized overlay series: the SVG point string plus the value range, so
+/// the same range can be drawn as a y-axis scale.
+struct Series {
+    points: String,
+    min: i32,
+    max: i32,
 }
 
 /// The index of the sample whose time is closest to `fraction` of the full
@@ -403,37 +555,39 @@ fn sample_index_at(fraction: f64, samples: &[benthic_core::Sample], max_t: f64) 
     }
 }
 
-fn depth_series(
-    samples: &[benthic_core::Sample],
+/// Map `(seconds, value)` pairs onto the chart using a fixed value scale, from
+/// `5%` at the surface to `95%` at `max_v`. Used for anything measured in
+/// depth so it lines up with the depth trace.
+fn scaled_series(
+    values: impl Iterator<Item = (i32, i32)>,
+    max_v: f64,
     max_t: f64,
-    max_d: f64,
     start: f64,
     end: f64,
 ) -> String {
     let span = (end - start).max(1e-9);
-    samples
-        .iter()
-        .filter_map(|s| {
-            let fraction = s.time.seconds as f64 / max_t;
+    values
+        .filter_map(|(t, v)| {
+            let fraction = t as f64 / max_t;
             if fraction < start || fraction > end {
                 return None;
             }
             let x = (fraction - start) / span * 100.0;
-            let y = s.depth.mm as f64 / max_d * 90.0 + 5.0;
+            let y = v as f64 / max_v.max(1e-9) * 90.0 + 5.0;
             Some(format!("{x:.2},{y:.2}"))
         })
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-/// Normalize a `(seconds, value)` series into SVG points within the visible
-/// window, inverting the value axis so larger values sit higher on the chart.
+/// Normalize a `(seconds, value)` series to its own range, inverting the value
+/// axis so larger values sit higher on the chart.
 fn series(
     values: impl Iterator<Item = (i32, i32)>,
     max_t: f64,
     start: f64,
     end: f64,
-) -> Option<String> {
+) -> Option<Series> {
     let span = (end - start).max(1e-9);
     let visible: Vec<(f64, i32)> = values
         .filter_map(|(t, v)| {
@@ -450,16 +604,74 @@ fn series(
     }
     let min = visible.iter().map(|(_, v)| *v).min()?;
     let max = visible.iter().map(|(_, v)| *v).max()?;
-    let range = (max - min).max(1) as f64;
-    Some(
-        visible
-            .iter()
-            .map(|(fraction, v)| {
-                let x = (fraction - start) / span * 100.0;
-                let y = 92.0 - (*v - min) as f64 / range * 84.0;
-                format!("{x:.2},{y:.2}")
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-    )
+    let value_span = (max - min) as f64;
+    let points = visible
+        .iter()
+        .map(|(fraction, v)| {
+            let x = (fraction - start) / span * 100.0;
+            // A constant series has no range of its own; centre it so it lines
+            // up with the single tick its scale draws.
+            let y = if value_span <= 0.0 {
+                50.0
+            } else {
+                92.0 - (*v - min) as f64 / value_span * 84.0
+            };
+            format!("{x:.2},{y:.2}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(Series { points, min, max })
+}
+
+/// A tick is `(y percent, inline style, label)`.
+type Tick = (f64, String, String);
+
+/// Evenly rounded depth ticks for the left axis, in the active unit.
+fn depth_axis(max_d: f64, prefs: &Preferences) -> Vec<Tick> {
+    let max_display = prefs.depth_value(Depth::new(max_d as i32));
+    if !max_display.is_finite() || max_display <= 0.0 {
+        return Vec::new();
+    }
+    let step = nice_step(max_display);
+    let mut ticks = Vec::new();
+    let mut value = 0.0;
+    while value <= max_display + 1e-6 {
+        let y = value / max_display * 90.0 + 5.0;
+        ticks.push((
+            y,
+            format!("top: {y:.2}%; color: {COLOR_DEPTH};"),
+            format!("{value:.0} {}", prefs.depth_unit()),
+        ));
+        value += step;
+    }
+    ticks
+}
+
+/// Three ticks (max, middle, min) for a normalized overlay, coloured to match
+/// its trace.
+fn value_axis(min: i32, max: i32, color: &str, fmt: impl Fn(i32) -> String) -> Vec<Tick> {
+    if min == max {
+        return vec![(50.0, format!("top: 50%; color: {color};"), fmt(min))];
+    }
+    let range = (max - min) as f64;
+    let middle = min + (max - min) / 2;
+    [max, middle, min]
+        .into_iter()
+        .map(|value| {
+            let y = 92.0 - (value - min) as f64 / range * 84.0;
+            (y, format!("top: {y:.2}%; color: {color};"), fmt(value))
+        })
+        .collect()
+}
+
+/// A round step that yields roughly five intervals over `max`.
+fn nice_step(max: f64) -> f64 {
+    let ideal = max / 5.0;
+    const STEPS: [f64; 12] = [
+        1.0, 2.0, 3.0, 5.0, 10.0, 15.0, 20.0, 25.0, 50.0, 100.0, 200.0, 500.0,
+    ];
+    STEPS
+        .into_iter()
+        .find(|step| *step >= ideal)
+        .unwrap_or(500.0)
 }

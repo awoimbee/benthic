@@ -71,6 +71,7 @@ list below).
 - [x] Overlays: temperature and cylinder pressure
 - [x] Overlays: NDL, TTS, heart rate and CNS (SAC is dive-level, shown as a fact)
 - [x] Deco ceiling visualization and gas-switch markers
+- [x] Per-metric y-axis scales (depth plus each active overlay) with depth gridlines
 - [x] Multiple dive computers per dive, switchable, with an overlay comparison
 - [x] Bühlmann tissue model with gradient factors (ceiling, NDL),
       validated against Subsurface's planner: identical first ceilings and
