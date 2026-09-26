@@ -365,3 +365,42 @@ fn merge_trips_moves_dives_and_keeps_details() {
     // Merging into a missing trip is a no-op.
     assert!(!log.merge_trips(999, 1));
 }
+
+#[test]
+fn gas_used_and_rmv() {
+    use benthic_core::{Cylinder, Dive, DiveComputer, Sample};
+
+    let cylinder = Cylinder {
+        size: Some(Volume::from_liters(12.0)),
+        start_pressure: Some(Pressure::from_bar(200.0)),
+        end_pressure: Some(Pressure::from_bar(60.0)),
+        ..Default::default()
+    };
+    assert_eq!(cylinder.gas_used_liters(), Some(1680.0));
+
+    // 40 minutes at a constant 10 m: RMV is around 21 L/min.
+    let samples = vec![
+        Sample {
+            time: Duration::new(0),
+            depth: Depth::from_meters(10.0),
+            ..Default::default()
+        },
+        Sample {
+            time: Duration::new(2400),
+            depth: Depth::from_meters(10.0),
+            ..Default::default()
+        },
+    ];
+    let dive = Dive {
+        cylinders: vec![cylinder],
+        computers: vec![DiveComputer {
+            samples,
+            ..Default::default()
+        }],
+        duration: Some(Duration::new(2400)),
+        salinity: Some(10_300),
+        ..Default::default()
+    };
+    let rmv = dive.rmv_l_per_min().expect("rmv");
+    assert!((20.0..22.0).contains(&rmv), "rmv was {rmv}");
+}

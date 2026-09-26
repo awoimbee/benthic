@@ -105,6 +105,13 @@ impl Cylinder {
             ..Default::default()
         }
     }
+
+    /// Litres of gas consumed between the recorded start and end pressures.
+    pub fn gas_used_liters(&self) -> Option<f64> {
+        let size = self.size?.liters();
+        let used = self.start_pressure?.bar() - self.end_pressure?.bar();
+        (used > 0.0).then_some(used * size)
+    }
 }
 
 /// Apply a preset to an existing cylinder, keeping its gas and measured

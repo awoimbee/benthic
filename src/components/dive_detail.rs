@@ -228,6 +228,10 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .average_depth()
         .map(|d| prefs.depth(d))
         .unwrap_or_else(|| "—".to_string());
+    let rmv = dive
+        .rmv_l_per_min()
+        .map(|v| format!("{v:.1} L/min"))
+        .unwrap_or_else(|| "—".to_string());
 
     // --- edit-form values -------------------------------------------------
 
@@ -517,6 +521,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                     Fact { label: "Duration", value: duration }
                     Fact { label: "Max depth", value: max_depth }
                     Fact { label: "Avg depth", value: avg_depth }
+                    Fact { label: "RMV", value: rmv }
                     Fact { label: "Water temp", value: water_temp }
                     Fact { label: "Air temp", value: air_temp }
                     Fact { label: "Computer", value: computer }

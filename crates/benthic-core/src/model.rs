@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::gas::GasMix;
+use crate::gas::{ambient_mbar, GasMix, SURFACE_PRESSURE_MBAR};
 use crate::units::*;
 
 // ---------------------------------------------------------------------------
@@ -401,6 +401,23 @@ impl Dive {
 
     pub fn total_weight(&self) -> Weight {
         Weight::new(self.weights.iter().map(|w| w.weight.grams).sum())
+    }
+
+    /// Respiratory minute volume (RMV) in litres per minute at the surface.
+    ///
+    /// Best-effort: uses the dive's duration and average depth together with
+    /// the first cylinder that has both start and end pressures recorded.
+    pub fn rmv_l_per_min(&self) -> Option<f64> {
+        let minutes = self.duration()?.seconds as f64 / 60.0;
+        if minutes <= 0.0 {
+            return None;
+        }
+        let avg_depth = self.average_depth()?;
+        let salinity = self.salinity.unwrap_or(crate::units::EN13319_SALINITY);
+        let avg_ambient =
+            ambient_mbar(avg_depth.mm, SURFACE_PRESSURE_MBAR, salinity) / SURFACE_PRESSURE_MBAR;
+        let used = self.cylinders.iter().find_map(|c| c.gas_used_liters())?;
+        Some(used / (minutes * avg_ambient))
     }
 
     /// Time-weighted average depth over the primary computer's samples.
