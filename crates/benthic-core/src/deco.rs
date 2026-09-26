@@ -49,6 +49,15 @@ const HE_B: [f64; COMPARTMENTS] = [
     0.9122, 0.9171, 0.9217, 0.9267,
 ];
 
+/// A decompression stop.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Stop {
+    /// Stop depth.
+    pub depth: Depth,
+    /// Time spent at the stop.
+    pub duration: Duration,
+}
+
 /// Inert-gas loading of the 16 Bühlmann compartments, in bar (partial
 /// pressures).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -172,6 +181,90 @@ impl Buhlmann {
             self.add_segment(*depth, *duration, *gas);
         }
     }
+
+    /// Compute a decompression schedule after a bottom segment.
+    ///
+    /// Ascends in steps of `stop_step` metres at `ascent_rate`, holding at each
+    /// stop until the gradient-factor-adjusted ceiling allows the next step.
+    /// The gradient factor interpolates linearly from `gf_low` at the first
+    /// stop to `gf_high` at the surface. Returns the stops deepest-first; the
+    /// bottom itself is not included.
+    pub fn deco_schedule(&self, plan: &DecoSegment) -> Vec<Stop> {
+        let mut tissues = self.clone();
+        tissues.add_segment_minutes(plan.bottom_depth, plan.bottom_minutes, plan.gas);
+
+        let ceiling = tissues.ceiling_depth(plan.gf_low).meters();
+        if ceiling <= 0.0 {
+            return Vec::new();
+        }
+        let first_stop = (ceiling / plan.stop_step).ceil() * plan.stop_step;
+
+        let gf_at = |depth: f64| {
+            if first_stop <= 0.0 {
+                plan.gf_high
+            } else {
+                let frac = (depth / first_stop).clamp(0.0, 1.0);
+                plan.gf_high + (plan.gf_low - plan.gf_high) * frac
+            }
+        };
+
+        let mut stops = Vec::new();
+        let mut depth = first_stop;
+        while depth >= plan.stop_step - 1e-9 {
+            let next = (depth - plan.stop_step).max(0.0);
+            let gf_next = gf_at(next);
+            let mut minutes: f64 = 0.0;
+            while tissues.ceiling_depth(gf_next).meters() > next + 0.05 {
+                tissues.add_segment_minutes(Depth::from_meters(depth), 1.0, plan.gas);
+                minutes += 1.0;
+                if minutes > 600.0 {
+                    break;
+                }
+            }
+            if minutes >= 1.0 {
+                stops.push(Stop {
+                    depth: Depth::from_meters(depth),
+                    duration: Duration::from_minutes(minutes.round() as i32),
+                });
+            }
+            let ascent_minutes = (depth - next) / plan.ascent_rate;
+            tissues.add_segment_minutes(
+                Depth::from_meters((depth + next) / 2.0),
+                ascent_minutes,
+                plan.gas,
+            );
+            depth = next;
+        }
+        stops
+    }
+}
+
+/// The inputs to a decompression schedule.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DecoSegment {
+    pub bottom_depth: Depth,
+    pub bottom_minutes: f64,
+    pub gas: GasMix,
+    pub gf_low: f64,
+    pub gf_high: f64,
+    /// Distance between stops, in metres.
+    pub stop_step: f64,
+    /// Ascent rate, in metres per minute.
+    pub ascent_rate: f64,
+}
+
+impl Default for DecoSegment {
+    fn default() -> Self {
+        Self {
+            bottom_depth: Depth::from_meters(30.0),
+            bottom_minutes: 20.0,
+            gas: crate::gas::AIR,
+            gf_low: 0.30,
+            gf_high: 0.70,
+            stop_step: 3.0,
+            ascent_rate: 10.0,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -247,5 +340,74 @@ mod tests {
             model.add_segment_minutes(Depth::from_meters(3.0), 10.0, AIR);
         }
         assert_eq!(model.ceiling_depth(1.0), Depth::ZERO);
+    }
+
+    fn total_deco(stops: &[Stop]) -> i32 {
+        stops.iter().map(|s| s.duration.seconds).sum()
+    }
+
+    #[test]
+    fn deep_dive_gets_a_schedule() {
+        let model = Buhlmann::default();
+        let segment = DecoSegment {
+            bottom_depth: Depth::from_meters(40.0),
+            bottom_minutes: 40.0,
+            gf_low: 1.0,
+            gf_high: 1.0,
+            ..Default::default()
+        };
+        let stops = model.deco_schedule(&segment);
+        assert!(!stops.is_empty());
+        for stop in &stops {
+            assert_eq!(
+                stop.depth.mm % 3_000,
+                0,
+                "stop {} is not a 3 m multiple",
+                stop.depth.mm
+            );
+            assert!(stop.duration.seconds >= 60);
+        }
+        // Deepest first, and never deeper than the bottom.
+        assert!(stops[0].depth.mm >= stops[stops.len() - 1].depth.mm);
+        assert!(stops[0].depth.mm <= 40_000);
+    }
+
+    #[test]
+    fn shallow_dive_needs_no_stops() {
+        let model = Buhlmann::default();
+        assert!(model
+            .deco_schedule(&DecoSegment {
+                bottom_depth: Depth::from_meters(15.0),
+                bottom_minutes: 20.0,
+                gf_low: 1.0,
+                gf_high: 1.0,
+                ..Default::default()
+            })
+            .is_empty());
+    }
+
+    #[test]
+    fn conservative_gradient_factors_add_deco() {
+        let model = Buhlmann::default();
+        let liberal = model.deco_schedule(&DecoSegment {
+            bottom_depth: Depth::from_meters(40.0),
+            bottom_minutes: 35.0,
+            gf_low: 0.9,
+            gf_high: 0.9,
+            ..Default::default()
+        });
+        let conservative = model.deco_schedule(&DecoSegment {
+            bottom_depth: Depth::from_meters(40.0),
+            bottom_minutes: 35.0,
+            gf_low: 0.3,
+            gf_high: 0.3,
+            ..Default::default()
+        });
+        assert!(
+            total_deco(&conservative) > total_deco(&liberal),
+            "conservative {} should exceed liberal {}",
+            total_deco(&conservative),
+            total_deco(&liberal)
+        );
     }
 }

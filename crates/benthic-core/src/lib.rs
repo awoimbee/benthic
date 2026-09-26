@@ -19,6 +19,7 @@ pub mod gas;
 pub mod history;
 pub mod io;
 pub mod model;
+pub mod planner;
 pub mod units;
 
 pub use deco::Buhlmann;
@@ -28,6 +29,7 @@ pub use format::{DateFormat, Preferences, Salinity, TimeFormat, UnitSystem};
 pub use gas::GasMix;
 pub use history::{Command, History};
 pub use model::*;
+pub use planner::DivePlan;
 pub use units::*;
 
 /// Convenience result alias used throughout the crate.

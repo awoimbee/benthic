@@ -3,7 +3,7 @@
 //! Each action builds one or more [`Command`]s and dispatches them through the
 //! [`AppState`] so that it is automatically undoable.
 
-use benthic_core::{Command, Dive, DiveTrip};
+use benthic_core::{Command, Dive, DivePlan, DiveTrip};
 use dioxus::prelude::WritableExt;
 
 use crate::state::AppState;
@@ -237,6 +237,23 @@ pub fn open_trips(state: AppState) {
 pub fn open_planner(state: AppState) {
     let mut show = state.show_planner;
     show.set(true);
+}
+
+/// Save a computed plan as a new dive.
+pub fn save_plan(state: AppState, plan: DivePlan) {
+    let log = (state.log)();
+    let salinity = (state.prefs)().default_salinity.value();
+    let mut dive = plan.to_dive(crate::platform::now_secs(), salinity);
+    dive.id = log.next_id();
+    dive.number = log.dives.iter().map(|d| d.number).max().unwrap_or(0) + 1;
+    let index = log.dives.len();
+    state.dispatch(Command::AddDive {
+        dive: dive.clone(),
+        index,
+    });
+    let mut selected = state.selected;
+    selected.set(Some(dive.id));
+    state.set_status("Saved plan as a dive");
 }
 
 /// Merge the `remove` trip into the `keep` trip as one undo step.

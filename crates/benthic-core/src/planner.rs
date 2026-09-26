@@ -1,0 +1,225 @@
+//! Dive planning: turn a depth, bottom time and gas into a full plan
+//! (decompression stops) and, optionally, a dive that can be saved.
+
+use serde::{Deserialize, Serialize};
+
+use crate::deco::{Buhlmann, DecoSegment, Stop};
+use crate::gas::GasMix;
+use crate::model::{Cylinder, Dive, DiveComputer, Sample};
+use crate::units::*;
+
+/// A computed dive plan.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DivePlan {
+    pub depth: Depth,
+    pub bottom_time: Duration,
+    pub gas: GasMix,
+    pub gf_low: f64,
+    pub gf_high: f64,
+    pub stops: Vec<Stop>,
+    pub descent_rate: f64,
+    pub ascent_rate: f64,
+}
+
+impl DivePlan {
+    /// Compute a plan from a bottom segment.
+    pub fn compute(
+        depth: Depth,
+        bottom_time: Duration,
+        gas: GasMix,
+        gf_low: f64,
+        gf_high: f64,
+        surface_bar: f64,
+        salinity: i32,
+    ) -> Self {
+        let model = Buhlmann::new(surface_bar, salinity);
+        let stops = model.deco_schedule(&DecoSegment {
+            bottom_depth: depth,
+            bottom_minutes: bottom_time.seconds as f64 / 60.0,
+            gas,
+            gf_low,
+            gf_high,
+            ..Default::default()
+        });
+        Self {
+            depth,
+            bottom_time,
+            gas,
+            gf_low,
+            gf_high,
+            stops,
+            descent_rate: 20.0,
+            ascent_rate: 10.0,
+        }
+    }
+
+    /// The planned profile as dive samples.
+    pub fn samples(&self) -> Vec<Sample> {
+        let bottom_m = self.depth.meters();
+        let mut samples = vec![Sample {
+            time: Duration::new(0),
+            depth: Depth::ZERO,
+            ..Default::default()
+        }];
+
+        let mut seconds = 0.0f64;
+        if bottom_m > 0.0 {
+            let descent = bottom_m / self.descent_rate * 60.0;
+            samples.push(Sample {
+                time: Duration::new((descent / 2.0).round() as i32),
+                depth: Depth::from_meters(bottom_m / 2.0),
+                ..Default::default()
+            });
+            seconds += descent;
+            samples.push(Sample {
+                time: Duration::new(seconds.round() as i32),
+                depth: self.depth,
+                ..Default::default()
+            });
+        }
+
+        seconds += self.bottom_time.seconds as f64;
+        samples.push(Sample {
+            time: Duration::new(seconds.round() as i32),
+            depth: self.depth,
+            ..Default::default()
+        });
+
+        let mut current = bottom_m;
+        for stop in &self.stops {
+            let stop_m = stop.depth.meters();
+            seconds += (current - stop_m) / self.ascent_rate * 60.0;
+            samples.push(Sample {
+                time: Duration::new(seconds.round() as i32),
+                depth: stop.depth,
+                ..Default::default()
+            });
+            seconds += stop.duration.seconds as f64;
+            samples.push(Sample {
+                time: Duration::new(seconds.round() as i32),
+                depth: stop.depth,
+                ..Default::default()
+            });
+            current = stop_m;
+        }
+
+        seconds += current / self.ascent_rate * 60.0;
+        samples.push(Sample {
+            time: Duration::new(seconds.round() as i32),
+            depth: Depth::ZERO,
+            ..Default::default()
+        });
+        samples
+    }
+
+    /// Total run time including descent, bottom time, stops and ascent.
+    pub fn total_time(&self) -> Duration {
+        self.samples().last().map(|s| s.time).unwrap_or_default()
+    }
+
+    /// Total time spent at decompression stops.
+    pub fn deco_time(&self) -> Duration {
+        Duration::new(self.stops.iter().map(|s| s.duration.seconds).sum())
+    }
+
+    /// A human-readable plan summary, suitable for dive notes.
+    pub fn summary(&self) -> String {
+        let mut out = format!(
+            "Planned dive: {} for {} on {} (GF {:.0}/{:.0})\n",
+            format_depth_m(self.depth),
+            format_duration(self.bottom_time),
+            self.gas.name(),
+            self.gf_low * 100.0,
+            self.gf_high * 100.0,
+        );
+        if self.stops.is_empty() {
+            out.push_str("No decompression stops required.\n");
+        } else {
+            out.push_str("Decompression stops:\n");
+            for stop in &self.stops {
+                out.push_str(&format!(
+                    "  {} for {}\n",
+                    format_depth_m(stop.depth),
+                    format_duration(stop.duration)
+                ));
+            }
+        }
+        out.push_str(&format!(
+            "Total runtime: {}",
+            format_duration(self.total_time())
+        ));
+        out
+    }
+
+    /// Build a dive from this plan. The caller assigns the id and number and
+    /// may adjust the start time.
+    pub fn to_dive(&self, when: Timestamp, salinity: i32) -> Dive {
+        let samples = self.samples();
+        let duration = samples.last().map(|s| s.time).unwrap_or_default();
+        Dive {
+            when,
+            duration: Some(duration),
+            max_depth: Some(self.depth),
+            salinity: Some(salinity),
+            notes: self.summary(),
+            tags: vec!["planned".to_string()],
+            cylinders: vec![Cylinder {
+                gas: self.gas,
+                ..Default::default()
+            }],
+            computers: vec![DiveComputer {
+                model: "Planner".to_string(),
+                duration: Some(duration),
+                max_depth: Some(self.depth),
+                samples,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gas::AIR;
+
+    #[test]
+    fn deep_plan_has_stops_and_a_profile() {
+        let plan = DivePlan::compute(
+            Depth::from_meters(40.0),
+            Duration::from_minutes(40),
+            AIR,
+            1.0,
+            1.0,
+            1.01325,
+            EN13319_SALINITY,
+        );
+        assert!(!plan.stops.is_empty());
+        assert!(plan.deco_time().seconds > 0);
+        assert!(plan.total_time().seconds > plan.bottom_time.seconds);
+
+        let dive = plan.to_dive(1_000, EN13319_SALINITY);
+        assert_eq!(dive.max_depth, Some(Depth::from_meters(40.0)));
+        let computer = dive.primary_computer().unwrap();
+        assert!(computer.samples.len() >= 4);
+        assert_eq!(computer.samples.last().unwrap().depth, Depth::ZERO);
+        assert!(dive.notes.contains("Total runtime"));
+        assert!(dive.average_depth().is_some());
+    }
+
+    #[test]
+    fn shallow_plan_needs_no_stops() {
+        let plan = DivePlan::compute(
+            Depth::from_meters(15.0),
+            Duration::from_minutes(20),
+            AIR,
+            1.0,
+            1.0,
+            1.01325,
+            EN13319_SALINITY,
+        );
+        assert!(plan.stops.is_empty());
+        assert!(plan.summary().contains("No decompression stops"));
+    }
+}
