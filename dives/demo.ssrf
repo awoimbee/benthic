@@ -1,0 +1,75 @@
+<divelog program='subsurface' version='2'>
+<settings>
+<divecomputerid model='Shearwater Perdix' deviceid='1a2b3c4d' serial='12345678' firmware='93'/>
+  <autogroup state='1' />
+</settings>
+<divesites>
+<site uuid='00000001' name='Blue Hole' gps='28.572100 34.536700' description='Reef wall, drift entry'>
+  <notes>Classic Red Sea site. Watch the current.</notes>
+  <geo cat='1' origin='0' value='Red Sea'/>
+  <geo cat='2' origin='0' value='Egypt'/>
+</site>
+</divesites>
+<dives>
+<trip date='2024-05-12' time='08:15:00' location='Dahab'>
+<dive number='1' tags='reef, training' divesiteid='00000001' date='2024-05-12' time='08:15:00' duration='42:30 min' rating='4'>
+  <divemaster>Mona</divemaster>
+  <buddy>Alex</buddy>
+  <notes>Buoyancy drills on the sand line, then a gentle drift along the wall.
+Water was unusually clear.</notes>
+  <suit>5mm wetsuit</suit>
+  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80' start='200.0 bar' end='60.0 bar' />
+  <weightsystem weight='6.0 kg' description='belt' />
+  <divetemperature air='29.0 C' water='26.0 C' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000001' duration='42:30 min'>
+  <depth max='18.4 m' mean='12.1 m' />
+  <temperature air='29.0 C' water='26.0 C' />
+  <surface pressure='1.013 bar' />
+  <sample time='0:00 min' depth='0.0 m' temp='26.0 C' pressure0='200.0 bar' />
+  <sample time='5:00 min' depth='12.0 m' temp='26.0 C' pressure0='180.0 bar' />
+  <sample time='10:00 min' depth='18.0 m' pressure0='160.0 bar' ndl='25:00 min' />
+  <sample time='20:00 min' depth='16.5 m' pressure0='130.0 bar' ndl='20:00 min' />
+  <sample time='30:00 min' depth='9.0 m' pressure0='95.0 bar' ndl='45:00 min' />
+  <sample time='40:00 min' depth='5.0 m' pressure0='70.0 bar' />
+  <sample time='42:30 min' depth='0.0 m' pressure0='60.0 bar' />
+  <event time='12:00 min' name='Marker' />
+  <event time='30:00 min' name='gaschange' cylinder='0' o2='32.0%' />
+  </divecomputer>
+</dive>
+<dive number='2' tags='reef' divesiteid='00000001' date='2024-05-12' time='11:30:00' duration='38:00 min' rating='5'>
+  <divemaster>Mona</divemaster>
+  <buddy>Alex</buddy>
+  <notes>Second dive of the day. Turtles on the plateau.</notes>
+  <suit>5mm wetsuit</suit>
+  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80' o2='32.0%' start='205.0 bar' end='75.0 bar' />
+  <weightsystem weight='6.0 kg' description='belt' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000002' duration='38:00 min'>
+  <depth max='22.0 m' mean='14.3 m' />
+  <temperature air='31.0 C' water='27.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='27.0 C' pressure0='205.0 bar' />
+  <sample time='8:00 min' depth='22.0 m' temp='27.0 C' pressure0='165.0 bar' ndl='18:00 min' />
+  <sample time='20:00 min' depth='18.0 m' pressure0='120.0 bar' ndl='15:00 min' />
+  <sample time='32:00 min' depth='8.0 m' pressure0='90.0 bar' />
+  <sample time='38:00 min' depth='0.0 m' pressure0='75.0 bar' />
+  </divecomputer>
+</dive>
+</trip>
+<dive number='3' date='2024-06-02' time='14:05:00' duration='25:15 min'>
+  <location>Local quarry</location>
+  <buddy>Sam</buddy>
+  <notes>Cold-water skills dive. Dry suit.</notes>
+  <suit>dry suit</suit>
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15' start='210.0 bar' end='120.0 bar' />
+  <weightsystem weight='9.0 kg' description='belt' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000003' duration='25:15 min'>
+  <depth max='14.0 m' mean='9.2 m' />
+  <temperature air='12.0 C' water='9.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='9.0 C' pressure0='210.0 bar' />
+  <sample time='6:00 min' depth='14.0 m' temp='9.0 C' pressure0='180.0 bar' />
+  <sample time='15:00 min' depth='10.0 m' pressure0='150.0 bar' />
+  <sample time='25:15 min' depth='0.0 m' pressure0='120.0 bar' />
+  <event time='6:00 min' name='Marker' />
+  </divecomputer>
+</dive>
+</dives>
+</divelog>

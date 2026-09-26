@@ -1,0 +1,36 @@
+//! Presentation helpers shared by components.
+
+use benthic_core::units::{format_duration, format_timestamp_utc};
+use benthic_core::{Dive, DiveLog};
+
+/// A human-friendly title for a dive: its site name when known.
+pub fn dive_title(dive: &Dive, log: &DiveLog) -> String {
+    if let Some(name) = dive
+        .site_id
+        .and_then(|id| log.site_by_uuid(id))
+        .map(|s| s.name.clone())
+    {
+        if !name.is_empty() {
+            return name;
+        }
+    }
+    if dive.number != 0 {
+        format!("Dive #{}", dive.number)
+    } else {
+        "Dive".to_string()
+    }
+}
+
+/// A one-line summary of a dive.
+pub fn dive_subtitle(dive: &Dive) -> String {
+    let duration = dive
+        .duration()
+        .map(format_duration)
+        .unwrap_or_else(|| "—".into());
+    let depth = dive
+        .max_depth()
+        .map(|d| format!("{:.1} m", d.meters()))
+        .unwrap_or_else(|| "—".into());
+    let date = format_timestamp_utc(dive.when);
+    format!("{date}  ·  {duration}  ·  {depth}")
+}

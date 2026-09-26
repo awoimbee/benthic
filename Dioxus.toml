@@ -1,0 +1,26 @@
+[application]
+
+# Web `build` & `serve` dist path.
+out_dir = "dist"
+
+# Static files served verbatim (favicon, manifest, ...).
+asset_dir = "public"
+
+[web.app]
+title = "benthic — dive log"
+
+[web.watcher]
+index_on_404 = true
+watch_path = ["src", "assets", "crates"]
+
+[bundle]
+identifier = "io.github.awoimbee.benthic"
+publisher = "awoimbee"
+icon = ["public/favicon.svg"]
+category = "Utility"
+short_description = "A modern dive log."
+long_description = """
+benthic is a modern, cross-platform dive log.
+It reads and writes Subsurface-compatible dive logs and stores everything
+locally, with explicit import/export for portability.
+"""

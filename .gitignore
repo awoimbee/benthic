@@ -1,0 +1,19 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Dioxus
+/dist
+.dioxus
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local dive data / exports (never commit personal dive logs)
+*.benthic.json
+*.ssrf
+!dives/**/*.ssrf
+exports/
