@@ -1,19 +1,25 @@
 use dioxus::prelude::*;
 
-use benthic_core::DiveFilter;
+use benthic_core::{DiveFilter, FilterPreset};
 
 use crate::state::AppState;
 
-/// A bar of structured filters (rating, tags, depth) below the toolbar.
+/// A bar of structured filters (rating, tags, depth) and saved presets.
 #[component]
 pub fn FilterBar() -> Element {
     let state = use_context::<AppState>();
     let mut filter = state.filter;
+    let mut presets_sig = state.presets;
     // Tags are edited as text and applied on change, to avoid re-formatting
     // the input while the user is still typing.
     let tags_text = use_signal(|| (state.filter)().tags.join(", "));
+    let mut preset_name = use_signal(String::new);
+    let mut loaded_preset = use_signal(|| None::<usize>);
+
     let current = (state.filter)();
     let prefs = (state.prefs)();
+    let presets = (state.presets)();
+    let selected = (loaded_preset)();
     let mut tags_text_signal = tags_text;
 
     let active = current.is_active();
@@ -27,6 +33,37 @@ pub fn FilterBar() -> Element {
             (r, label)
         })
         .collect();
+
+    let on_save_preset = move |_| {
+        let name = preset_name().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let mut list = (state.presets)();
+        let entry = FilterPreset::new(name, (state.filter)());
+        match loaded_preset() {
+            Some(index) if index < list.len() => list[index] = entry,
+            _ => {
+                list.push(entry);
+                loaded_preset.set(Some(list.len() - 1));
+            }
+        }
+        presets_sig.set(list);
+        state.set_status("Saved filter preset");
+    };
+
+    let on_delete_preset = move |_| {
+        let Some(index) = loaded_preset() else {
+            return;
+        };
+        let mut list = (state.presets)();
+        if index < list.len() {
+            list.remove(index);
+            presets_sig.set(list);
+        }
+        loaded_preset.set(None);
+        preset_name.set(String::new());
+    };
 
     rsx! {
         div { class: "filter-bar",
@@ -82,6 +119,46 @@ pub fn FilterBar() -> Element {
                     },
                     "Clear filters"
                 }
+            }
+
+            span { class: "filter-sep" }
+
+            span { class: "filter-label", "Presets" }
+            select {
+                class: "field",
+                value: "{selected.map(|i| i.to_string()).unwrap_or_default()}",
+                onchange: move |evt| {
+                    let value = evt.value();
+                    if value.is_empty() {
+                        loaded_preset.set(None);
+                        return;
+                    }
+                    if let Ok(index) = value.parse::<usize>() {
+                        let list = (state.presets)();
+                        if let Some(preset) = list.get(index) {
+                            filter.set(preset.filter.clone());
+                            preset_name.set(preset.name.clone());
+                            loaded_preset.set(Some(index));
+                        }
+                    }
+                },
+                option { value: "", "Load preset…" }
+                for (index, preset) in presets.iter().enumerate() {
+                    option { key: "{index}", value: "{index}", "{preset.name}" }
+                }
+            }
+            input {
+                class: "field",
+                placeholder: "Preset name",
+                value: "{preset_name()}",
+                oninput: move |evt| preset_name.set(evt.value()),
+            }
+            button { class: "btn", onclick: on_save_preset, "Save" }
+            button {
+                class: "btn",
+                disabled: selected.is_none(),
+                onclick: on_delete_preset,
+                "Delete"
             }
         }
     }

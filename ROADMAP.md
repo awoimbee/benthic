@@ -49,7 +49,7 @@ Guiding principles:
 - [x] Multi-select and bulk delete (one undo step)
 - [x] Filter UI for tags, rating and depth
 - [x] Preferences: metric/imperial units, persisted separately from the log
-- [ ] Saveable filter presets
+- [x] Saveable filter presets
 - [x] Trip create (from selection), rename and delete
 - [ ] Trip merge/split
 - [ ] Dive-site merge, map picker, and deduplication of inline locations

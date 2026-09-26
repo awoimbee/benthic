@@ -97,6 +97,23 @@ fn is_zero(v: &u8) -> bool {
     *v == 0
 }
 
+/// A named, saved dive filter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilterPreset {
+    pub name: String,
+    #[serde(default)]
+    pub filter: DiveFilter,
+}
+
+impl FilterPreset {
+    pub fn new(name: impl Into<String>, filter: DiveFilter) -> Self {
+        Self {
+            name: name.into(),
+            filter,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +183,21 @@ mod tests {
             ..Default::default()
         };
         assert!(!filter.matches(&log.dives[0], &log));
+    }
+
+    #[test]
+    fn preset_serde_roundtrip() {
+        let preset = FilterPreset::new(
+            "Deep reef",
+            DiveFilter {
+                query: "reef".into(),
+                min_rating: 4,
+                ..Default::default()
+            },
+        );
+        let text = serde_json::to_string(&preset).unwrap();
+        let back: FilterPreset = serde_json::from_str(&text).unwrap();
+        assert_eq!(preset, back);
     }
 
     #[test]

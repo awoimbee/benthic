@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use benthic_core::{DiveFilter, DiveLog, History, Preferences};
+use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{DiveDetail, DiveList, FilterBar, PreferencesDialog, Toolbar};
 use crate::state::AppState;
@@ -23,6 +23,11 @@ pub fn App() -> Element {
             .unwrap_or_default()
     });
     let show_prefs = use_signal(|| false);
+    let presets = use_signal(|| {
+        crate::storage::load_presets()
+            .and_then(|text| serde_json::from_str::<Vec<FilterPreset>>(&text).ok())
+            .unwrap_or_default()
+    });
     // Autosave is gated until the initial load has completed, so we never
     // overwrite a stored log with the empty in-memory log on startup.
     let loaded = use_signal(|| false);
@@ -33,16 +38,23 @@ pub fn App() -> Element {
         status,
         history,
         filter,
+        presets,
         prefs,
         show_prefs,
     };
     use_context_provider(|| state);
 
-    // Preferences are small and load synchronously.
+    // Preferences and filter presets are small and load synchronously.
     use_effect(move || {
         let snapshot = prefs();
         if let Ok(text) = serde_json::to_string(&snapshot) {
             let _ = crate::storage::save_prefs(&text);
+        }
+    });
+    use_effect(move || {
+        let snapshot = presets();
+        if let Ok(text) = serde_json::to_string(&snapshot) {
+            let _ = crate::storage::save_presets(&text);
         }
     });
 

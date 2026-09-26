@@ -12,6 +12,7 @@ mod imp {
 
     const LOG_KEY: &str = "benthic.log";
     const PREFS_KEY: &str = "benthic.prefs";
+    const PRESETS_KEY: &str = "benthic.presets";
 
     pub fn load() -> Option<String> {
         LocalStorage::get(LOG_KEY).ok()
@@ -27,6 +28,14 @@ mod imp {
 
     pub fn save_prefs(contents: &str) -> Result<(), String> {
         LocalStorage::set(PREFS_KEY, contents).map_err(|e| e.to_string())
+    }
+
+    pub fn load_presets() -> Option<String> {
+        LocalStorage::get(PRESETS_KEY).ok()
+    }
+
+    pub fn save_presets(contents: &str) -> Result<(), String> {
+        LocalStorage::set(PRESETS_KEY, contents).map_err(|e| e.to_string())
     }
 }
 
@@ -62,6 +71,15 @@ mod imp {
         }
     }
 
+    fn presets_path() -> PathBuf {
+        let dir = data_dir();
+        if dir.as_os_str().is_empty() {
+            PathBuf::from("benthic.presets.json")
+        } else {
+            dir.join("presets.json")
+        }
+    }
+
     pub fn load() -> Option<String> {
         std::fs::read_to_string(log_path()).ok()
     }
@@ -77,7 +95,15 @@ mod imp {
     pub fn save_prefs(contents: &str) -> Result<(), String> {
         std::fs::write(prefs_path(), contents).map_err(|e| e.to_string())
     }
+
+    pub fn load_presets() -> Option<String> {
+        std::fs::read_to_string(presets_path()).ok()
+    }
+
+    pub fn save_presets(contents: &str) -> Result<(), String> {
+        std::fs::write(presets_path(), contents).map_err(|e| e.to_string())
+    }
 }
 
 #[allow(unused_imports)]
-pub use imp::{load, load_prefs, save, save_prefs};
+pub use imp::{load, load_prefs, load_presets, save, save_prefs, save_presets};
