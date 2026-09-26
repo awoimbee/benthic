@@ -303,6 +303,11 @@ body {
   cursor: pointer;
 }
 
+.check.disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
 .scrub {
   flex: 1;
   min-width: 120px;

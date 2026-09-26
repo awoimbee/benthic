@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use benthic_core::units::{format_duration, Depth, Duration, Pressure, Temperature};
-use benthic_core::{Dive, Preferences};
+use benthic_core::{Dive, DiveComputer, Preferences};
 
 use crate::state::AppState;
 
@@ -25,20 +25,28 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let state = use_context::<AppState>();
     let prefs = (state.prefs)();
 
-    let mut show_pressure = use_signal(|| true);
+    // Which metrics this dive actually carries, so toggles can be disabled
+    // when there is nothing to show. Computed before the hooks (which must run
+    // unconditionally) and over the whole dive, not just the visible window.
+    let active_opt = dive.computer(dc_index).or_else(|| dive.computers.first());
+    let available = active_opt.map(metric_availability).unwrap_or_default();
+    let has_pressure = available.pressure;
+    let has_deco = available.ceiling;
+
+    let mut show_pressure = use_signal(|| has_pressure);
     let mut show_temp = use_signal(|| false);
     let mut show_ndl = use_signal(|| false);
     let mut show_tts = use_signal(|| false);
     let mut show_heart = use_signal(|| false);
     let mut show_cns = use_signal(|| false);
-    let mut show_deco = use_signal(|| true);
+    let mut show_deco = use_signal(|| has_deco);
     let mut cursor = use_signal(|| 0usize);
     let mut zoom = use_signal(|| 1.0f64);
     let mut pan = use_signal(|| 0.5f64);
     let mut hover = use_signal(|| None::<f64>);
     let mut plot_width = use_signal(|| 0.0f64);
 
-    let Some(active) = dive.computer(dc_index).or_else(|| dive.computers.first()) else {
+    let Some(active) = active_opt else {
         return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
     };
 
@@ -460,13 +468,13 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                Toggle { label: "Pressure", color: COLOR_PRESSURE, on: pressure_on, onclick: move |_| show_pressure.set(!pressure_on) }
-                Toggle { label: "Temperature", color: COLOR_TEMP, on: temp_on, onclick: move |_| show_temp.set(!temp_on) }
-                Toggle { label: "NDL", color: COLOR_NDL, on: ndl_on, onclick: move |_| show_ndl.set(!ndl_on) }
-                Toggle { label: "TTS", color: COLOR_TTS, on: tts_on, onclick: move |_| show_tts.set(!tts_on) }
-                Toggle { label: "Heart", color: COLOR_HEART, on: heart_on, onclick: move |_| show_heart.set(!heart_on) }
-                Toggle { label: "CNS", color: COLOR_CNS, on: cns_on, onclick: move |_| show_cns.set(!cns_on) }
-                Toggle { label: "Deco", color: COLOR_CEILING, on: deco_on, onclick: move |_| show_deco.set(!deco_on) }
+                Toggle { label: "Pressure", color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, onclick: move |_| show_pressure.set(!pressure_on) }
+                Toggle { label: "Temperature", color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, onclick: move |_| show_temp.set(!temp_on) }
+                Toggle { label: "NDL", color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, onclick: move |_| show_ndl.set(!ndl_on) }
+                Toggle { label: "TTS", color: COLOR_TTS, on: tts_on, disabled: !available.tts, onclick: move |_| show_tts.set(!tts_on) }
+                Toggle { label: "Heart", color: COLOR_HEART, on: heart_on, disabled: !available.heart, onclick: move |_| show_heart.set(!heart_on) }
+                Toggle { label: "CNS", color: COLOR_CNS, on: cns_on, disabled: !available.cns, onclick: move |_| show_cns.set(!cns_on) }
+                Toggle { label: "Deco", color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, onclick: move |_| show_deco.set(!deco_on) }
                 label { class: "check", "Zoom"
                     input {
                         class: "zoom",
@@ -507,20 +515,54 @@ fn Toggle(
     label: &'static str,
     color: &'static str,
     on: bool,
+    disabled: bool,
     onclick: EventHandler<()>,
 ) -> Element {
     let name_style = format!("color: {color};");
     let box_style = format!("accent-color: {color};");
+    let class = if disabled { "check disabled" } else { "check" };
     rsx! {
-        label { class: "check",
+        label { class: "{class}",
             input {
                 r#type: "checkbox",
                 checked: on,
+                disabled,
                 style: "{box_style}",
                 onchange: move |_| onclick.call(()),
             }
             span { style: "{name_style}", " {label}" }
         }
+    }
+}
+
+/// Which optional metrics a dive computer actually recorded.
+#[derive(Clone, Copy, Default)]
+struct Availability {
+    pressure: bool,
+    temperature: bool,
+    ndl: bool,
+    tts: bool,
+    heart: bool,
+    cns: bool,
+    ceiling: bool,
+}
+
+/// Scan a computer's samples for the metrics that have data, so the matching
+/// toggles can be enabled.
+fn metric_availability(dc: &DiveComputer) -> Availability {
+    let samples = &dc.samples;
+    Availability {
+        pressure: samples.iter().any(|s| !s.pressures.is_empty()),
+        temperature: samples.iter().any(|s| s.temperature.is_some()),
+        ndl: samples
+            .iter()
+            .any(|s| s.ndl.is_some_and(|d| d.seconds >= 0)),
+        tts: samples.iter().any(|s| s.tts.is_some_and(|d| d.seconds > 0)),
+        heart: samples.iter().any(|s| s.heartbeat.is_some()),
+        cns: samples.iter().any(|s| s.cns.is_some()),
+        ceiling: samples
+            .iter()
+            .any(|s| s.stop_depth.is_some_and(|d| d.mm > 0)),
     }
 }
 
