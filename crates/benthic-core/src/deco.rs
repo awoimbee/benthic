@@ -482,8 +482,10 @@ impl Buhlmann {
 
     /// Compute a decompression schedule after a bottom segment.
     ///
-    /// The descent and ascent are integrated in 2-second steps (as Subsurface
-    /// does), stops are on a `stop_step` grid, and the gradient factor
+    /// The descent, ascent and the stops themselves are integrated in
+    /// 2-second steps (Subsurface's `base_timestep`), so a stop lasts exactly
+    /// as long as it takes the ceiling to clear rather than a whole number of
+    /// minutes. Stops are on a `stop_step` grid and the gradient factor
     /// interpolates from `gf_low` at the first stop to `gf_high` at the
     /// surface.
     pub fn deco_schedule(&self, plan: &DecoSegment) -> Vec<Stop> {
@@ -522,12 +524,10 @@ impl Buhlmann {
 
         let flush = |holding: &mut Option<(f64, f64)>, stops: &mut Vec<Stop>| {
             if let Some((depth, minutes)) = holding.take() {
-                if minutes >= 1.0 {
-                    stops.push(Stop {
-                        depth: Depth::from_meters(depth),
-                        duration: Duration::from_minutes(minutes.round() as i32),
-                    });
-                }
+                stops.push(Stop {
+                    depth: Depth::from_meters(depth),
+                    duration: Duration::new((minutes * 60.0).round() as i32),
+                });
             }
         };
 
@@ -565,13 +565,13 @@ impl Buhlmann {
                 load_inert_gas(
                     &mut tissues,
                     amb,
-                    1.0,
+                    timestep,
                     plan.mode.gas_at(amb),
                     WATER_VAPOUR_BAR,
                 );
                 match &mut holding {
-                    Some((_, minutes)) => *minutes += 1.0,
-                    None => holding = Some((depth_m, 1.0)),
+                    Some((_, minutes)) => *minutes += timestep,
+                    None => holding = Some((depth_m, timestep)),
                 }
             }
         }
@@ -694,10 +694,11 @@ mod tests {
     fn matches_subsurface_reference_plans() {
         // Golden plans from Subsurface 6.0.5504's planner (planner-cli), sea
         // water, 1013 mbar surface, 20 m/min descent, 10 m/min ascent, 3 m
-        // stop grid, last stop at 3 m, open circuit. The reference stop times
-        // are quantised to the planner's 60 s time step, so the (exact) first
-        // ceiling is compared tightly and the stop durations within two
-        // minutes.
+        // stop grid, last stop at 3 m, open circuit. The reference rounds each
+        // stop's absolute end time up to a 60 s grid, so its durations are up
+        // to a few minutes longer than the true minimum we compute. The
+        // (exact) first ceiling is therefore compared tightly and the stop
+        // durations within three minutes.
         struct Reference {
             depth: f64,
             minutes: f64,
@@ -822,7 +823,7 @@ mod tests {
                 );
                 let minutes = stop.duration.seconds as f64 / 60.0;
                 assert!(
-                    (minutes - exp_minutes).abs() <= 2.0,
+                    (minutes - exp_minutes).abs() <= 3.0,
                     "{} m/{} min: {exp_depth} m stop was {minutes} min, Subsurface {exp_minutes}",
                     c.depth,
                     c.minutes
@@ -846,7 +847,7 @@ mod tests {
             stops.first().map(|s| s.depth),
             Some(Depth::from_meters(9.0))
         );
-        assert_eq!(total, 49 * 60);
+        assert_eq!(total, 47 * 60 + 54);
     }
 
     #[test]
