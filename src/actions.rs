@@ -226,6 +226,27 @@ pub fn open_preferences(state: AppState) {
     show.set(true);
 }
 
+/// Open the trips manager dialog.
+pub fn open_trips(state: AppState) {
+    let mut show = state.show_trips;
+    show.set(true);
+}
+
+/// Merge the `remove` trip into the `keep` trip as one undo step.
+pub fn merge_trips(state: AppState, keep: u32, remove: u32) {
+    let before = (state.log)();
+    let mut after = before.clone();
+    if !after.merge_trips(keep, remove) {
+        return;
+    }
+    state.dispatch(Command::Snapshot {
+        label: "Merge trips".into(),
+        before: Box::new(before),
+        after: Box::new(after),
+    });
+    state.set_status("Merged trips");
+}
+
 /// Toggle automatic trip grouping on/off, regrouping or ungrouping as needed.
 pub fn toggle_autogroup(state: AppState) {
     let mut after = (state.log)();

@@ -6,6 +6,7 @@ mod import_export;
 mod preferences;
 mod profile;
 mod toolbar;
+mod trips_dialog;
 
 pub use command_palette::CommandPalette;
 pub use dive_detail::DiveDetail;
@@ -15,3 +16,4 @@ pub use import_export::ImportExport;
 pub use preferences::PreferencesDialog;
 pub use profile::DiveProfile;
 pub use toolbar::Toolbar;
+pub use trips_dialog::TripsDialog;

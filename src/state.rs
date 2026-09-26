@@ -28,6 +28,8 @@ pub struct AppState {
     pub show_prefs: Signal<bool>,
     /// Whether the command palette is open.
     pub show_palette: Signal<bool>,
+    /// Whether the trips manager is open.
+    pub show_trips: Signal<bool>,
 }
 
 impl AppState {

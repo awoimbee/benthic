@@ -35,6 +35,11 @@ pub fn CommandPalette() -> Element {
             Action::CreateTrip,
         ),
         Item::new(
+            "Manage trips",
+            "Rename, merge and delete trips",
+            Action::ManageTrips,
+        ),
+        Item::new(
             "Delete selected",
             "Remove ticked dives",
             Action::DeleteSelected,
@@ -113,6 +118,7 @@ enum Action {
     AutoGroup,
     MergeSites,
     CreateTrip,
+    ManageTrips,
     DeleteSelected,
     Export,
     Preferences,
@@ -147,6 +153,7 @@ fn run(state: AppState, action: Action) {
         Action::AutoGroup => actions::toggle_autogroup(state),
         Action::MergeSites => actions::merge_duplicate_sites(state),
         Action::CreateTrip => actions::create_trip_from_selection(state),
+        Action::ManageTrips => actions::open_trips(state),
         Action::DeleteSelected => actions::delete_selected(state),
         Action::Export => actions::export_ssrf(state),
         Action::Preferences => actions::open_preferences(state),

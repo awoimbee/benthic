@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
-    CommandPalette, DiveDetail, DiveList, FilterBar, PreferencesDialog, Toolbar,
+    CommandPalette, DiveDetail, DiveList, FilterBar, PreferencesDialog, Toolbar, TripsDialog,
 };
 use crate::state::AppState;
 
@@ -26,6 +26,7 @@ pub fn App() -> Element {
     });
     let show_prefs = use_signal(|| false);
     let show_palette = use_signal(|| false);
+    let show_trips = use_signal(|| false);
     let presets = use_signal(|| {
         crate::storage::load_presets()
             .and_then(|text| serde_json::from_str::<Vec<FilterPreset>>(&text).ok())
@@ -45,6 +46,7 @@ pub fn App() -> Element {
         prefs,
         show_prefs,
         show_palette,
+        show_trips,
     };
     use_context_provider(|| state);
 
@@ -161,6 +163,9 @@ pub fn App() -> Element {
             }
             if (show_palette)() {
                 CommandPalette {}
+            }
+            if (show_trips)() {
+                TripsDialog {}
             }
         }
     }

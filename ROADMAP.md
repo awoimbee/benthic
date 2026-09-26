@@ -51,7 +51,7 @@ Guiding principles:
 - [x] Preferences: metric/imperial units, persisted separately from the log
 - [x] Saveable filter presets
 - [x] Trip create (from selection), rename and delete
-- [ ] Trip merge/split
+- [x] Trip merge and split (split via 'New trip' from a selection)
 - [x] Dive-site merge and de-duplication (by name + GPS)
 - [ ] Dive-site map picker
 - [x] Preferences: date and time formats

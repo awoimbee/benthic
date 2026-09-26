@@ -35,6 +35,12 @@ pub fn Toolbar() -> Element {
             }
             button {
                 class: "btn",
+                title: "Rename, merge and delete trips",
+                onclick: move |_| actions::open_trips(state),
+                "Trips"
+            }
+            button {
+                class: "btn",
                 title: "Merge dive sites with the same name",
                 onclick: move |_| actions::merge_duplicate_sites(state),
                 "Merge sites"

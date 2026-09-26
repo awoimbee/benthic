@@ -676,6 +676,37 @@ impl DiveLog {
         removed
     }
 
+    /// Merge `remove_id` into `keep_id`: move its dives across, fill in missing
+    /// fields on the kept trip, and delete the removed trip. Returns whether
+    /// anything changed.
+    pub fn merge_trips(&mut self, keep_id: u32, remove_id: u32) -> bool {
+        if keep_id == remove_id || self.trip_by_id(keep_id).is_none() {
+            return false;
+        }
+        let Some(remove) = self.trip_by_id(remove_id).cloned() else {
+            return false;
+        };
+
+        for dive in &mut self.dives {
+            if dive.trip_id == Some(remove_id) {
+                dive.trip_id = Some(keep_id);
+            }
+        }
+        if let Some(keep) = self.trips.iter_mut().find(|t| t.id == keep_id) {
+            if keep.location.is_empty() {
+                keep.location = remove.location.clone();
+            }
+            if keep.notes.is_empty() {
+                keep.notes = remove.notes.clone();
+            }
+            if keep.date.is_none() {
+                keep.date = remove.date;
+            }
+        }
+        self.trips.retain(|t| t.id != remove_id);
+        true
+    }
+
     /// Remove all automatically-generated trips and clear the trip links of
     /// dives that referenced them. Manual trips are left untouched.
     pub fn clear_auto_trips(&mut self) {

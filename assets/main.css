@@ -582,6 +582,24 @@ textarea.field {
   font-size: 1.1rem;
 }
 
+.modal.wide {
+  width: min(640px, 94vw);
+}
+
+.trip-edit-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) auto minmax(120px, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.trip-edit-meta {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
 /* ---- Command palette ---- */
 .palette {
   background: var(--bg-alt);

@@ -296,3 +296,40 @@ fn merge_duplicate_sites_by_name_and_gps() {
     assert_eq!(log.sites.len(), 3);
     assert_eq!(log.dives[0].site_id, Some(1));
 }
+
+#[test]
+fn merge_trips_moves_dives_and_keeps_details() {
+    use benthic_core::{Dive, DiveLog, DiveTrip};
+
+    let mut log = DiveLog::new();
+    log.trips.push(DiveTrip {
+        id: 1,
+        location: String::new(),
+        date: None,
+        ..Default::default()
+    });
+    log.trips.push(DiveTrip {
+        id: 2,
+        location: "Dahab".into(),
+        date: Some(1_000),
+        notes: "fun".into(),
+        ..Default::default()
+    });
+    log.dives.push(Dive {
+        id: 1,
+        when: 1_000,
+        trip_id: Some(2),
+        ..Default::default()
+    });
+
+    assert!(log.merge_trips(1, 2));
+    assert_eq!(log.trips.len(), 1);
+    let kept = log.trip_by_id(1).unwrap();
+    assert_eq!(kept.location, "Dahab");
+    assert_eq!(kept.date, Some(1_000));
+    assert_eq!(kept.notes, "fun");
+    assert_eq!(log.dives[0].trip_id, Some(1));
+
+    // Merging into a missing trip is a no-op.
+    assert!(!log.merge_trips(999, 1));
+}
