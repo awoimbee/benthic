@@ -485,6 +485,35 @@ mod tests {
     }
 
     #[test]
+    fn ndl_matches_known_zh_l16b_values() {
+        // Representative no-decompression limits on air, in minutes, matching
+        // dive computers that implement ZH-L16B. Regression guard.
+        let model = Buhlmann::default();
+        for (depth_m, expected_minutes) in [(18.0, 60), (24.0, 29), (30.0, 17), (40.0, 9)] {
+            let ndl = minutes(model.ndl(Depth::from_meters(depth_m), AIR, 1.0));
+            assert!(
+                (ndl - expected_minutes as f64).abs() <= 2.0,
+                "{depth_m} m NDL was {ndl} min, expected ~{expected_minutes}"
+            );
+        }
+    }
+
+    #[test]
+    fn forty_metre_gf100_schedule_is_stable() {
+        let stops = Buhlmann::default().deco_schedule(&DecoSegment {
+            bottom_depth: Depth::from_meters(40.0),
+            bottom_minutes: 40.0,
+            mode: BreathingMode::OpenCircuit(AIR),
+            gf_low: 1.0,
+            gf_high: 1.0,
+            ..Default::default()
+        });
+        let total: i32 = stops.iter().map(|s| s.duration.seconds).sum();
+        assert_eq!(stops.first().map(|s| s.depth), Some(Depth::from_meters(12.0)));
+        assert_eq!(total, 46 * 60);
+    }
+
+    #[test]
     fn lower_gradient_factor_shortens_ndl() {
         let model = Buhlmann::default();
         let conservative = minutes(model.ndl(Depth::from_meters(30.0), AIR, 0.7));
