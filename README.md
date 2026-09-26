@@ -21,8 +21,9 @@ A modern, cross-platform dive log — a ground-up rewrite of
 > decompression model is not safe to ship. The log is usable end to end:
 > import, create/edit, search, filter and group dives, equipment editing,
 > unit and format preferences, undo/redo, a command palette, automatic
-> backups, an interactive dive profile, and a validated Bühlmann dive
-> planner (open circuit, CCR and pSCR) with gas needs and bailout.
+> backups, an interactive dive profile, and a Bühlmann dive planner
+> (open circuit, CCR and pSCR) validated stop-for-stop against Subsurface
+> reference plans, with gas needs and bailout.
 
 ## Quick start
 

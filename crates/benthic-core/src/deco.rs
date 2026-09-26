@@ -1,4 +1,4 @@
-//! Bühlmann ZH-L16B tissue model, ceilings and no-decompression limits.
+//! Bühlmann ZH-L16C tissue model, ceilings and no-decompression limits.
 //!
 //! This is the foundation of the dive planner. It tracks nitrogen and helium
 //! loading in the 16 ZH-L16 compartments and can answer the two questions a
@@ -17,37 +17,40 @@ use crate::units::{Depth, Duration, EN13319_SALINITY};
 
 const COMPARTMENTS: usize = 16;
 const LN2: f64 = std::f64::consts::LN_2;
-/// Alveolar water-vapour pressure in bar (Bühlmann, Rq = 1.0).
-const WATER_VAPOUR_BAR: f64 = 0.0627;
-// ZH-L16B nitrogen half-times (minutes). This is the variant Subsurface
-// uses; only the first compartment differs from ZH-L16C.
+/// Effective alveolar water-vapour pressure in bar.
+///
+/// This is the CO2-corrected (Schreiner, Rq = 0.8) value:
+/// `P_H2O - (1 - Rq)/Rq * P_CO2 = 0.0627 - 0.25 * 0.0534`. Modern Subsurface
+/// uses this effective value; the golden reference plans below confirm it.
+const WATER_VAPOUR_BAR: f64 = 0.0493;
+// ZH-L16C nitrogen half-times (minutes).
 const N2_HALF_TIMES: [f64; COMPARTMENTS] = [
-    5.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0,
+    4.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0,
     635.0,
 ];
-// ZH-L16B helium half-times (minutes).
+// ZH-L16C helium half-times (minutes).
 const HE_HALF_TIMES: [f64; COMPARTMENTS] = [
     1.88, 3.02, 4.72, 6.99, 10.21, 14.48, 20.53, 29.11, 41.20, 55.19, 70.69, 90.34, 115.29, 147.42,
     188.24, 240.03,
 ];
-// ZH-L16B nitrogen `a` coefficients (bar).
+// ZH-L16C nitrogen `a` coefficients (bar).
 const N2_A: [f64; COMPARTMENTS] = [
-    1.1696, 1.0, 0.8618, 0.7562, 0.62, 0.5043, 0.441, 0.4, 0.375, 0.35, 0.3295, 0.3065, 0.2835,
+    1.2599, 1.0, 0.8618, 0.7562, 0.62, 0.5043, 0.441, 0.4, 0.375, 0.35, 0.3295, 0.3065, 0.2835,
     0.261, 0.248, 0.2327,
 ];
-// ZH-L16B nitrogen `b` coefficients (dimensionless).
+// ZH-L16C nitrogen `b` coefficients (dimensionless).
 const N2_B: [f64; COMPARTMENTS] = [
-    0.5578, 0.6514, 0.7222, 0.7825, 0.8126, 0.8434, 0.8693, 0.8910, 0.9092, 0.9222, 0.9319, 0.9403,
+    0.5050, 0.6514, 0.7222, 0.7825, 0.8126, 0.8434, 0.8693, 0.8910, 0.9092, 0.9222, 0.9319, 0.9403,
     0.9477, 0.9544, 0.9602, 0.9653,
 ];
-// ZH-L16B helium `a` coefficients (bar).
+// ZH-L16C helium `a` coefficients (bar).
 const HE_A: [f64; COMPARTMENTS] = [
-    1.6189, 1.383, 1.1919, 1.0458, 0.922, 0.8205, 0.7305, 0.6502, 0.595, 0.5545, 0.5333, 0.5189,
+    1.7424, 1.383, 1.1919, 1.0458, 0.922, 0.8205, 0.7305, 0.6502, 0.595, 0.5545, 0.5333, 0.5189,
     0.5181, 0.5176, 0.5172, 0.5119,
 ];
-// ZH-L16B helium `b` coefficients (dimensionless).
+// ZH-L16C helium `b` coefficients (dimensionless).
 const HE_B: [f64; COMPARTMENTS] = [
-    0.4770, 0.5747, 0.6527, 0.7223, 0.7582, 0.7957, 0.8279, 0.8553, 0.8757, 0.8903, 0.8997, 0.9073,
+    0.4245, 0.5747, 0.6527, 0.7223, 0.7582, 0.7957, 0.8279, 0.8553, 0.8757, 0.8903, 0.8997, 0.9073,
     0.9122, 0.9171, 0.9217, 0.9267,
 ];
 
@@ -210,7 +213,7 @@ impl Default for Tissues {
     }
 }
 
-/// A Bühlmann ZH-L16B model instance.
+/// A Bühlmann ZH-L16C model instance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Buhlmann {
     pub tissues: Tissues,
@@ -250,10 +253,18 @@ impl Buhlmann {
     ///
     /// A ceiling at or below the surface is reported as 0.
     pub fn ceiling_depth(&self, gf: f64) -> Depth {
+        self.ceiling_depth_of(&self.tissues, gf)
+    }
+
+    /// The ceiling for an explicit tissue state (used by the schedule).
+    /// The tolerated ambient pressure (bar) for a tissue state at a gradient
+    /// factor, using Bühlmann's M-line with Baker's tissue-axis interpolation
+    /// of the gradient factor.
+    pub fn ceiling_bar_of(&self, tissues: &Tissues, gf: f64) -> f64 {
         let mut ceiling_bar = self.surface_bar;
         for i in 0..COMPARTMENTS {
-            let p_n2 = self.tissues.n2[i];
-            let p_he = self.tissues.he[i];
+            let p_n2 = tissues.n2[i];
+            let p_he = tissues.he[i];
             let p_total = p_n2 + p_he;
             if p_total <= 0.0 {
                 continue;
@@ -274,11 +285,75 @@ impl Buhlmann {
                 ceiling_bar = p_gf;
             }
         }
+        ceiling_bar
+    }
+
+    /// The ceiling for an explicit tissue state (used by the schedule).
+    pub fn ceiling_depth_of(&self, tissues: &Tissues, gf: f64) -> Depth {
+        let ceiling_bar = self.ceiling_bar_of(tissues, gf);
         let mm = crate::gas::depth_mm_at(
             ceiling_bar * 1000.0,
             self.surface_bar * 1000.0,
             self.salinity,
         );
+        Depth::new(mm.max(0))
+    }
+
+    /// The ceiling (bar) for a full gradient-factor descent from a deep anchor
+    /// to the surface, following Subsurface's `tissue_tolerance_calc` exactly.
+    ///
+    /// `anchor_bar` is the deepest ceiling of the dive (Subsurface's
+    /// `gf_low_pressure_this_dive`); the gradient factor runs from `gf_low`
+    /// there to `gf_high` at the surface.
+    pub fn gf_ceiling_bar_of(
+        &self,
+        tissues: &Tissues,
+        gf_low: f64,
+        gf_high: f64,
+        anchor_bar: f64,
+    ) -> f64 {
+        let surface = self.surface_bar;
+        let mut ret = 0.0f64;
+        for i in 0..COMPARTMENTS {
+            let p_n2 = tissues.n2[i];
+            let p_he = tissues.he[i];
+            let p_total = p_n2 + p_he;
+            if p_total <= 0.0 {
+                continue;
+            }
+            let a = (N2_A[i] * p_n2 + HE_A[i] * p_he) / p_total;
+            let b = (N2_B[i] * p_n2 + HE_B[i] * p_he) / p_total;
+
+            let surface_tol = (surface / b + a - surface) * gf_high + surface;
+            let anchor_tol = (anchor_bar / b + a - anchor_bar) * gf_low + anchor_bar;
+
+            let tolerated = if surface_tol < anchor_tol {
+                (-a * b * (gf_high * anchor_bar - gf_low * surface)
+                    - (1.0 - b) * (gf_high - gf_low) * anchor_bar * surface
+                    + b * (anchor_bar - surface) * p_total)
+                    / (-a * b * (gf_high - gf_low)
+                        + (1.0 - b) * (gf_low * anchor_bar - gf_high * surface)
+                        + b * (anchor_bar - surface))
+            } else {
+                ret
+            };
+            if tolerated >= ret {
+                ret = tolerated;
+            }
+        }
+        ret
+    }
+
+    /// As [`Self::gf_ceiling_bar_of`], but as a depth.
+    pub fn gf_ceiling_depth_of(
+        &self,
+        tissues: &Tissues,
+        gf_low: f64,
+        gf_high: f64,
+        anchor_bar: f64,
+    ) -> Depth {
+        let bar = self.gf_ceiling_bar_of(tissues, gf_low, gf_high, anchor_bar);
+        let mm = crate::gas::depth_mm_at(bar * 1000.0, self.surface_bar * 1000.0, self.salinity);
         Depth::new(mm.max(0))
     }
 
@@ -339,54 +414,130 @@ impl Buhlmann {
     /// The gradient factor interpolates linearly from `gf_low` at the first
     /// stop to `gf_high` at the surface. Returns the stops deepest-first; the
     /// bottom itself is not included.
-    pub fn deco_schedule(&self, plan: &DecoSegment) -> Vec<Stop> {
-        let mut tissues = self.clone();
-        let bottom_gas = plan.mode.gas_at(self.ambient_bar(plan.bottom_depth));
-        tissues.add_segment_minutes(plan.bottom_depth, plan.bottom_minutes, bottom_gas);
-
-        let ceiling = tissues.ceiling_depth(plan.gf_low).meters();
-        if ceiling <= 0.0 {
-            return Vec::new();
+    /// Load the tissues while ramping between two depths at a given rate.
+    ///
+    /// Subsurface integrates the descent and ascent in 2-second steps; we do
+    /// the same so that the inert-gas loading matches.
+    fn load_ramp(
+        &self,
+        tissues: &mut Tissues,
+        from_m: f64,
+        to_m: f64,
+        rate_m_per_min: f64,
+        mode: BreathingMode,
+    ) {
+        if (to_m - from_m).abs() < 1e-9 || rate_m_per_min <= 0.0 {
+            return;
         }
-        let first_stop = (ceiling / plan.stop_step).ceil() * plan.stop_step;
+        let total_minutes = (to_m - from_m).abs() / rate_m_per_min;
+        let step = 2.0 / 60.0;
+        let steps = (total_minutes / step).ceil().max(1.0) as usize;
+        let dt = total_minutes / steps as f64;
+        for i in 0..steps {
+            let t0 = i as f64 / steps as f64;
+            let t1 = (i + 1) as f64 / steps as f64;
+            let mid = from_m + (to_m - from_m) * (t0 + t1) / 2.0;
+            let ambient = self.ambient_bar(Depth::from_meters(mid));
+            load_inert_gas(tissues, ambient, dt, mode.gas_at(ambient), WATER_VAPOUR_BAR);
+        }
+    }
 
-        let gf_at = |depth: f64| {
-            if first_stop <= 0.0 {
-                plan.gf_high
-            } else {
-                let frac = (depth / first_stop).clamp(0.0, 1.0);
-                plan.gf_high + (plan.gf_low - plan.gf_high) * frac
+    /// Compute a decompression schedule after a bottom segment.
+    ///
+    /// The descent and ascent are integrated in 2-second steps (as Subsurface
+    /// does), stops are on a `stop_step` grid, and the gradient factor
+    /// interpolates from `gf_low` at the first stop to `gf_high` at the
+    /// surface.
+    pub fn deco_schedule(&self, plan: &DecoSegment) -> Vec<Stop> {
+        let mut tissues = self.tissues.clone();
+
+        // Descent from the surface, then the bottom time at constant depth.
+        self.load_ramp(
+            &mut tissues,
+            0.0,
+            plan.bottom_depth.meters(),
+            plan.descent_rate,
+            plan.mode,
+        );
+        let bottom_ambient = self.ambient_bar(plan.bottom_depth);
+        load_inert_gas(
+            &mut tissues,
+            bottom_ambient,
+            plan.bottom_minutes,
+            plan.mode.gas_at(bottom_ambient),
+            WATER_VAPOUR_BAR,
+        );
+
+        // The gradient factor is anchored at the deepest ceiling of the dive
+        // (Subsurface's `gf_low_pressure_this_dive`) and interpolated to the
+        // surface.
+        let anchor_bar = self.ceiling_bar_of(&tissues, plan.gf_low);
+
+        // Ascend continuously, trying each 3 m step on a copy of the tissues.
+        // This mirrors Subsurface's `trial_ascent`: an initial ceiling that is
+        // deeper than the first stop can still be cleared while ascending,
+        // because the fast tissues off-gas on the way up.
+        let timestep = 2.0 / 60.0;
+        let mut stops: Vec<Stop> = Vec::new();
+        let mut depth_m = plan.bottom_depth.meters();
+        let mut holding: Option<(f64, f64)> = None;
+
+        let flush = |holding: &mut Option<(f64, f64)>, stops: &mut Vec<Stop>| {
+            if let Some((depth, minutes)) = holding.take() {
+                if minutes >= 1.0 {
+                    stops.push(Stop {
+                        depth: Depth::from_meters(depth),
+                        duration: Duration::from_minutes(minutes.round() as i32),
+                    });
+                }
             }
         };
 
-        let mut stops = Vec::new();
-        let mut depth = first_stop;
-        while depth >= plan.stop_step - 1e-9 {
-            let next = (depth - plan.stop_step).max(0.0);
-            let gf_next = gf_at(next);
-            let mut minutes: f64 = 0.0;
-            while tissues.ceiling_depth(gf_next).meters() > next + 0.05 {
-                let gas = plan
-                    .mode
-                    .gas_at(self.ambient_bar(Depth::from_meters(depth)));
-                tissues.add_segment_minutes(Depth::from_meters(depth), 1.0, gas);
-                minutes += 1.0;
-                if minutes > 600.0 {
+        while depth_m > 1e-9 {
+            let next = ((depth_m - 1e-9) / plan.stop_step).floor() * plan.stop_step;
+            let ascent_minutes = (depth_m - next) / plan.ascent_rate;
+            let steps = (ascent_minutes / timestep).ceil().max(1.0) as usize;
+            let dt = ascent_minutes / steps as f64;
+
+            let mut trial = tissues.clone();
+            let mut clear = true;
+            let mut d = depth_m;
+            for i in 0..steps {
+                let d_next = depth_m + (next - depth_m) * ((i + 1) as f64 / steps as f64);
+                let mid = (d + d_next) / 2.0;
+                let amb = self.ambient_bar(Depth::from_meters(mid));
+                load_inert_gas(&mut trial, amb, dt, plan.mode.gas_at(amb), WATER_VAPOUR_BAR);
+                if self
+                    .gf_ceiling_depth_of(&trial, plan.gf_low, plan.gf_high, anchor_bar)
+                    .meters()
+                    > d_next + 0.05
+                {
+                    clear = false;
                     break;
                 }
+                d = d_next;
             }
-            if minutes >= 1.0 {
-                stops.push(Stop {
-                    depth: Depth::from_meters(depth),
-                    duration: Duration::from_minutes(minutes.round() as i32),
-                });
+
+            if clear {
+                tissues = trial;
+                depth_m = next;
+                flush(&mut holding, &mut stops);
+            } else {
+                let amb = self.ambient_bar(Depth::from_meters(depth_m));
+                load_inert_gas(
+                    &mut tissues,
+                    amb,
+                    1.0,
+                    plan.mode.gas_at(amb),
+                    WATER_VAPOUR_BAR,
+                );
+                match &mut holding {
+                    Some((_, minutes)) => *minutes += 1.0,
+                    None => holding = Some((depth_m, 1.0)),
+                }
             }
-            let mid = (depth + next) / 2.0;
-            let ascent_minutes = (depth - next) / plan.ascent_rate;
-            let gas = plan.mode.gas_at(self.ambient_bar(Depth::from_meters(mid)));
-            tissues.add_segment_minutes(Depth::from_meters(mid), ascent_minutes, gas);
-            depth = next;
         }
+        flush(&mut holding, &mut stops);
         stops
     }
 }
@@ -403,6 +554,8 @@ pub struct DecoSegment {
     pub stop_step: f64,
     /// Ascent rate, in metres per minute.
     pub ascent_rate: f64,
+    /// Descent rate, in metres per minute.
+    pub descent_rate: f64,
 }
 
 impl Default for DecoSegment {
@@ -415,6 +568,7 @@ impl Default for DecoSegment {
             gf_high: 0.70,
             stop_step: 3.0,
             ascent_rate: 10.0,
+            descent_rate: 20.0,
         }
     }
 }
@@ -485,9 +639,9 @@ mod tests {
     }
 
     #[test]
-    fn ndl_matches_known_zh_l16b_values() {
+    fn ndl_matches_known_zh_l16c_values() {
         // Representative no-decompression limits on air, in minutes, matching
-        // dive computers that implement ZH-L16B. Regression guard.
+        // dive computers that implement ZH-L16C. Regression guard.
         let model = Buhlmann::default();
         for (depth_m, expected_minutes) in [(18.0, 60), (24.0, 29), (30.0, 17), (40.0, 9)] {
             let ndl = minutes(model.ndl(Depth::from_meters(depth_m), AIR, 1.0));
@@ -495,6 +649,81 @@ mod tests {
                 (ndl - expected_minutes as f64).abs() <= 2.0,
                 "{depth_m} m NDL was {ndl} min, expected ~{expected_minutes}"
             );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::type_complexity)]
+    fn matches_subsurface_reference_plans() {
+        // Golden plans produced by Subsurface 6.0.5504 (ZH-L16C), sea water,
+        // 1013 mbar, 20 m/min descent, 10 m/min ascent, 3 m stops, last stop
+        // at 3 m, open circuit on the listed gas. We require the same stop
+        // depths and times within a minute.
+        let cases: &[(f64, f64, f64, f64, &[(f64, i32)])] = &[
+            (40.0, 40.0, 1.0, 1.0, &[(9.0, 7), (6.0, 15), (3.0, 29)]),
+            (
+                40.0,
+                40.0,
+                0.3,
+                0.7,
+                &[
+                    (21.0, 2),
+                    (18.0, 4),
+                    (15.0, 7),
+                    (12.0, 10),
+                    (9.0, 17),
+                    (6.0, 29),
+                    (3.0, 55),
+                ],
+            ),
+            (
+                60.0,
+                20.0,
+                0.3,
+                0.7,
+                &[
+                    (27.0, 2),
+                    (24.0, 2),
+                    (21.0, 4),
+                    (18.0, 4),
+                    (15.0, 6),
+                    (12.0, 9),
+                    (9.0, 15),
+                    (6.0, 27),
+                    (3.0, 52),
+                ],
+            ),
+        ];
+
+        // The reference plans use Subsurface's default salinity, EN13319
+        // (10200 g per 10 L), and a 1013 mbar surface.
+        let model = Buhlmann::default();
+        for (depth, bottom, gf_low, gf_high, expected) in cases {
+            let stops = model.deco_schedule(&DecoSegment {
+                bottom_depth: Depth::from_meters(*depth),
+                bottom_minutes: *bottom,
+                mode: BreathingMode::OpenCircuit(AIR),
+                gf_low: *gf_low,
+                gf_high: *gf_high,
+                ..Default::default()
+            });
+            assert_eq!(
+                stops.len(),
+                expected.len(),
+                "{depth} m/{bottom} min: stop count differs from Subsurface"
+            );
+            for (stop, (exp_depth, exp_minutes)) in stops.iter().zip(expected.iter()) {
+                assert_eq!(
+                    stop.depth,
+                    Depth::from_meters(*exp_depth),
+                    "{depth} m/{bottom} min: stop depth"
+                );
+                let minutes = stop.duration.seconds as f64 / 60.0;
+                assert!(
+                    (minutes - *exp_minutes as f64).abs() <= 1.0,
+                    "{depth} m/{bottom} min: {exp_depth} m stop was {minutes} min, Subsurface {exp_minutes}"
+                );
+            }
         }
     }
 
@@ -509,8 +738,11 @@ mod tests {
             ..Default::default()
         });
         let total: i32 = stops.iter().map(|s| s.duration.seconds).sum();
-        assert_eq!(stops.first().map(|s| s.depth), Some(Depth::from_meters(12.0)));
-        assert_eq!(total, 46 * 60);
+        assert_eq!(
+            stops.first().map(|s| s.depth),
+            Some(Depth::from_meters(9.0))
+        );
+        assert_eq!(total, 50 * 60);
     }
 
     #[test]
