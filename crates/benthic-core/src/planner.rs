@@ -181,6 +181,7 @@ impl DivePlan {
             BreathingMode::ClosedCircuit { setpoint_bar, .. } => {
                 format!("CCR, setpoint {setpoint_bar:.1} bar")
             }
+            BreathingMode::PassiveSemiClosed { .. } => "pSCR".to_string(),
         };
         let mut out = format!(
             "Planned dive: {} for {} on {} ({mode}, GF {:.0}/{:.0})\n",
@@ -218,6 +219,7 @@ impl DivePlan {
                 diluent,
                 setpoint_bar,
             } => (diluent, Some(setpoint_bar), Divemode::Ccr),
+            BreathingMode::PassiveSemiClosed { diluent, .. } => (diluent, None, Divemode::Pscr),
         };
 
         let mut samples = self.samples();

@@ -75,7 +75,7 @@ Guiding principles:
 - [x] Open-circuit gas needs (RMV-based)
 - [x] CCR planning (diluent + setpoint, loop gas, CCR schedule)
 - [x] Bailout / ascent gas requirement
-- [ ] pSCR planning
+- [x] pSCR planning (Subsurface loop model, breathing-mode selector)
 - [x] Dive comparison: overlay two dives (a saved plan vs the actual dive)
 - [x] Save plans as dives
 - [x] Gas calculations: MOD, END, EAD, best mix and ICD warnings

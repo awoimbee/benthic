@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use benthic_core::deco::BreathingMode;
+use benthic_core::deco::{BreathingMode, PscrParams};
 use benthic_core::gas::{
     ambient_mbar, end_depth_mm, mod_depth_mm, GasMix, DEFAULT_PO2_LIMIT_MBAR, SURFACE_PRESSURE_MBAR,
 };
@@ -10,8 +10,8 @@ use benthic_core::{Buhlmann, DivePlan};
 use crate::actions;
 use crate::state::AppState;
 
-/// A Bühlmann planner: pick a depth, bottom time and gas and see the NDL, the
-/// decompression schedule and the gas limits.
+/// A Bühlmann planner: pick a depth, bottom time, breathing mode and gas and
+/// see the NDL, the decompression schedule, the gas limits and the gas needs.
 #[component]
 pub fn PlannerDialog() -> Element {
     let state = use_context::<AppState>();
@@ -23,34 +23,40 @@ pub fn PlannerDialog() -> Element {
     let mut bottom = use_signal(|| 20.0f64);
     let mut o2 = use_signal(|| 21.0f64);
     let mut he = use_signal(|| 0.0f64);
+    let mut mode_index = use_signal(|| 0usize);
+    let mut setpoint = use_signal(|| 1.3f64);
+    let mut dump_ratio = use_signal(|| 100.0f64);
     let mut gf_low = use_signal(|| 0.30f64);
     let mut gf_high = use_signal(|| 0.70f64);
     let mut rmv = use_signal(|| 20.0f64);
-    let mut ccr = use_signal(|| false);
-    let mut setpoint = use_signal(|| 1.3f64);
 
     let target_depth = prefs.depth_from_value((depth)());
     let bottom_time = Duration::from_minutes((bottom)().round().max(0.0) as i32);
     let diluent = GasMix::percent((o2)(), (he)());
+    let mode_value = (mode_index)();
+    let setpoint_value = (setpoint)();
+    let dump_ratio_value = (dump_ratio)().max(1.0);
     let gf_low_value = (gf_low)();
     let gf_high_value = (gf_high)();
-    let ccr_on = (ccr)();
-    let setpoint_value = (setpoint)();
-    let mode = if ccr_on {
-        BreathingMode::ClosedCircuit {
+
+    let mode = match mode_value {
+        1 => BreathingMode::ClosedCircuit {
             diluent,
             setpoint_bar: setpoint_value,
-        }
-    } else {
-        BreathingMode::OpenCircuit(diluent)
+        },
+        2 => BreathingMode::PassiveSemiClosed {
+            diluent,
+            params: PscrParams {
+                dump_ratio: dump_ratio_value,
+                ..Default::default()
+            },
+        },
+        _ => BreathingMode::OpenCircuit(diluent),
     };
+    let rebreather = mode.is_rebreather();
 
     let model = Buhlmann::new(SURFACE_PRESSURE_MBAR / 1000.0, salinity);
-    let ndl = if ccr_on {
-        model.ndl_ccr(target_depth, diluent, setpoint_value, gf_high_value)
-    } else {
-        model.ndl(target_depth, diluent, gf_high_value)
-    };
+    let ndl = model.ndl_mode(target_depth, mode, gf_high_value);
     let plan = DivePlan::compute(
         target_depth,
         bottom_time,
@@ -81,7 +87,7 @@ pub fn PlannerDialog() -> Element {
     let over_mod = target_depth.mm > mod_mm;
     let ambient = ambient_mbar(target_depth.mm, SURFACE_PRESSURE_MBAR, salinity) / 1000.0;
     let depth_string = format!("{:.1}", prefs.depth_value(target_depth));
-    let gas_label: &'static str = if ccr_on { "Diluent" } else { "Gas" };
+    let gas_label: &'static str = if rebreather { "Diluent" } else { "Gas" };
 
     let ndl_text = ndl
         .map(|d| {
@@ -147,17 +153,17 @@ pub fn PlannerDialog() -> Element {
                             oninput: move |evt| he.set(evt.value().parse().unwrap_or(0.0)),
                         }
                     }
-                    label { class: "field-label", "Closed circuit"
-                        div { class: "check",
-                            input {
-                                r#type: "checkbox",
-                                checked: ccr_on,
-                                onchange: move |_| ccr.set(!ccr_on),
-                            }
-                            span { "CCR (diluent + setpoint)" }
+                    label { class: "field-label", "Mode"
+                        select {
+                            class: "field",
+                            value: "{mode_value}",
+                            onchange: move |evt| mode_index.set(evt.value().parse().unwrap_or(0)),
+                            option { value: "0", "Open circuit" }
+                            option { value: "1", "CCR" }
+                            option { value: "2", "pSCR" }
                         }
                     }
-                    if ccr_on {
+                    if mode_value == 1 {
                         label { class: "field-label", "Setpoint (bar)"
                             input {
                                 class: "field",
@@ -165,6 +171,17 @@ pub fn PlannerDialog() -> Element {
                                 step: "0.1",
                                 value: "{setpoint_value}",
                                 oninput: move |evt| setpoint.set(evt.value().parse().unwrap_or(1.3)),
+                            }
+                        }
+                    }
+                    if mode_value == 2 {
+                        label { class: "field-label", "Dump ratio"
+                            input {
+                                class: "field",
+                                r#type: "number",
+                                step: "10",
+                                value: "{dump_ratio_value}",
+                                oninput: move |evt| dump_ratio.set(evt.value().parse::<f64>().unwrap_or(100.0).max(1.0)),
                             }
                         }
                     }
@@ -207,9 +224,13 @@ pub fn PlannerDialog() -> Element {
                     Result { label: "NDL", value: ndl_text }
                     Result { label: "Runtime", value: format_duration(plan.total_time()) }
                     Result { label: "Deco time", value: format_duration(plan.deco_time()) }
-                    if ccr_on {
+                    if mode_value == 1 {
                         Result { label: "Setpoint", value: format!("{setpoint_value:.1} bar") }
-                    } else {
+                    }
+                    if mode_value == 2 {
+                        Result { label: "Fresh gas", value: format!("1:{:.0}", 1000.0 / dump_ratio_value) }
+                    }
+                    if !rebreather {
                         Result { label: "Gas needed", value: format!("{gas_needs:.0} L") }
                         Result { label: "≈ 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
                     }
@@ -217,7 +238,7 @@ pub fn PlannerDialog() -> Element {
                     Result { label: "≈ 12 L bailout", value: format!("{bailout_bar_12l:.0} bar") }
                 }
                 if over_mod {
-                    p { class: "warn", "Warning: depth exceeds the gas MOD at a 1.4 bar pO2 limit." }
+                    p { class: "warn", "Warning: depth exceeds the diluent MOD at a 1.4 bar pO2 limit." }
                 }
                 if has_stops {
                     div { class: "section-title", "Decompression schedule" }

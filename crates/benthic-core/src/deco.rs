@@ -51,12 +51,47 @@ const HE_B: [f64; COMPARTMENTS] = [
     0.9122, 0.9171, 0.9217, 0.9267,
 ];
 
-/// The loop gas for a rebreather at an ambient pressure and setpoint, given a
-/// diluent. Oxygen is added to meet the setpoint; the diluent's inert-gas
-/// ratio is preserved.
-pub fn loop_gas(diluent: GasMix, ambient_bar: f64, setpoint_bar: f64) -> GasMix {
-    let p_amb = ambient_bar.max(0.001);
-    let f_o2 = (setpoint_bar / p_amb).clamp(o2_fraction(diluent), 1.0);
+/// Parameters of a passive semi-closed rebreather (pSCR).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PscrParams {
+    /// Metabolic oxygen consumption, ml/min.
+    pub o2_consumption_ml_min: f64,
+    /// Surface ventilation (SAC), ml/min.
+    pub sac_ml_min: f64,
+    /// Dump ratio times 1000 (100 = 1:10), matching Subsurface's convention.
+    pub dump_ratio: f64,
+}
+
+impl Default for PscrParams {
+    fn default() -> Self {
+        Self {
+            o2_consumption_ml_min: 720.0,
+            sac_ml_min: 20_000.0,
+            dump_ratio: 100.0,
+        }
+    }
+}
+
+impl PscrParams {
+    /// The steady-state loop pO2 in bar at a given ambient pressure.
+    ///
+    /// This mirrors Subsurface's model: the diluent's oxygen partial pressure
+    /// is reduced by the metabolic consumption relative to the fresh-gas flow
+    /// (`sac * dump_ratio`). The result is clamped at zero.
+    pub fn loop_po2_bar(&self, diluent: GasMix, ambient_bar: f64) -> f64 {
+        let o2_permille = o2_fraction(diluent) * 1000.0;
+        let p_mbar = o2_permille * ambient_bar
+            - (1.0 - o2_permille / 1000.0) * self.o2_consumption_ml_min
+                / (self.sac_ml_min * self.dump_ratio)
+                * 1_000_000.0;
+        p_mbar.max(0.0) / 1000.0
+    }
+}
+
+/// Build a loop gas from a diluent and a target oxygen fraction, preserving the
+/// diluent's helium-to-nitrogen ratio.
+fn loop_from_o2(diluent: GasMix, f_o2: f64) -> GasMix {
+    let f_o2 = f_o2.clamp(0.0, 1.0);
     let f_o2_dil = o2_fraction(diluent);
     let f_he = if f_o2_dil < 1.0 {
         he_fraction(diluent) * (1.0 - f_o2) / (1.0 - f_o2_dil)
@@ -65,8 +100,21 @@ pub fn loop_gas(diluent: GasMix, ambient_bar: f64, setpoint_bar: f64) -> GasMix 
     };
     GasMix::new(
         (f_o2 * 1000.0).round() as u16,
-        (f_he * 1000.0).max(0.0).round() as u16,
+        (f_he.max(0.0) * 1000.0).round() as u16,
     )
+}
+
+/// The closed-circuit loop gas at an ambient pressure and pO2 setpoint.
+pub fn loop_gas(diluent: GasMix, ambient_bar: f64, setpoint_bar: f64) -> GasMix {
+    loop_from_o2(diluent, setpoint_bar / ambient_bar.max(0.001))
+}
+
+/// The passive semi-closed loop gas at an ambient pressure, following
+/// Subsurface's pSCR model.
+pub fn pscr_loop_gas(diluent: GasMix, ambient_bar: f64, params: &PscrParams) -> GasMix {
+    let p_amb = ambient_bar.max(0.001);
+    let po2 = params.loop_po2_bar(diluent, p_amb);
+    loop_from_o2(diluent, po2 / p_amb)
 }
 
 /// How the diver breathes during a segment.
@@ -76,6 +124,8 @@ pub enum BreathingMode {
     OpenCircuit(GasMix),
     /// Closed circuit on a diluent with a pO2 setpoint.
     ClosedCircuit { diluent: GasMix, setpoint_bar: f64 },
+    /// Passive semi-closed rebreather on a diluent.
+    PassiveSemiClosed { diluent: GasMix, params: PscrParams },
 }
 
 impl Default for BreathingMode {
@@ -93,6 +143,9 @@ impl BreathingMode {
                 diluent,
                 setpoint_bar,
             } => loop_gas(*diluent, ambient_bar, *setpoint_bar),
+            BreathingMode::PassiveSemiClosed { diluent, params } => {
+                pscr_loop_gas(*diluent, ambient_bar, params)
+            }
         }
     }
 
@@ -101,7 +154,13 @@ impl BreathingMode {
         match self {
             BreathingMode::OpenCircuit(gas) => *gas,
             BreathingMode::ClosedCircuit { diluent, .. } => *diluent,
+            BreathingMode::PassiveSemiClosed { diluent, .. } => *diluent,
         }
+    }
+
+    /// Whether this is a rebreather (closed or semi-closed) mode.
+    pub fn is_rebreather(&self) -> bool {
+        !matches!(self, BreathingMode::OpenCircuit(_))
     }
 }
 
@@ -244,34 +303,22 @@ impl Buhlmann {
     /// stop until the gradient-factor-adjusted ceiling allows the next step.
     /// The gradient factor interpolates linearly from `gf_low` at the first
     /// stop to `gf_high` at the surface. Returns the stops deepest-first; the
-    /// bottom itself is not included.
     /// Ambient pressure at a depth, in bar.
     pub fn ambient_bar(&self, depth: Depth) -> f64 {
         ambient_mbar(depth.mm, self.surface_bar * 1000.0, self.salinity) / 1000.0
     }
 
-    /// Off-gas / on-gas at a constant depth for a number of minutes on a
-    /// rebreather at a setpoint.
-    pub fn add_segment_ccr(
-        &mut self,
-        depth: Depth,
-        minutes: f64,
-        diluent: GasMix,
-        setpoint_bar: f64,
-    ) {
-        let gas = loop_gas(diluent, self.ambient_bar(depth), setpoint_bar);
+    /// Off-gas / on-gas at a constant depth for a number of minutes in the
+    /// given breathing mode.
+    pub fn add_segment_mode(&mut self, depth: Depth, minutes: f64, mode: BreathingMode) {
+        let gas = mode.gas_at(self.ambient_bar(depth));
         self.add_segment_minutes(depth, minutes, gas);
     }
 
-    /// The no-decompression limit on a rebreather at a setpoint.
-    pub fn ndl_ccr(
-        &self,
-        depth: Depth,
-        diluent: GasMix,
-        setpoint_bar: f64,
-        gf: f64,
-    ) -> Option<Duration> {
-        let gas = loop_gas(diluent, self.ambient_bar(depth), setpoint_bar);
+    /// The no-decompression limit at a constant depth in the given breathing
+    /// mode.
+    pub fn ndl_mode(&self, depth: Depth, mode: BreathingMode, gf: f64) -> Option<Duration> {
+        let gas = mode.gas_at(self.ambient_bar(depth));
         self.ndl(depth, gas, gf)
     }
 
@@ -453,8 +500,65 @@ mod tests {
     fn ccr_ndl_exceeds_open_circuit() {
         let model = Buhlmann::default();
         let oc = minutes(model.ndl(Depth::from_meters(30.0), AIR, 1.0));
-        let ccr = minutes(model.ndl_ccr(Depth::from_meters(30.0), AIR, 1.3, 1.0));
+        let ccr = minutes(model.ndl_mode(
+            Depth::from_meters(30.0),
+            BreathingMode::ClosedCircuit {
+                diluent: AIR,
+                setpoint_bar: 1.3,
+            },
+            1.0,
+        ));
         assert!(ccr > oc, "CCR {ccr} should exceed OC {oc}");
+    }
+
+    #[test]
+    fn pscr_loop_dilutes_oxygen_at_depth() {
+        // At 30 m the metabolic consumption dilutes the air diluent below 21%.
+        let params = PscrParams::default();
+        let ambient = 4.0;
+        let po2 = params.loop_po2_bar(AIR, ambient);
+        let fo2 = po2 / ambient;
+        assert!(fo2 > 0.0 && fo2 < 0.21, "pSCR loop O2 was {fo2}");
+        // And the loop gas reflects that.
+        let gas = pscr_loop_gas(AIR, ambient, &params);
+        assert!(gas.o2_permille < 210);
+        // At the surface the model clamps the depleted loop at zero.
+        assert_eq!(params.loop_po2_bar(AIR, 1.0), 0.0);
+    }
+
+    #[test]
+    fn pscr_ndl_is_shorter_than_open_circuit_on_the_same_mix() {
+        // Dilution means the loop carries more inert gas than the diluent.
+        let model = Buhlmann::default();
+        let oc = minutes(model.ndl(Depth::from_meters(30.0), AIR, 1.0));
+        let pscr = minutes(model.ndl_mode(
+            Depth::from_meters(30.0),
+            BreathingMode::PassiveSemiClosed {
+                diluent: AIR,
+                params: PscrParams::default(),
+            },
+            1.0,
+        ));
+        assert!(pscr < oc, "pSCR {pscr} should be below OC {oc}");
+        assert!(pscr > 0.0);
+    }
+
+    #[test]
+    fn pscr_with_nitrox_beats_open_circuit_air() {
+        let model = Buhlmann::default();
+        let oc_air = minutes(model.ndl(Depth::from_meters(30.0), AIR, 1.0));
+        let pscr_ean36 = minutes(model.ndl_mode(
+            Depth::from_meters(30.0),
+            BreathingMode::PassiveSemiClosed {
+                diluent: GasMix::percent(36.0, 0.0),
+                params: PscrParams::default(),
+            },
+            1.0,
+        ));
+        assert!(
+            pscr_ean36 > oc_air,
+            "pSCR EAN36 {pscr_ean36} should exceed OC air {oc_air}"
+        );
     }
 
     #[test]
