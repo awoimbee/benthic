@@ -62,8 +62,11 @@ Guiding principles:
 
 ## Phase 2 — Profiles, decompression and planning
 
-- [ ] Interactive profile: hover/crosshair readout, pan & zoom
-- [ ] Overlays: temperature, cylinder pressure, NDL, TTS, CNS, SAC, heart rate
+- [x] Profile scrubber with a time/depth/temperature/pressure readout
+- [ ] Hover crosshair, pan & zoom
+- [x] Overlays: temperature and cylinder pressure
+- [ ] Overlays: NDL, TTS, CNS, SAC, heart rate
+- [x] Event markers on the profile
 - [ ] Deco ceiling / stop visualization and gas-switch markers
 - [ ] Multiple dive computers per dive, switchable, with difference view
 - [ ] Dive planner: Bühlmann ZH-L16 (GF) and VPM-B
