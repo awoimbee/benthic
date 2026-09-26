@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use benthic_core::DiveLog;
+use benthic_core::{DiveFilter, DiveLog, History};
 
 use crate::components::{DiveDetail, DiveList, Toolbar};
 use crate::state::AppState;
@@ -14,6 +14,8 @@ pub fn App() -> Element {
     let log = use_signal(DiveLog::new);
     let selected = use_signal(|| None::<u32>);
     let status = use_signal(|| "Ready".to_string());
+    let history = use_signal(History::new);
+    let filter = use_signal(DiveFilter::default);
     // Autosave is gated until the initial load has completed, so we never
     // overwrite a stored log with the empty in-memory log on startup.
     let loaded = use_signal(|| false);
@@ -21,6 +23,8 @@ pub fn App() -> Element {
         log,
         selected,
         status,
+        history,
+        filter,
     };
     use_context_provider(|| state);
 
@@ -63,10 +67,34 @@ pub fn App() -> Element {
         }
     });
 
+    // Global undo/redo shortcuts.
+    let on_keydown = move |evt: KeyboardEvent| {
+        let modifiers = evt.modifiers();
+        let ctrl = modifiers.contains(Modifiers::CONTROL) || modifiers.contains(Modifiers::META);
+        if !ctrl {
+            return;
+        }
+        match evt.key() {
+            Key::Character(ref c) if c.as_str() == "z" => {
+                if modifiers.contains(Modifiers::SHIFT) {
+                    state.redo();
+                } else {
+                    state.undo();
+                }
+                evt.prevent_default();
+            }
+            Key::Character(ref c) if c.as_str() == "y" => {
+                state.redo();
+                evt.prevent_default();
+            }
+            _ => {}
+        }
+    };
+
     rsx! {
         style { dangerous_inner_html: CSS }
         link { rel: "icon", r#type: "image/svg+xml", href: "favicon.svg" }
-        div { class: "app",
+        div { class: "app", tabindex: "0", onkeydown: on_keydown,
             Toolbar {}
             div { class: "panes",
                 DiveList {}

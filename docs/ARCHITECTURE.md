@@ -26,13 +26,17 @@ reuse (e.g. a future CLI or a fullstack server), and free of UI lifetimes.
 
 ```
 src/main.rs        launch(App)
-src/app.rs         root component: load-once, autosave effect, layout
-src/state.rs       AppState { log, selected, status } — Copy signals in context
+src/app.rs         root component: load-once, autosave effect, shortcuts, layout
+src/state.rs       AppState { log, selected, status, history, filter } — Copy signals
+src/actions.rs     high-level user actions -> commands (new/duplicate/delete/...)
 src/storage.rs     autosave backend (localStorage | data dir), JSON
-src/platform.rs    export: Blob download (web) | file write (desktop)
+src/platform.rs    export: Blob download (web) | file write (desktop), clock
 src/components/    Toolbar, ImportExport, DiveList, DiveDetail, DiveProfile
 src/format.rs      presentation helpers (titles, subtitles)
 ```
+
+`benthic-core` additionally provides `history` (the undo/redo command stack)
+and `filter` (the `DiveFilter` matching model), both heavily unit-tested.
 
 ### Data flow
 
@@ -53,13 +57,22 @@ src/format.rs      presentation helpers (titles, subtitles)
 * `Signal` is `Copy`, so `AppState` is a small `Copy` struct shared through
   Dioxus context.
 
-### Why replace the whole log?
+### Mutations go through commands
 
-For now, edits are coarse (import, merge). A full replace is simple and safe.
-When fine-grained editing lands (Phase 1), we will introduce a **command
-stack**: each user action produces a `Command` that can be applied and reverted,
-and the log advances by a sequence of commands. This gives undo/redo and makes
-autosave incremental. See [ROADMAP.md](../ROADMAP.md).
+User-visible edits are expressed as `benthic_core::history::Command` values.
+`AppState::dispatch` applies a command to a clone of the log, records it on the
+undo stack, and stores the new log. Reverting a command is an exact inverse, so
+undo/redo come for free and the edit history is auditable.
+
+Commands are fine-grained where that is easy (`AddDive`, `UpdateDive`, ...) and
+coarse (`Snapshot { before, after }`) for bulk operations like import and
+autogroup, where a precise diff would be awkward. The history is bounded
+(`History::DEFAULT_LIMIT`). `AppState::dispatch_all` groups several commands
+into a single undo step (for example "edit dive" that also creates a site).
+
+Autosave persists the whole log on every change. Because the log is the single
+source of truth this stays simple and correct; incremental persistence is
+future work.
 
 ## Persistence
 

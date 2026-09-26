@@ -38,16 +38,20 @@ Guiding principles:
 
 ## Phase 1 — A log you can actually live in
 
-- [ ] Full CRUD: add, edit, duplicate, delete dives; multi-select
-- [ ] Editable dive detail: notes, buddy, divemaster, suit, ratings, tags
-- [ ] Cylinder & weight editing (presets: AL80, LP85, steel 12/15, ...)
-- [ ] Trip grouping UI: create/rename/merge/split trips, autogroup toggle
-- [ ] Dive site management: create/edit/merge sites, GPS entry, map picker
-- [ ] Undo/redo via a command stack (see `docs/ARCHITECTURE.md`)
-- [ ] Search & filter: full-text, tags, date range, depth/duration, gas, rating
-      — with saveable filter presets
+- [x] Add, edit, duplicate and delete dives
+- [x] Editable dive detail: notes, buddy, divemaster, suit, ratings, tags
+- [x] Undo/redo via a command stack (bounded history, groupable commands)
+- [x] Trip assignment plus automatic trip grouping with an on/off toggle
+- [x] Dive-site create/edit (name + GPS) from the dive form
+- [x] Filter model with full-text search and rating/tag/depth constraints
+- [x] Keyboard shortcuts for undo/redo (`Ctrl/Cmd+Z`, `Shift+Z`, `Y`)
+- [ ] Multi-select and bulk edit/delete
+- [ ] Cylinder & weight editing UI (presets: AL80, LP85, steel 12/15, ...)
+- [ ] Trip create/rename/merge/split UI
+- [ ] Dive-site merge, map picker, and deduplication of inline locations
+- [ ] Filter UI for tags/rating/depth, plus saveable filter presets
 - [ ] Preferences: metric/imperial units, date/time formats, salinity, defaults
-- [ ] Keyboard shortcuts and a command palette
+- [ ] Command palette
 - [ ] Unsaved-change tracking and manual save/load of log files
 - [ ] Data safety: rotating local backups, crash recovery, "undo delete"
 

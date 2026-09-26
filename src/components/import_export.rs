@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::actions;
 use crate::state::AppState;
 
 /// Import (SSRF/XML/JSON, auto-detected) and export (SSRF) controls.
@@ -10,7 +11,6 @@ pub fn ImportExport() -> Element {
     let on_import = move |evt: Event<FormData>| {
         let state = state;
         async move {
-            let mut log = state.log;
             let mut selected = state.selected;
             let mut status = state.status;
 
@@ -21,14 +21,10 @@ pub fn ImportExport() -> Element {
 
             match file.read_string().await {
                 Ok(text) => match benthic_core::io::parse_auto(&text) {
-                    Ok(mut incoming) => {
-                        incoming.fixup_all();
-                        let count = incoming.dives.len();
-                        let mut current = log();
-                        current.merge(incoming);
-                        let first = current.dives_sorted().first().map(|d| d.id);
-                        log.set(current);
+                    Ok(incoming) => {
+                        let count = actions::merge_log(state, incoming);
                         if selected().is_none() {
+                            let first = (state.log)().dives_sorted().first().map(|d| d.id);
                             selected.set(first);
                         }
                         status.set(format!("Imported {count} dives from {name}"));

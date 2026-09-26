@@ -11,12 +11,16 @@
 //! Everything above this crate (storage, import/export UX, rendering) is
 //! provided by the application crate.
 
+pub mod filter;
 pub mod gas;
+pub mod history;
 pub mod io;
 pub mod model;
 pub mod units;
 
+pub use filter::DiveFilter;
 pub use gas::GasMix;
+pub use history::{Command, History};
 pub use model::*;
 pub use units::*;
 

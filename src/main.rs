@@ -5,6 +5,7 @@
 //! The binary is intentionally thin: all domain logic lives in `benthic-core`,
 //! and this crate only wires it to a UI and to platform storage.
 
+mod actions;
 mod app;
 mod components;
 mod format;

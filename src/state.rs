@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use benthic_core::DiveLog;
+use benthic_core::{Command, DiveFilter, DiveLog, History};
 
 /// Signals shared across the app. `Signal` is `Copy`, so this whole struct is
 /// cheap to pass around and to provide as context.
@@ -14,9 +14,78 @@ pub struct AppState {
     pub selected: Signal<Option<u32>>,
     /// A short human-readable status message shown in the toolbar.
     pub status: Signal<String>,
+    /// Undo/redo stack.
+    pub history: Signal<History>,
+    /// Active dive-list filter.
+    pub filter: Signal<DiveFilter>,
 }
 
 impl AppState {
+    /// Apply a single command and record it for undo.
+    pub fn dispatch(&self, command: Command) {
+        let mut log = self.log;
+        let mut history = self.history;
+        let mut snapshot = log();
+        let mut pending = history();
+        pending.record(command, &mut snapshot);
+        log.set(snapshot);
+        history.set(pending);
+    }
+
+    /// Apply several commands as one undo step.
+    pub fn dispatch_all(&self, label: impl Into<String>, mut commands: Vec<Command>) {
+        match commands.len() {
+            0 => {}
+            1 => self.dispatch(commands.pop().expect("length checked")),
+            _ => self.dispatch(Command::Compound {
+                label: label.into(),
+                commands,
+            }),
+        }
+    }
+
+    /// Undo the most recent command, if any.
+    pub fn undo(&self) {
+        if !self.can_undo() {
+            return;
+        }
+        let mut log = self.log;
+        let mut history = self.history;
+        let mut status = self.status;
+        let mut snapshot = log();
+        let mut pending = history();
+        if let Some(label) = pending.undo(&mut snapshot) {
+            log.set(snapshot);
+            history.set(pending);
+            status.set(format!("Undid: {label}"));
+        }
+    }
+
+    /// Redo the most recently undone command, if any.
+    pub fn redo(&self) {
+        if !self.can_redo() {
+            return;
+        }
+        let mut log = self.log;
+        let mut history = self.history;
+        let mut status = self.status;
+        let mut snapshot = log();
+        let mut pending = history();
+        if let Some(label) = pending.redo(&mut snapshot) {
+            log.set(snapshot);
+            history.set(pending);
+            status.set(format!("Redid: {label}"));
+        }
+    }
+
+    pub fn can_undo(&self) -> bool {
+        (self.history)().can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        (self.history)().can_redo()
+    }
+
     /// Snapshot of the currently selected dive.
     #[allow(dead_code)]
     pub fn selected_dive(&self) -> Option<benthic_core::Dive> {

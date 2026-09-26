@@ -322,6 +322,18 @@ pub struct Dive {
 }
 
 impl Dive {
+    /// A new, empty, manually-entered dive starting at `when`.
+    pub fn manual(when: Timestamp) -> Self {
+        Self {
+            when,
+            computers: vec![DiveComputer {
+                model: "Manually entered".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
     /// The primary dive computer, if any.
     pub fn primary_computer(&self) -> Option<&DiveComputer> {
         self.computers.first()
@@ -466,6 +478,161 @@ impl DiveLog {
     /// Allocate a free trip id.
     pub fn next_trip_id(&self) -> u32 {
         self.trips.iter().map(|t| t.id).max().unwrap_or(0) + 1
+    }
+
+    // -- Primitive mutations -------------------------------------------------
+    //
+    // These are the building blocks used by `history::Command`. They are
+    // deliberately dumb; use the command stack for anything user-visible so
+    // that it stays undoable.
+
+    /// Insert a dive at `index` (clamped to the end).
+    pub fn insert_dive(&mut self, index: usize, dive: Dive) {
+        let index = index.min(self.dives.len());
+        self.dives.insert(index, dive);
+    }
+
+    /// Remove a dive by id, returning it and its former position.
+    pub fn take_dive(&mut self, id: u32) -> Option<(usize, Dive)> {
+        let index = self.dives.iter().position(|d| d.id == id)?;
+        Some((index, self.dives.remove(index)))
+    }
+
+    /// Remove a dive by id, discarding it.
+    pub fn remove_dive(&mut self, id: u32) {
+        self.dives.retain(|d| d.id != id);
+    }
+
+    /// Replace the dive with the same id. Returns whether a dive was found.
+    pub fn replace_dive(&mut self, dive: Dive) -> bool {
+        match self.dives.iter_mut().find(|d| d.id == dive.id) {
+            Some(slot) => {
+                *slot = dive;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Replace the trip with the same id. Returns whether a trip was found.
+    pub fn replace_trip(&mut self, trip: DiveTrip) -> bool {
+        match self.trips.iter_mut().find(|t| t.id == trip.id) {
+            Some(slot) => {
+                *slot = trip;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Replace the site with the same uuid. Returns whether a site was found.
+    pub fn replace_site(&mut self, site: DiveSite) -> bool {
+        match self.sites.iter_mut().find(|s| s.uuid == site.uuid) {
+            Some(slot) => {
+                *slot = site;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The human name of a dive's site, if set.
+    pub fn site_name_of(&self, dive: &Dive) -> Option<&str> {
+        dive.site_id
+            .and_then(|id| self.site_by_uuid(id))
+            .map(|s| s.name.as_str())
+            .filter(|name| !name.is_empty())
+    }
+
+    /// Remove all automatically-generated trips and clear the trip links of
+    /// dives that referenced them. Manual trips are left untouched.
+    pub fn clear_auto_trips(&mut self) {
+        let auto_ids: std::collections::HashSet<u32> = self
+            .trips
+            .iter()
+            .filter(|t| t.auto_generated)
+            .map(|t| t.id)
+            .collect();
+        self.trips.retain(|t| !t.auto_generated);
+        for dive in &mut self.dives {
+            if dive.trip_id.is_some_and(|id| auto_ids.contains(&id)) {
+                dive.trip_id = None;
+            }
+        }
+    }
+
+    /// Automatically group consecutive dives into trips.
+    ///
+    /// Dives are grouped when the gap to the next dive is at most
+    /// `max_gap_days` and neither dive is explicitly excluded (`no_trip`) or
+    /// already assigned to a manual trip. Previously auto-generated trips are
+    /// discarded first, so this is idempotent. Returns the number of trips
+    /// created. Does nothing when `autogroup` is disabled.
+    pub fn autogroup_trips(&mut self, max_gap_days: i64) -> usize {
+        if !self.autogroup {
+            return 0;
+        }
+
+        // Discard previous automatic grouping.
+        self.clear_auto_trips();
+
+        // (id, when, blocked) sorted by time.
+        let manual_trip_ids: std::collections::HashSet<u32> = self
+            .trips
+            .iter()
+            .filter(|t| !t.auto_generated)
+            .map(|t| t.id)
+            .collect();
+        let mut ordered: Vec<(u32, Timestamp, bool)> = self
+            .dives
+            .iter()
+            .map(|d| {
+                let manual = d.trip_id.is_some_and(|id| manual_trip_ids.contains(&id));
+                (d.id, d.when, d.no_trip || manual)
+            })
+            .collect();
+        ordered.sort_by_key(|(_, when, _)| *when);
+
+        let max_gap = max_gap_days * 86_400;
+        let mut created = 0;
+        let mut i = 0;
+        while i < ordered.len() {
+            if ordered[i].2 {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            let mut end = i + 1;
+            while end < ordered.len()
+                && !ordered[end].2
+                && ordered[end].1 - ordered[end - 1].1 <= max_gap
+            {
+                end += 1;
+            }
+            if end - start >= 2 {
+                let first_id = ordered[start].0;
+                let id = self.next_trip_id();
+                let (date, location) = {
+                    let dive = self.dive_by_id(first_id).expect("dive exists");
+                    (dive.when, self.site_name_of(dive).unwrap_or("").to_string())
+                };
+                self.trips.push(DiveTrip {
+                    id,
+                    date: Some(date),
+                    location,
+                    auto_generated: true,
+                    ..Default::default()
+                });
+                for (dive_id, _, _) in &ordered[start..end] {
+                    if let Some(dive) = self.dives.iter_mut().find(|d| d.id == *dive_id) {
+                        dive.trip_id = Some(id);
+                    }
+                }
+                created += 1;
+            }
+            i = end;
+        }
+        created
     }
 
     /// Merge another log into this one, renumbering ids to avoid collisions.

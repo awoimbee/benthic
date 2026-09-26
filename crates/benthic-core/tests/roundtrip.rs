@@ -95,6 +95,118 @@ fn merge_renumbers_ids() {
 }
 
 #[test]
+fn autogroup_groups_consecutive_dives() {
+    use benthic_core::{Dive, DiveLog};
+
+    let mut log = DiveLog::new();
+    log.autogroup = true;
+    // Three dives across a day, a long gap, then two more.
+    let times = [0, 3_600, 7_200, 10 * 86_400, 10 * 86_400 + 3_600];
+    for (i, when) in times.iter().enumerate() {
+        log.dives.push(Dive {
+            id: i as u32 + 1,
+            when: *when,
+            ..Default::default()
+        });
+    }
+
+    let created = log.autogroup_trips(3);
+    assert_eq!(created, 2);
+    assert_eq!(log.trips.len(), 2);
+    assert_eq!(log.dives[0].trip_id, log.dives[1].trip_id);
+    assert_eq!(log.dives[1].trip_id, log.dives[2].trip_id);
+    assert_ne!(log.dives[2].trip_id, log.dives[3].trip_id);
+    assert_eq!(log.dives[3].trip_id, log.dives[4].trip_id);
+
+    // Idempotent: re-running does not accumulate trips.
+    assert_eq!(log.autogroup_trips(3), 2);
+    assert_eq!(log.trips.len(), 2);
+
+    // Manual clearing removes automatic trips and their links.
+    log.clear_auto_trips();
+    assert!(log.trips.is_empty());
+    assert!(log.dives.iter().all(|d| d.trip_id.is_none()));
+}
+
+#[test]
+fn autogroup_respects_no_trip_and_disabled_flag() {
+    use benthic_core::{Dive, DiveLog};
+
+    let mut log = DiveLog::new();
+    log.autogroup = true;
+    log.dives.push(Dive {
+        id: 1,
+        when: 0,
+        no_trip: true,
+        ..Default::default()
+    });
+    log.dives.push(Dive {
+        id: 2,
+        when: 100,
+        ..Default::default()
+    });
+    log.dives.push(Dive {
+        id: 3,
+        when: 200,
+        ..Default::default()
+    });
+    // The excluded dive splits the group; the remaining pair is grouped.
+    assert_eq!(log.autogroup_trips(3), 1);
+    assert_eq!(log.dives[0].trip_id, None);
+    assert_eq!(log.dives[1].trip_id, log.dives[2].trip_id);
+
+    // A log with autogroup disabled is left untouched.
+    let mut disabled = DiveLog::new();
+    disabled.autogroup = false;
+    disabled.dives.push(Dive::default());
+    disabled.dives.push(Dive::default());
+    assert_eq!(disabled.autogroup_trips(3), 0);
+}
+
+#[test]
+fn filter_narrows_the_demo_log() {
+    use benthic_core::DiveFilter;
+
+    let log = ssrf::parse_str(DEMO).unwrap();
+    let filter = DiveFilter {
+        query: "turtles".into(),
+        ..Default::default()
+    };
+    let matches: Vec<_> = log
+        .dives
+        .iter()
+        .filter(|d| filter.matches(d, &log))
+        .collect();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].number, 2);
+}
+
+#[test]
+fn history_undo_redo_through_a_real_log() {
+    use benthic_core::{Command, History};
+
+    let mut log = ssrf::parse_str(DEMO).unwrap();
+    let mut history = History::new();
+    let before = log.dives.len();
+
+    let (index, removed) = log.take_dive(log.dives[0].id).unwrap();
+    // Recreate the delete as a command so it can be undone.
+    log.insert_dive(index, removed.clone());
+    history.record(
+        Command::DeleteDive {
+            dive: removed,
+            index,
+        },
+        &mut log,
+    );
+    assert_eq!(log.dives.len(), before - 1);
+    history.undo(&mut log);
+    assert_eq!(log.dives.len(), before);
+    history.redo(&mut log);
+    assert_eq!(log.dives.len(), before - 1);
+}
+
+#[test]
 fn unit_conversions_round_trip() {
     assert!((Depth::from_meters(10.0).meters() - 10.0).abs() < 1e-9);
     assert_eq!(Depth::from_meters(1.0), Depth::new(1000));

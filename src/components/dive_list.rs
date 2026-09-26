@@ -2,13 +2,16 @@ use dioxus::prelude::*;
 
 use crate::state::AppState;
 
-struct DiveRow {
-    id: u32,
+/// One row in the dive list; either a trip header or a dive.
+struct Row {
+    key: String,
     class: &'static str,
+    is_trip: bool,
+    dive_id: Option<u32>,
     number: String,
     title: String,
     subtitle: String,
-    gas: String,
+    trailing: String,
 }
 
 #[component]
@@ -16,18 +19,52 @@ pub fn DiveList() -> Element {
     let state = use_context::<AppState>();
     let mut selected = state.selected;
     let log = (state.log)();
+    let filter = (state.filter)();
     let current = (state.selected)();
 
-    let rows: Vec<DiveRow> = log
+    let filtered: Vec<&benthic_core::Dive> = log
         .dives_sorted()
         .into_iter()
-        .map(|dive| DiveRow {
-            id: dive.id,
+        .filter(|dive| filter.matches(dive, &log))
+        .collect();
+
+    let mut rows: Vec<Row> = Vec::new();
+    let mut seen_trips: std::collections::HashSet<u32> = Default::default();
+    for dive in &filtered {
+        if let Some(trip_id) = dive.trip_id {
+            if seen_trips.insert(trip_id) {
+                if let Some(trip) = log.trip_by_id(trip_id) {
+                    let count = filtered
+                        .iter()
+                        .filter(|d| d.trip_id == Some(trip_id))
+                        .count();
+                    let title = if trip.location.is_empty() {
+                        format!("Trip #{trip_id}")
+                    } else {
+                        trip.location.clone()
+                    };
+                    rows.push(Row {
+                        key: format!("trip-{trip_id}"),
+                        class: "trip-row",
+                        is_trip: true,
+                        dive_id: None,
+                        number: String::new(),
+                        title,
+                        subtitle: format!("{count} dives"),
+                        trailing: String::new(),
+                    });
+                }
+            }
+        }
+        rows.push(Row {
+            key: dive.id.to_string(),
             class: if current == Some(dive.id) {
                 "dive-row selected"
             } else {
                 "dive-row"
             },
+            is_trip: false,
+            dive_id: Some(dive.id),
             number: if dive.number != 0 {
                 dive.number.to_string()
             } else {
@@ -35,34 +72,51 @@ pub fn DiveList() -> Element {
             },
             title: crate::format::dive_title(dive, &log),
             subtitle: crate::format::dive_subtitle(dive),
-            gas: dive
+            trailing: dive
                 .cylinders
                 .first()
                 .map(|c| c.gas.name())
                 .unwrap_or_else(|| "—".to_string()),
-        })
-        .collect();
+        });
+    }
 
+    let total = log.dives.len();
+    let shown = filtered.len();
     let empty = rows.is_empty();
 
     rsx! {
         aside { class: "dive-list",
-            div { class: "pane-title", "Dives" }
+            div { class: "pane-title", "Dives {shown}/{total}" }
             if empty {
-                div { class: "empty-hint", "No dives yet. Use Import to load a Subsurface log." }
+                div { class: "empty-hint",
+                    if total == 0 {
+                        "No dives yet. Use Import to load a Subsurface log, or add a new dive."
+                    } else {
+                        "No dives match your search."
+                    }
+                }
             }
             ul {
                 for row in rows {
                     li {
-                        key: "{row.id}",
+                        key: "{row.key}",
                         class: "{row.class}",
-                        onclick: move |_| selected.set(Some(row.id)),
-                        span { class: "dive-number", "{row.number}" }
-                        div { class: "dive-main",
-                            span { class: "dive-title", "{row.title}" }
-                            span { class: "dive-subtitle", "{row.subtitle}" }
+                        onclick: move |_| {
+                            if let Some(id) = row.dive_id {
+                                selected.set(Some(id));
+                            }
+                        },
+                        if row.is_trip {
+                            span { class: "trip-title", "{row.title}" }
+                            span { class: "trip-subtitle", "{row.subtitle}" }
+                        } else {
+                            span { class: "dive-number", "{row.number}" }
+                            div { class: "dive-main",
+                                span { class: "dive-title", "{row.title}" }
+                                span { class: "dive-subtitle", "{row.subtitle}" }
+                            }
+                            span { class: "dive-gas", "{row.trailing}" }
                         }
-                        span { class: "dive-gas", "{row.gas}" }
                     }
                 }
             }

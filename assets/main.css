@@ -282,6 +282,149 @@ body {
   padding: 0.75rem;
 }
 
+/* ---- Buttons, toolbar extras ---- */
+.toolbar {
+  flex-wrap: wrap;
+}
+
+.btn.primary {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #eafaff;
+}
+
+.btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.search {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  min-width: 12rem;
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ---- Trip headers ---- */
+.trip-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(76, 201, 240, 0.06);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+
+.trip-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.trip-subtitle {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+/* ---- Editable detail ---- */
+.detail-head {
+  margin-bottom: 1rem;
+}
+
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.detail-title-row h1 {
+  flex: 1;
+  margin: 0;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.edit-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.edit-form .full {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.field {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  width: 100%;
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+textarea.field {
+  resize: vertical;
+}
+
+.stars {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.star {
+  background: none;
+  border: none;
+  color: var(--border);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.star.active {
+  color: #f5c451;
+}
+
 @media (max-width: 720px) {
   .panes {
     grid-template-columns: 1fr;

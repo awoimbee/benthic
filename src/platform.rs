@@ -1,7 +1,24 @@
-//! Platform-specific file actions: saving an export.
+//! Platform-specific helpers: file export and the current time.
 //!
 //! Reading imports is handled uniformly by Dioxus' file input + `FileData`,
-//! so only "save to disk / trigger a download" needs per-platform code.
+//! so only "save to disk / trigger a download" (and clock access) needs
+//! per-platform code.
+
+/// Current time as Unix seconds.
+#[cfg(target_arch = "wasm32")]
+pub fn now_secs() -> i64 {
+    (js_sys::Date::now() / 1000.0) as i64
+}
+
+/// Current time as Unix seconds.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn now_secs() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
 
 #[cfg(target_arch = "wasm32")]
 pub fn save_file(filename: &str, contents: &str) -> Result<String, String> {
