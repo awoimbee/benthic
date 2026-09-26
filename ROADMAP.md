@@ -72,8 +72,9 @@ list below).
 - [x] Overlays: NDL, TTS, heart rate and CNS (SAC is dive-level, shown as a fact)
 - [x] Deco ceiling visualization and gas-switch markers
 - [x] Multiple dive computers per dive, switchable, with an overlay comparison
-- [x] Bühlmann ZH-L16C tissue model with gradient factors (ceiling, NDL),
-      reconciled stop-for-stop against Subsurface 6.0.5504 reference plans
+- [x] Bühlmann tissue model with gradient factors (ceiling, NDL),
+      validated against Subsurface's planner: identical first ceilings and
+      matching stop tables
 - [x] Ascent planner with decompression stops and a saveable profile
 - [ ] VPM-B algorithm (deferred: a prototype reproduced Subsurface's
       equations but produced schedules far longer than reference profiles

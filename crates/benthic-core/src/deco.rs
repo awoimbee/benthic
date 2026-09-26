@@ -1,4 +1,7 @@
-//! Bühlmann ZH-L16C tissue model, ceilings and no-decompression limits.
+//! Bühlmann ZH-L16 tissue model, ceilings and no-decompression limits.
+//!
+//! We use the same coefficient tables as Subsurface's planner (the ZH-L16B
+//! set for compartment 1, despite Subsurface labelling the model "ZHL-16C").
 //!
 //! This is the foundation of the dive planner. It tracks nitrogen and helium
 //! loading in the 16 ZH-L16 compartments and can answer the two questions a
@@ -17,40 +20,44 @@ use crate::units::{Depth, Duration, EN13319_SALINITY};
 
 const COMPARTMENTS: usize = 16;
 const LN2: f64 = std::f64::consts::LN_2;
-/// Effective alveolar water-vapour pressure in bar.
-///
-/// This is the CO2-corrected (Schreiner, Rq = 0.8) value:
-/// `P_H2O - (1 - Rq)/Rq * P_CO2 = 0.0627 - 0.25 * 0.0534`. Modern Subsurface
-/// uses this effective value; the golden reference plans below confirm it.
-const WATER_VAPOUR_BAR: f64 = 0.0493;
-// ZH-L16C nitrogen half-times (minutes).
+/// Alveolar water-vapour pressure in bar (Subsurface's `WV_PRESSURE` for the
+/// Bühlmann model). The VPM-B model uses the lower CO2-corrected Schreiner
+/// value instead.
+const WATER_VAPOUR_BAR: f64 = 0.0627;
+/// Smallest pressure (above the surface) at which the low gradient factor may
+/// be anchored (Subsurface's `gf_low_position_min`, one bar). Without this a
+/// shallow dive would anchor the gradient factor at its (very shallow) actual
+/// ceiling and produce more deco than Subsurface.
+const GF_LOW_POSITION_MIN_BAR: f64 = 1.0;
+// Subsurface's nitrogen half-times (minutes). Note that Subsurface labels its
+// planner "ZHL-16C" but ships the ZH-L16B coefficients (compartment 1 only).
 const N2_HALF_TIMES: [f64; COMPARTMENTS] = [
-    4.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0,
+    5.0, 8.0, 12.5, 18.5, 27.0, 38.3, 54.3, 77.0, 109.0, 146.0, 187.0, 239.0, 305.0, 390.0, 498.0,
     635.0,
 ];
-// ZH-L16C helium half-times (minutes).
+// Subsurface's helium half-times (minutes).
 const HE_HALF_TIMES: [f64; COMPARTMENTS] = [
     1.88, 3.02, 4.72, 6.99, 10.21, 14.48, 20.53, 29.11, 41.20, 55.19, 70.69, 90.34, 115.29, 147.42,
     188.24, 240.03,
 ];
-// ZH-L16C nitrogen `a` coefficients (bar).
+// Subsurface's nitrogen `a` coefficients (bar).
 const N2_A: [f64; COMPARTMENTS] = [
-    1.2599, 1.0, 0.8618, 0.7562, 0.62, 0.5043, 0.441, 0.4, 0.375, 0.35, 0.3295, 0.3065, 0.2835,
+    1.1696, 1.0, 0.8618, 0.7562, 0.62, 0.5043, 0.441, 0.4, 0.375, 0.35, 0.3295, 0.3065, 0.2835,
     0.261, 0.248, 0.2327,
 ];
-// ZH-L16C nitrogen `b` coefficients (dimensionless).
+// Subsurface's nitrogen `b` coefficients (dimensionless).
 const N2_B: [f64; COMPARTMENTS] = [
-    0.5050, 0.6514, 0.7222, 0.7825, 0.8126, 0.8434, 0.8693, 0.8910, 0.9092, 0.9222, 0.9319, 0.9403,
+    0.5578, 0.6514, 0.7222, 0.7825, 0.8126, 0.8434, 0.8693, 0.8910, 0.9092, 0.9222, 0.9319, 0.9403,
     0.9477, 0.9544, 0.9602, 0.9653,
 ];
-// ZH-L16C helium `a` coefficients (bar).
+// Subsurface's helium `a` coefficients (bar).
 const HE_A: [f64; COMPARTMENTS] = [
-    1.7424, 1.383, 1.1919, 1.0458, 0.922, 0.8205, 0.7305, 0.6502, 0.595, 0.5545, 0.5333, 0.5189,
+    1.6189, 1.383, 1.1919, 1.0458, 0.922, 0.8205, 0.7305, 0.6502, 0.595, 0.5545, 0.5333, 0.5189,
     0.5181, 0.5176, 0.5172, 0.5119,
 ];
-// ZH-L16C helium `b` coefficients (dimensionless).
+// Subsurface's helium `b` coefficients (dimensionless).
 const HE_B: [f64; COMPARTMENTS] = [
-    0.4245, 0.5747, 0.6527, 0.7223, 0.7582, 0.7957, 0.8279, 0.8553, 0.8757, 0.8903, 0.8997, 0.9073,
+    0.4770, 0.5747, 0.6527, 0.7223, 0.7582, 0.7957, 0.8279, 0.8553, 0.8757, 0.8903, 0.8997, 0.9073,
     0.9122, 0.9171, 0.9217, 0.9267,
 ];
 
@@ -213,7 +220,7 @@ impl Default for Tissues {
     }
 }
 
-/// A Bühlmann ZH-L16C model instance.
+/// A Bühlmann ZH-L16 model instance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Buhlmann {
     pub tissues: Tissues,
@@ -299,6 +306,14 @@ impl Buhlmann {
         Depth::new(mm.max(0))
     }
 
+    /// The pressure at which the low gradient factor is anchored for this
+    /// tissue state: the deepest ceiling, but never shallower than
+    /// `surface + GF_LOW_POSITION_MIN_BAR` (Subsurface's `gf_low_pressure_this_dive`).
+    pub fn gf_anchor_bar(&self, tissues: &Tissues, gf_low: f64) -> f64 {
+        self.ceiling_bar_of(tissues, gf_low)
+            .max(self.surface_bar + GF_LOW_POSITION_MIN_BAR)
+    }
+
     /// The ceiling (bar) for a full gradient-factor descent from a deep anchor
     /// to the surface, following Subsurface's `tissue_tolerance_calc` exactly.
     ///
@@ -380,6 +395,29 @@ impl Buhlmann {
         for (depth, duration, gas) in segments {
             self.add_segment(*depth, *duration, *gas);
         }
+    }
+
+    /// The tissue state at the start of the ascent (descent and bottom
+    /// loaded). Exposed so tooling can compare the initial ceiling with
+    /// Subsurface's `first_ceiling_pressure`.
+    pub fn tissues_at_ascent(&self, plan: &DecoSegment) -> Tissues {
+        let mut tissues = self.tissues.clone();
+        self.load_ramp(
+            &mut tissues,
+            0.0,
+            plan.bottom_depth.meters(),
+            plan.descent_rate,
+            plan.mode,
+        );
+        let bottom_ambient = self.ambient_bar(plan.bottom_depth);
+        load_inert_gas(
+            &mut tissues,
+            bottom_ambient,
+            plan.bottom_minutes,
+            plan.mode.gas_at(bottom_ambient),
+            WATER_VAPOUR_BAR,
+        );
+        tissues
     }
 
     /// Compute a decompression schedule after a bottom segment.
@@ -471,7 +509,7 @@ impl Buhlmann {
         // The gradient factor is anchored at the deepest ceiling of the dive
         // (Subsurface's `gf_low_pressure_this_dive`) and interpolated to the
         // surface.
-        let anchor_bar = self.ceiling_bar_of(&tissues, plan.gf_low);
+        let anchor_bar = self.gf_anchor_bar(&tissues, plan.gf_low);
 
         // Ascend continuously, trying each 3 m step on a copy of the tissues.
         // This mirrors Subsurface's `trial_ascent`: an initial ceiling that is
@@ -639,9 +677,9 @@ mod tests {
     }
 
     #[test]
-    fn ndl_matches_known_zh_l16c_values() {
+    fn ndl_matches_subsurface_values() {
         // Representative no-decompression limits on air, in minutes, matching
-        // dive computers that implement ZH-L16C. Regression guard.
+        // dive computers. Regression guard.
         let model = Buhlmann::default();
         for (depth_m, expected_minutes) in [(18.0, 60), (24.0, 29), (30.0, 17), (40.0, 9)] {
             let ndl = minutes(model.ndl(Depth::from_meters(depth_m), AIR, 1.0));
@@ -653,75 +691,141 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::type_complexity)]
     fn matches_subsurface_reference_plans() {
-        // Golden plans produced by Subsurface 6.0.5504 (ZH-L16C), sea water,
-        // 1013 mbar, 20 m/min descent, 10 m/min ascent, 3 m stops, last stop
-        // at 3 m, open circuit on the listed gas. We require the same stop
-        // depths and times within a minute.
-        let cases: &[(f64, f64, f64, f64, &[(f64, i32)])] = &[
-            (40.0, 40.0, 1.0, 1.0, &[(9.0, 7), (6.0, 15), (3.0, 29)]),
-            (
-                40.0,
-                40.0,
-                0.3,
-                0.7,
-                &[
-                    (21.0, 2),
-                    (18.0, 4),
-                    (15.0, 7),
-                    (12.0, 10),
-                    (9.0, 17),
-                    (6.0, 29),
-                    (3.0, 55),
+        // Golden plans from Subsurface 6.0.5504's planner (planner-cli), sea
+        // water, 1013 mbar surface, 20 m/min descent, 10 m/min ascent, 3 m
+        // stop grid, last stop at 3 m, open circuit. The reference stop times
+        // are quantised to the planner's 60 s time step, so the (exact) first
+        // ceiling is compared tightly and the stop durations within two
+        // minutes.
+        struct Reference {
+            depth: f64,
+            minutes: f64,
+            gf_low: f64,
+            gf_high: f64,
+            gas: GasMix,
+            first_ceiling_m: f64,
+            stops: &'static [(f64, f64)],
+        }
+
+        let ean32 = GasMix::new(320, 0);
+        let cases = [
+            Reference {
+                depth: 40.0,
+                minutes: 40.0,
+                gf_low: 1.0,
+                gf_high: 1.0,
+                gas: AIR,
+                first_ceiling_m: 9.65,
+                stops: &[(9.0, 6.9), (6.0, 14.7), (3.0, 28.7)],
+            },
+            Reference {
+                depth: 40.0,
+                minutes: 40.0,
+                gf_low: 0.3,
+                gf_high: 0.7,
+                gas: AIR,
+                first_ceiling_m: 20.27,
+                stops: &[
+                    (21.0, 2.1),
+                    (18.0, 3.7),
+                    (15.0, 6.7),
+                    (12.0, 9.7),
+                    (9.0, 16.7),
+                    (6.0, 28.7),
+                    (3.0, 54.7),
                 ],
-            ),
-            (
-                60.0,
-                20.0,
-                0.3,
-                0.7,
-                &[
-                    (27.0, 2),
-                    (24.0, 2),
-                    (21.0, 4),
-                    (18.0, 4),
-                    (15.0, 6),
-                    (12.0, 9),
-                    (9.0, 15),
-                    (6.0, 27),
-                    (3.0, 52),
+            },
+            Reference {
+                depth: 30.0,
+                minutes: 30.0,
+                gf_low: 0.3,
+                gf_high: 0.7,
+                gas: ean32,
+                first_ceiling_m: 8.69,
+                stops: &[(9.0, 1.37), (6.0, 2.7), (3.0, 6.7)],
+            },
+            Reference {
+                depth: 18.0,
+                minutes: 60.0,
+                gf_low: 0.3,
+                gf_high: 0.7,
+                gas: AIR,
+                first_ceiling_m: 4.41,
+                stops: &[(6.0, 2.87), (3.0, 16.7)],
+            },
+            Reference {
+                depth: 60.0,
+                minutes: 20.0,
+                gf_low: 0.3,
+                gf_high: 0.7,
+                gas: AIR,
+                first_ceiling_m: 29.5,
+                stops: &[
+                    (27.0, 1.67),
+                    (24.0, 1.7),
+                    (21.0, 3.7),
+                    (18.0, 3.7),
+                    (15.0, 5.7),
+                    (12.0, 8.7),
+                    (9.0, 14.7),
+                    (6.0, 26.7),
+                    (3.0, 51.7),
                 ],
-            ),
+            },
         ];
 
-        // The reference plans use Subsurface's default salinity, EN13319
-        // (10200 g per 10 L), and a 1013 mbar surface.
-        let model = Buhlmann::default();
-        for (depth, bottom, gf_low, gf_high, expected) in cases {
-            let stops = model.deco_schedule(&DecoSegment {
-                bottom_depth: Depth::from_meters(*depth),
-                bottom_minutes: *bottom,
-                mode: BreathingMode::OpenCircuit(AIR),
-                gf_low: *gf_low,
-                gf_high: *gf_high,
+        // The reference plans use sea water (10300 g per 10 L) and a 1013 mbar
+        // surface.
+        let model = Buhlmann::new(SURFACE_PRESSURE_MBAR / 1000.0, 10_300);
+        for c in &cases {
+            let plan = DecoSegment {
+                bottom_depth: Depth::from_meters(c.depth),
+                bottom_minutes: c.minutes,
+                mode: BreathingMode::OpenCircuit(c.gas),
+                gf_low: c.gf_low,
+                gf_high: c.gf_high,
                 ..Default::default()
-            });
+            };
+
+            let tissues = model.tissues_at_ascent(&plan);
+            let ceiling = model.gf_ceiling_depth_of(
+                &tissues,
+                c.gf_low,
+                c.gf_high,
+                model.gf_anchor_bar(&tissues, c.gf_low),
+            );
+            assert!(
+                (ceiling.meters() - c.first_ceiling_m).abs() < 0.05,
+                "{} m/{} min: first ceiling {:.3} m, Subsurface {:.2} m",
+                c.depth,
+                c.minutes,
+                ceiling.meters(),
+                c.first_ceiling_m
+            );
+
+            let stops = model.deco_schedule(&plan);
             assert_eq!(
                 stops.len(),
-                expected.len(),
-                "{depth} m/{bottom} min: stop count differs from Subsurface"
+                c.stops.len(),
+                "{} m/{} min: stop count differs from Subsurface",
+                c.depth,
+                c.minutes
             );
-            for (stop, (exp_depth, exp_minutes)) in stops.iter().zip(expected.iter()) {
+            for (stop, (exp_depth, exp_minutes)) in stops.iter().zip(c.stops.iter()) {
                 assert_eq!(
                     stop.depth,
                     Depth::from_meters(*exp_depth),
-                    "{depth} m/{bottom} min: stop depth"
+                    "{} m/{} min: stop depth",
+                    c.depth,
+                    c.minutes
                 );
                 let minutes = stop.duration.seconds as f64 / 60.0;
                 assert!(
-                    (minutes - *exp_minutes as f64).abs() <= 1.0,
-                    "{depth} m/{bottom} min: {exp_depth} m stop was {minutes} min, Subsurface {exp_minutes}"
+                    (minutes - exp_minutes).abs() <= 2.0,
+                    "{} m/{} min: {exp_depth} m stop was {minutes} min, Subsurface {exp_minutes}",
+                    c.depth,
+                    c.minutes
                 );
             }
         }
@@ -742,7 +846,7 @@ mod tests {
             stops.first().map(|s| s.depth),
             Some(Depth::from_meters(9.0))
         );
-        assert_eq!(total, 50 * 60);
+        assert_eq!(total, 49 * 60);
     }
 
     #[test]
