@@ -872,10 +872,17 @@ impl DiveLog {
         }
     }
 
-    /// Dives sorted oldest-first, which is how the UI shows them.
+    /// Dives sorted oldest-first (the canonical chronological order).
     pub fn dives_sorted(&self) -> Vec<&Dive> {
         let mut dives: Vec<&Dive> = self.dives.iter().collect();
         dives.sort_by_key(|d| d.when);
+        dives
+    }
+
+    /// Dives sorted newest-first, which is how the UI lists and selects them.
+    pub fn dives_recent_first(&self) -> Vec<&Dive> {
+        let mut dives: Vec<&Dive> = self.dives.iter().collect();
+        dives.sort_by_key(|d| std::cmp::Reverse(d.when));
         dives
     }
 

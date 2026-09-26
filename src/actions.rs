@@ -99,7 +99,7 @@ pub fn delete_selected(state: AppState) {
 
     let mut selected = state.selected;
     if selected().is_some_and(|id| ids.contains(&id)) {
-        selected.set((state.log)().dives_sorted().first().map(|d| d.id));
+        selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
     }
     state.set_status(format!("Deleted {} dives", ids.len()));
 }

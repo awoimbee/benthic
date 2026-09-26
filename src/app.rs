@@ -78,7 +78,7 @@ pub fn App() -> Element {
         match crate::storage::load() {
             Some(text) => match benthic_core::io::parse_auto(&text) {
                 Ok(parsed) => {
-                    if let Some(first) = parsed.dives_sorted().first().map(|d| d.id) {
+                    if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
                         selected.set(Some(first));
                     }
                     let count = parsed.dives.len();
@@ -91,7 +91,7 @@ pub fn App() -> Element {
                 Err(e) => match crate::storage::load_backup() {
                     Some(backup) => match benthic_core::io::parse_auto(&backup) {
                         Ok(parsed) => {
-                            if let Some(first) = parsed.dives_sorted().first().map(|d| d.id) {
+                            if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
                                 selected.set(Some(first));
                             }
                             let count = parsed.dives.len();

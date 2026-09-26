@@ -61,7 +61,7 @@ pub fn CommandPalette() -> Element {
             Action::Compare,
         ),
     ];
-    for dive in log.dives_sorted() {
+    for dive in log.dives_recent_first() {
         items.push(Item::new(
             format!("Open: {}", crate::format::dive_title(dive, &log)),
             crate::format::dive_subtitle(dive, &prefs),

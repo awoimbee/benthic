@@ -32,7 +32,7 @@ pub fn DiveList() -> Element {
     let renaming = (renaming_trip)();
 
     let filtered: Vec<&benthic_core::Dive> = log
-        .dives_sorted()
+        .dives_recent_first()
         .into_iter()
         .filter(|dive| filter.matches(dive, &log))
         .collect();

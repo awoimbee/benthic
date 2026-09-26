@@ -404,3 +404,15 @@ fn gas_used_and_rmv() {
     let rmv = dive.rmv_l_per_min().expect("rmv");
     assert!((20.0..22.0).contains(&rmv), "rmv was {rmv}");
 }
+
+#[test]
+fn dives_recent_first_orders_newest_first() {
+    let log = ssrf::parse_str(DEMO).unwrap();
+
+    let recent: Vec<i32> = log.dives_recent_first().iter().map(|d| d.number).collect();
+    let mut chronological: Vec<i32> = log.dives_sorted().iter().map(|d| d.number).collect();
+    chronological.reverse();
+
+    assert_eq!(recent, chronological);
+    assert_eq!(recent, vec![3, 2, 1]);
+}

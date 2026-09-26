@@ -24,7 +24,7 @@ pub fn ImportExport() -> Element {
                     Ok(incoming) => {
                         let (dives, sites) = actions::merge_log(state, incoming);
                         if selected().is_none() {
-                            let first = (state.log)().dives_sorted().first().map(|d| d.id);
+                            let first = (state.log)().dives_recent_first().first().map(|d| d.id);
                             selected.set(first);
                         }
                         status.set(format!(
