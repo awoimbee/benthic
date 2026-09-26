@@ -62,6 +62,9 @@ Guiding principles:
 
 ## Phase 2 — Profiles, decompression and planning
 
+Complete except VPM-B, which is deliberately deferred (see the note in the
+list below).
+
 - [x] Profile scrubber with a time/depth/temperature/pressure readout
 - [x] Pan & zoom on the profile (time window sliders)
 - [x] Hover crosshair (pointer readout snapped to the nearest sample)

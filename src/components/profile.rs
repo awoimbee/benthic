@@ -167,11 +167,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     // chart, otherwise the scrubber position.
     let hover_fraction = (hover)();
     let index = match hover_fraction {
-        Some(fraction) => sample_index_at(
-            win_start + fraction * win_span,
-            &active.samples,
-            max_t,
-        ),
+        Some(fraction) => sample_index_at(win_start + fraction * win_span, &active.samples, max_t),
         None => (cursor)().min(active.samples.len() - 1),
     };
     let sample = &active.samples[index];

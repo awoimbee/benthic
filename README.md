@@ -14,14 +14,15 @@ A modern, cross-platform dive log — a ground-up rewrite of
 * **Web build on GitHub Pages.** `main` is continuously deployed to
   <https://awoimbee.github.io/benthic/>.
 
-> **Status: Phases 1 and 2 complete.** The log is usable end to end: import,
-> create/edit, search, filter and group dives, equipment editing, unit and
-> format preferences, undo/redo, a command palette, automatic backups, an
-> interactive dive profile, and a Bühlmann dive planner (open circuit, CCR
-> and pSCR) with gas needs and bailout. Phase 3 (dive-computer download and
-> more importers) is partly done. See [ROADMAP.md](ROADMAP.md) for the two
-> deliberately deferred Phase 2 items (VPM-B and the hover crosshair) and
-> the reasoning.
+> **Status.** Phase 1 is complete. Phase 2 is complete except VPM-B, which is
+> deliberately deferred (see [ROADMAP.md](ROADMAP.md)): a faithful port of
+> Subsurface's equations produced schedules that did not match reference
+> behaviour and could not be validated here, and an unvalidated
+> decompression model is not safe to ship. The log is usable end to end:
+> import, create/edit, search, filter and group dives, equipment editing,
+> unit and format preferences, undo/redo, a command palette, automatic
+> backups, an interactive dive profile, and a validated Bühlmann dive
+> planner (open circuit, CCR and pSCR) with gas needs and bailout.
 
 ## Quick start
 
