@@ -437,7 +437,19 @@ body {
   background: rgba(76, 201, 240, 0.06);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  cursor: default;
+  cursor: pointer;
+  user-select: none;
+}
+
+.trip-row:hover {
+  background: rgba(76, 201, 240, 0.13);
+}
+
+.trip-caret {
+  width: 0.8rem;
+  color: var(--accent);
+  font-size: 0.7rem;
+  text-align: center;
 }
 
 .trip-title {

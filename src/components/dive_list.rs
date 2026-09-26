@@ -8,6 +8,7 @@ struct Row {
     key: String,
     class: &'static str,
     is_trip: bool,
+    collapsed: bool,
     checked: bool,
     dive_id: Option<u32>,
     trip_id: Option<u32>,
@@ -30,6 +31,9 @@ pub fn DiveList() -> Element {
     let mut renaming_trip = use_signal(|| None::<u32>);
     let mut rename_text = use_signal(String::new);
     let renaming = (renaming_trip)();
+    // Trip ids whose dives are rolled up.
+    let mut collapsed_trips = use_signal(std::collections::HashSet::<u32>::new);
+    let collapsed = (collapsed_trips)();
 
     let filtered: Vec<&benthic_core::Dive> = log
         .dives_recent_first()
@@ -56,6 +60,7 @@ pub fn DiveList() -> Element {
                         key: format!("trip-{trip_id}"),
                         class: "trip-row",
                         is_trip: true,
+                        collapsed: collapsed.contains(&trip_id),
                         checked: false,
                         dive_id: None,
                         trip_id: Some(trip_id),
@@ -67,6 +72,12 @@ pub fn DiveList() -> Element {
                 }
             }
         }
+        if dive
+            .trip_id
+            .is_some_and(|trip_id| collapsed.contains(&trip_id))
+        {
+            continue;
+        }
         rows.push(Row {
             key: dive.id.to_string(),
             class: if current == Some(dive.id) {
@@ -75,6 +86,7 @@ pub fn DiveList() -> Element {
                 "dive-row"
             },
             is_trip: false,
+            collapsed: false,
             checked: checked_ids.contains(&dive.id),
             dive_id: Some(dive.id),
             trip_id: None,
@@ -117,6 +129,11 @@ pub fn DiveList() -> Element {
                         onclick: move |_| {
                             if let Some(id) = row.dive_id {
                                 selected.set(Some(id));
+                            } else if let Some(trip_id) = row.trip_id {
+                                let mut set = collapsed_trips.write();
+                                if !set.remove(&trip_id) {
+                                    set.insert(trip_id);
+                                }
                             }
                         },
                         if row.is_trip {
@@ -125,6 +142,7 @@ pub fn DiveList() -> Element {
                                     input {
                                         class: "trip-rename",
                                         value: "{rename_text()}",
+                                        onclick: move |evt| evt.stop_propagation(),
                                         oninput: move |evt| rename_text.set(evt.value()),
                                         onkeydown: move |evt| {
                                             if evt.key() == Key::Enter {
@@ -142,6 +160,9 @@ pub fn DiveList() -> Element {
                                         },
                                     }
                                 } else {
+                                    span { class: "trip-caret",
+                                        if row.collapsed { "\u{25B8}" } else { "\u{25BE}" }
+                                    }
                                     span { class: "trip-title", "{row.title}" }
                                     span { class: "trip-subtitle", "{row.subtitle}" }
                                     div { class: "trip-actions",
