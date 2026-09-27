@@ -630,19 +630,18 @@ fn scaled_series(
         .join(" ")
 }
 
-/// Vertical-speed bands used to colour the depth trace, fastest descent
-/// first. `min` is the lower bound in metres per minute (positive =
-/// descending); the last band has no lower bound.
-const SPEED_BANDS: [(&str, &str, f64); 5] = [
-    ("Fast descent", "#e5484d", 20.0),
-    ("Descent", "#f2a65a", 2.0),
-    ("Level", "#8b98a5", -2.0),
-    ("Ascent", "#5ab0e0", -10.0),
-    ("Fast ascent", "#3d6fd8", f64::NEG_INFINITY),
+/// Vertical-speed bands used to colour the depth trace, fastest first. `min`
+/// is the lower bound on the *magnitude* of the speed in metres per minute,
+/// so descents and ascents share one three-colour scale.
+const SPEED_BANDS: [(&str, &str, f64); 3] = [
+    ("Too fast", "#e5484d", 20.0),
+    ("A bit fast", "#f2a65a", 10.0),
+    ("Normal", COLOR_DEPTH, 0.0),
 ];
 
-/// The band a vertical speed (m/min, positive = descending) falls into.
+/// The band the magnitude of a vertical speed (m/min) falls into.
 fn speed_band(speed: f64) -> usize {
+    let speed = speed.abs();
     SPEED_BANDS
         .iter()
         .position(|(_, _, min)| speed >= *min)
