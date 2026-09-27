@@ -675,7 +675,7 @@ textarea.field {
 }
 
 .cylinder-row {
-  grid-template-columns: minmax(90px, 1.2fr) repeat(5, minmax(64px, 1fr)) minmax(90px, 1fr) auto;
+  grid-template-columns: minmax(90px, 1.2fr) repeat(5, minmax(64px, 1fr)) auto;
 }
 
 .weight-row {
@@ -1008,6 +1008,19 @@ textarea.field {
   .detail-title-row {
     flex-wrap: wrap;
     gap: 0.5rem;
+  }
+  /* The eight-column cylinder editor is far wider than a phone; give the
+     preset and the remove button a full row and lay the rest out in two
+     columns. */
+  .cylinder-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cylinder-row > :first-child,
+  .cylinder-row > :last-child {
+    grid-column: 1 / -1;
+  }
+  .cylinder-row > :last-child {
+    justify-self: end;
   }
   .detail-title-row h1 {
     min-width: 0;
