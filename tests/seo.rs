@@ -23,6 +23,7 @@ fn index_html_has_core_seo_metadata() {
         "property=\"og:title\"",
         "property=\"og:description\"",
         "name=\"twitter:card\"",
+        "name=\"google-site-verification\"",
         "application/ld+json",
         "id=\"main\"",
         "lang=\"en\"",
