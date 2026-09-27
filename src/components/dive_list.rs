@@ -6,7 +6,7 @@ use crate::state::AppState;
 /// One row in the dive list; either a trip header or a dive.
 struct Row {
     key: String,
-    class: &'static str,
+    class: String,
     is_trip: bool,
     collapsed: bool,
     checked: bool,
@@ -43,7 +43,11 @@ pub fn DiveList() -> Element {
 
     let mut rows: Vec<Row> = Vec::new();
     let mut seen_trips: std::collections::HashSet<u32> = Default::default();
-    for dive in &filtered {
+    for (index, dive) in filtered.iter().enumerate() {
+        // The last dive of a trip is marked so the group reads as one block
+        // and is visibly separated from the dives that follow.
+        let trip_end = dive.trip_id.is_some()
+            && filtered.get(index + 1).map(|next| next.trip_id) != Some(dive.trip_id);
         if let Some(trip_id) = dive.trip_id {
             if seen_trips.insert(trip_id) {
                 if let Some(trip) = log.trip_by_id(trip_id) {
@@ -58,7 +62,7 @@ pub fn DiveList() -> Element {
                     };
                     rows.push(Row {
                         key: format!("trip-{trip_id}"),
-                        class: "trip-row",
+                        class: "trip-row".to_string(),
                         is_trip: true,
                         collapsed: collapsed.contains(&trip_id),
                         checked: false,
@@ -80,10 +84,19 @@ pub fn DiveList() -> Element {
         }
         rows.push(Row {
             key: dive.id.to_string(),
-            class: if current == Some(dive.id) {
-                "dive-row selected"
-            } else {
-                "dive-row"
+            class: {
+                let mut class = if current == Some(dive.id) {
+                    String::from("dive-row selected")
+                } else {
+                    String::from("dive-row")
+                };
+                if dive.trip_id.is_some() {
+                    class.push_str(" in-trip");
+                }
+                if trip_end {
+                    class.push_str(" trip-end");
+                }
+                class
             },
             is_trip: false,
             collapsed: false,
