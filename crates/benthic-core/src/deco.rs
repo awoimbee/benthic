@@ -195,6 +195,21 @@ impl Default for DecoModel {
     }
 }
 
+/// One user-entered waypoint of a planned profile.
+///
+/// The segment runs from the previous waypoint to `depth` over `duration`,
+/// breathing `mode`. The first point is therefore the descent from the
+/// surface.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PlanPoint {
+    /// Depth reached at the end of the segment.
+    pub depth: Depth,
+    /// Time taken by the segment.
+    pub duration: Duration,
+    /// How the diver breathes during the segment.
+    pub mode: BreathingMode,
+}
+
 /// A decompression stop.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Stop {
@@ -418,27 +433,31 @@ impl Buhlmann {
         }
     }
 
-    /// The tissue state at the start of the ascent (descent and bottom
-    /// loaded). Exposed so tooling can compare the initial ceiling with
-    /// Subsurface's `first_ceiling_pressure`.
+    /// Load a sequence of waypoints, ramping between them.
+    pub fn add_points(&mut self, points: &[PlanPoint]) {
+        let mut previous_m = 0.0;
+        for point in points {
+            self.add_transition(
+                previous_m,
+                point.depth.meters(),
+                point.duration.seconds as f64 / 60.0,
+                point.mode,
+            );
+            previous_m = point.depth.meters();
+        }
+    }
+
+    /// The tissue state at the end of a profile.
+    pub fn tissues_at_profile(&self, points: &[PlanPoint]) -> Tissues {
+        let mut model = self.clone();
+        model.add_points(points);
+        model.tissues
+    }
+
+    /// The tissue state at the start of the ascent. Exposed so tooling can
+    /// compare the initial ceiling with Subsurface's `first_ceiling_pressure`.
     pub fn tissues_at_ascent(&self, plan: &DecoSegment) -> Tissues {
-        let mut tissues = self.tissues.clone();
-        self.load_ramp(
-            &mut tissues,
-            0.0,
-            plan.bottom_depth.meters(),
-            plan.descent_rate,
-            plan.mode,
-        );
-        let bottom_ambient = self.ambient_bar(plan.bottom_depth);
-        load_inert_gas(
-            &mut tissues,
-            bottom_ambient,
-            plan.bottom_minutes,
-            plan.mode.gas_at(bottom_ambient),
-            WATER_VAPOUR_BAR,
-        );
-        tissues
+        self.tissues_at_profile(&plan.points)
     }
 
     /// Compute a decompression schedule after a bottom segment.
@@ -473,31 +492,29 @@ impl Buhlmann {
     /// The gradient factor interpolates linearly from `gf_low` at the first
     /// stop to `gf_high` at the surface. Returns the stops deepest-first; the
     /// bottom itself is not included.
-    /// Load the tissues while ramping between two depths at a given rate.
+    /// Load the tissues while ramping from one depth to another over a fixed
+    /// time.
     ///
-    /// Subsurface integrates the descent and ascent in 2-second steps; we do
-    /// the same so that the inert-gas loading matches.
-    fn load_ramp(
-        &self,
-        tissues: &mut Tissues,
-        from_m: f64,
-        to_m: f64,
-        rate_m_per_min: f64,
-        mode: BreathingMode,
-    ) {
-        if (to_m - from_m).abs() < 1e-9 || rate_m_per_min <= 0.0 {
+    /// Subsurface integrates the entered profile in 2-second steps; we do the
+    /// same so that the inert-gas loading matches.
+    fn add_transition(&mut self, from_m: f64, to_m: f64, minutes: f64, mode: BreathingMode) {
+        if minutes <= 0.0 {
             return;
         }
-        let total_minutes = (to_m - from_m).abs() / rate_m_per_min;
         let step = 2.0 / 60.0;
-        let steps = (total_minutes / step).ceil().max(1.0) as usize;
-        let dt = total_minutes / steps as f64;
+        let steps = (minutes / step).ceil().max(1.0) as usize;
+        let dt = minutes / steps as f64;
         for i in 0..steps {
-            let t0 = i as f64 / steps as f64;
-            let t1 = (i + 1) as f64 / steps as f64;
-            let mid = from_m + (to_m - from_m) * (t0 + t1) / 2.0;
-            let ambient = self.ambient_bar(Depth::from_meters(mid));
-            load_inert_gas(tissues, ambient, dt, mode.gas_at(ambient), WATER_VAPOUR_BAR);
+            let mid = from_m + (to_m - from_m) * (i as f64 + 0.5) / steps as f64;
+            let depth = Depth::from_meters(mid);
+            let ambient = self.ambient_bar(depth);
+            load_inert_gas(
+                &mut self.tissues,
+                ambient,
+                dt,
+                mode.gas_at(ambient),
+                WATER_VAPOUR_BAR,
+            );
         }
     }
 
@@ -510,25 +527,20 @@ impl Buhlmann {
     /// interpolates from `gf_low` at the first stop to `gf_high` at the
     /// surface.
     pub fn deco_schedule(&self, plan: &DecoSegment) -> Vec<Stop> {
-        let mut tissues = self.tissues.clone();
+        let tissues = self.tissues_at_profile(&plan.points);
+        let start_m = plan.points.last().map(|p| p.depth.meters()).unwrap_or(0.0);
+        let mode = plan.points.last().map(|p| p.mode).unwrap_or_default();
+        self.schedule_from(tissues, start_m, mode, plan)
+    }
 
-        // Descent from the surface, then the bottom time at constant depth.
-        self.load_ramp(
-            &mut tissues,
-            0.0,
-            plan.bottom_depth.meters(),
-            plan.descent_rate,
-            plan.mode,
-        );
-        let bottom_ambient = self.ambient_bar(plan.bottom_depth);
-        load_inert_gas(
-            &mut tissues,
-            bottom_ambient,
-            plan.bottom_minutes,
-            plan.mode.gas_at(bottom_ambient),
-            WATER_VAPOUR_BAR,
-        );
-
+    /// Compute the ascent and stops from an already-loaded tissue state.
+    fn schedule_from(
+        &self,
+        mut tissues: Tissues,
+        start_m: f64,
+        mode: BreathingMode,
+        plan: &DecoSegment,
+    ) -> Vec<Stop> {
         // The gradient factor is anchored at the deepest ceiling of the dive
         // (Subsurface's `gf_low_pressure_this_dive`) and interpolated to the
         // surface.
@@ -540,7 +552,7 @@ impl Buhlmann {
         // because the fast tissues off-gas on the way up.
         let timestep = 2.0 / 60.0;
         let mut stops: Vec<Stop> = Vec::new();
-        let mut depth_m = plan.bottom_depth.meters();
+        let mut depth_m = start_m;
         let mut holding: Option<(f64, f64)> = None;
 
         let flush = |holding: &mut Option<(f64, f64)>, stops: &mut Vec<Stop>| {
@@ -565,7 +577,7 @@ impl Buhlmann {
                 let d_next = depth_m + (next - depth_m) * ((i + 1) as f64 / steps as f64);
                 let mid = (d + d_next) / 2.0;
                 let amb = self.ambient_bar(Depth::from_meters(mid));
-                load_inert_gas(&mut trial, amb, dt, plan.mode.gas_at(amb), WATER_VAPOUR_BAR);
+                load_inert_gas(&mut trial, amb, dt, mode.gas_at(amb), WATER_VAPOUR_BAR);
                 if self
                     .gf_ceiling_depth_of(&trial, plan.gf_low, plan.gf_high, anchor_bar)
                     .meters()
@@ -587,7 +599,7 @@ impl Buhlmann {
                     &mut tissues,
                     amb,
                     timestep,
-                    plan.mode.gas_at(amb),
+                    mode.gas_at(amb),
                     WATER_VAPOUR_BAR,
                 );
                 match &mut holding {
@@ -602,33 +614,59 @@ impl Buhlmann {
 }
 
 /// The inputs to a decompression schedule.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DecoSegment {
-    pub bottom_depth: Depth,
-    pub bottom_minutes: f64,
-    pub mode: BreathingMode,
+    /// The entered profile: a sequence of waypoints.
+    pub points: Vec<PlanPoint>,
     pub gf_low: f64,
     pub gf_high: f64,
     /// Distance between stops, in metres.
     pub stop_step: f64,
     /// Ascent rate, in metres per minute.
     pub ascent_rate: f64,
-    /// Descent rate, in metres per minute.
+    /// Descent rate, in metres per minute. Only used to build a square profile.
     pub descent_rate: f64,
 }
 
 impl Default for DecoSegment {
     fn default() -> Self {
         Self {
-            bottom_depth: Depth::from_meters(30.0),
-            bottom_minutes: 20.0,
-            mode: BreathingMode::default(),
+            points: Vec::new(),
             gf_low: 0.30,
             gf_high: 0.70,
             stop_step: 3.0,
             ascent_rate: 10.0,
             descent_rate: 20.0,
         }
+    }
+}
+
+impl DecoSegment {
+    /// A single square bottom segment: descend to `depth` at the default rate,
+    /// then hold there for `minutes`.
+    pub fn square(depth: Depth, minutes: f64, mode: BreathingMode) -> Self {
+        let descent = Self::default();
+        let descent_seconds = (depth.meters() / descent.descent_rate * 60.0).round() as i32;
+        Self {
+            points: vec![
+                PlanPoint {
+                    depth,
+                    duration: Duration::new(descent_seconds),
+                    mode,
+                },
+                PlanPoint {
+                    depth,
+                    duration: Duration::from_minutes(minutes.round() as i32),
+                    mode,
+                },
+            ],
+            ..descent
+        }
+    }
+
+    /// The breathing mode of the last (deepest) waypoint.
+    pub fn bottom_mode(&self) -> BreathingMode {
+        self.points.last().map(|p| p.mode).unwrap_or_default()
     }
 }
 
@@ -802,9 +840,12 @@ mod tests {
         let model = Buhlmann::new(SURFACE_PRESSURE_MBAR / 1000.0, 10_300);
         for c in &cases {
             let plan = DecoSegment {
-                bottom_depth: Depth::from_meters(c.depth),
-                bottom_minutes: c.minutes,
-                mode: BreathingMode::OpenCircuit(c.gas),
+                points: DecoSegment::square(
+                    Depth::from_meters(c.depth),
+                    c.minutes,
+                    BreathingMode::OpenCircuit(c.gas),
+                )
+                .points,
                 gf_low: c.gf_low,
                 gf_high: c.gf_high,
                 ..Default::default()
@@ -856,9 +897,12 @@ mod tests {
     #[test]
     fn forty_metre_gf100_schedule_is_stable() {
         let stops = Buhlmann::default().deco_schedule(&DecoSegment {
-            bottom_depth: Depth::from_meters(40.0),
-            bottom_minutes: 40.0,
-            mode: BreathingMode::OpenCircuit(AIR),
+            points: DecoSegment::square(
+                Depth::from_meters(40.0),
+                40.0,
+                BreathingMode::OpenCircuit(AIR),
+            )
+            .points,
             gf_low: 1.0,
             gf_high: 1.0,
             ..Default::default()
@@ -989,20 +1033,26 @@ mod tests {
     fn ccr_schedule_uses_the_loop_gas() {
         let model = Buhlmann::default();
         let oc = model.deco_schedule(&DecoSegment {
-            bottom_depth: Depth::from_meters(40.0),
-            bottom_minutes: 40.0,
-            mode: BreathingMode::OpenCircuit(AIR),
+            points: DecoSegment::square(
+                Depth::from_meters(40.0),
+                40.0,
+                BreathingMode::OpenCircuit(AIR),
+            )
+            .points,
             gf_low: 1.0,
             gf_high: 1.0,
             ..Default::default()
         });
         let ccr = model.deco_schedule(&DecoSegment {
-            bottom_depth: Depth::from_meters(40.0),
-            bottom_minutes: 40.0,
-            mode: BreathingMode::ClosedCircuit {
-                diluent: AIR,
-                setpoint_bar: 1.3,
-            },
+            points: DecoSegment::square(
+                Depth::from_meters(40.0),
+                40.0,
+                BreathingMode::ClosedCircuit {
+                    diluent: AIR,
+                    setpoint_bar: 1.3,
+                },
+            )
+            .points,
             gf_low: 1.0,
             gf_high: 1.0,
             ..Default::default()
@@ -1023,8 +1073,12 @@ mod tests {
     fn deep_dive_gets_a_schedule() {
         let model = Buhlmann::default();
         let segment = DecoSegment {
-            bottom_depth: Depth::from_meters(40.0),
-            bottom_minutes: 40.0,
+            points: DecoSegment::square(
+                Depth::from_meters(40.0),
+                40.0,
+                BreathingMode::OpenCircuit(AIR),
+            )
+            .points,
             gf_low: 1.0,
             gf_high: 1.0,
             ..Default::default()
@@ -1052,8 +1106,12 @@ mod tests {
         let model = Buhlmann::default();
         assert!(model
             .deco_schedule(&DecoSegment {
-                bottom_depth: Depth::from_meters(15.0),
-                bottom_minutes: 20.0,
+                points: DecoSegment::square(
+                    Depth::from_meters(15.0),
+                    20.0,
+                    BreathingMode::OpenCircuit(AIR)
+                )
+                .points,
                 gf_low: 1.0,
                 gf_high: 1.0,
                 ..Default::default()
@@ -1064,16 +1122,19 @@ mod tests {
     #[test]
     fn conservative_gradient_factors_add_deco() {
         let model = Buhlmann::default();
+        let square = DecoSegment::square(
+            Depth::from_meters(40.0),
+            35.0,
+            BreathingMode::OpenCircuit(AIR),
+        );
         let liberal = model.deco_schedule(&DecoSegment {
-            bottom_depth: Depth::from_meters(40.0),
-            bottom_minutes: 35.0,
+            points: square.points.clone(),
             gf_low: 0.9,
             gf_high: 0.9,
             ..Default::default()
         });
         let conservative = model.deco_schedule(&DecoSegment {
-            bottom_depth: Depth::from_meters(40.0),
-            bottom_minutes: 35.0,
+            points: square.points,
             gf_low: 0.3,
             gf_high: 0.3,
             ..Default::default()

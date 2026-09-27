@@ -15,8 +15,8 @@ use crate::gas::{ambient_mbar, depth_mm_at, GasMix};
 use crate::units::{Depth, Duration};
 
 use super::{
-    load_inert_gas, BreathingMode, DecoSegment, Stop, Tissues, COMPARTMENTS, HE_HALF_TIMES, LN2,
-    N2_HALF_TIMES,
+    load_inert_gas, BreathingMode, DecoSegment, PlanPoint, Stop, Tissues, COMPARTMENTS,
+    HE_HALF_TIMES, LN2, N2_HALF_TIMES,
 };
 
 /// Schreiner alveolar water-vapour pressure (bar), used by VPM-B because it
@@ -74,6 +74,8 @@ pub struct Vpmb {
     initial_he_gradient: [f64; COMPARTMENTS],
     /// VPM-B tolerated ambient pressure at the start of the ascent (bar).
     first_ceiling_bar: f64,
+    /// Deepest ceiling seen while ascending within the entered profile (bar).
+    max_bottom_ceiling_bar: f64,
     /// Accumulated decompression time (seconds), used by the CVA loop.
     deco_time: f64,
     /// The decompression-stop grid in seconds (Subsurface's planner timestep).
@@ -116,6 +118,7 @@ impl Vpmb {
             initial_n2_gradient: [0.0; COMPARTMENTS],
             initial_he_gradient: [0.0; COMPARTMENTS],
             first_ceiling_bar: 0.0,
+            max_bottom_ceiling_bar: 0.0,
             deco_time: 0.0,
             stop_timestep: VPMB_TIMESTEP_SECONDS,
         }
@@ -167,14 +170,6 @@ impl Vpmb {
         if to_mm > from_mm {
             let amb = self.ambient_bar_mm(to_mm);
             self.calc_crushing_pressure(amb);
-        }
-    }
-
-    /// A constant-depth segment, integrated in one-second steps.
-    fn hold(&mut self, depth_mm: i32, seconds: i32, mode: BreathingMode) {
-        let amb = self.ambient_bar_mm(depth_mm);
-        for _ in 0..seconds {
-            self.add_segment_bar(amb, 1.0, mode.gas_at(amb));
         }
     }
 
@@ -377,7 +372,7 @@ impl Vpmb {
         let mut ds = self.clone();
         if wait_seconds > 0.0 {
             let amb = ds.ambient_bar_mm(from_mm);
-            ds.add_segment_bar(amb, wait_seconds, plan.mode.gas_at(amb));
+            ds.add_segment_bar(amb, wait_seconds, plan.bottom_mode().gas_at(amb));
         }
         // Consistency with other VPM-B implementations: do not start the ascent
         // while the ceiling is already deeper than the next stop.
@@ -393,7 +388,7 @@ impl Vpmb {
                 deltad = depth;
             }
             let amb = ds.ambient_bar_mm(depth);
-            ds.add_segment_bar(amb, BASE_TIMESTEP as f64, plan.mode.gas_at(amb));
+            ds.add_segment_bar(amb, BASE_TIMESTEP as f64, plan.bottom_mode().gas_at(amb));
             let tolerance = ds.tolerance_bar(ds.ambient_bar_mm(depth));
             if ds.ceiling_depth_mm(tolerance) > depth - deltad {
                 return false;
@@ -431,9 +426,9 @@ impl Vpmb {
 
     /// Build the schedule for one CVA iteration. Returns the stops and the
     /// resulting decompression time in seconds.
-    fn run(&mut self, plan: &DecoSegment, bottom_time: i64) -> (Vec<Stop>, f64) {
-        let bottom_mm = (plan.bottom_depth.meters() * 1000.0).round() as i32;
+    fn run(&mut self, plan: &DecoSegment, bottom_mm: i32, bottom_time: i64) -> (Vec<Stop>, f64) {
         let rate = self.ascent_rate_mm_s(plan);
+        let mode = plan.bottom_mode();
 
         // The first ceiling is the VPM-B tolerance at the start of the ascent,
         // round-tripped through Subsurface's integer mbar pressure.
@@ -441,7 +436,7 @@ impl Vpmb {
         let ceiling_mm = self.ceiling_depth_mm(tolerance);
         let first_ceiling_mbar =
             ambient_mbar(ceiling_mm, self.surface_bar * 1000.0, self.salinity).round();
-        self.first_ceiling_bar = first_ceiling_mbar / 1000.0;
+        self.first_ceiling_bar = (first_ceiling_mbar / 1000.0).max(self.max_bottom_ceiling_bar);
 
         let mut depth = bottom_mm;
         let mut clock = bottom_time;
@@ -468,7 +463,7 @@ impl Vpmb {
                     deltad = depth - level;
                 }
                 let amb = self.ambient_bar_mm(depth);
-                self.add_segment_bar(amb, BASE_TIMESTEP as f64, plan.mode.gas_at(amb));
+                self.add_segment_bar(amb, BASE_TIMESTEP as f64, mode.gas_at(amb));
                 depth -= deltad;
                 clock += BASE_TIMESTEP as i64;
                 if depth <= 0 || depth <= level {
@@ -485,7 +480,7 @@ impl Vpmb {
                 laststoptime = new_clock - clock;
                 if laststoptime > 0 {
                     let amb = self.ambient_bar_mm(depth);
-                    self.add_segment_bar(amb, laststoptime as f64, plan.mode.gas_at(amb));
+                    self.add_segment_bar(amb, laststoptime as f64, mode.gas_at(amb));
                     clock = new_clock;
                     stops.push(Stop {
                         depth: Depth::new(depth),
@@ -502,16 +497,30 @@ impl Vpmb {
         (stops, deco_time)
     }
 
+    /// Subsurface's multilevel VPM-B hook: when the entered profile ascends,
+    /// remember the ceiling at the deeper depth so the later ascent accounts
+    /// for the Boyle's-law compensation.
+    fn register_ascent_ceiling(&mut self, elapsed_seconds: f64, depth_mm: i32) {
+        self.nuclear_regeneration(elapsed_seconds);
+        self.start_gradient();
+        let tolerance = self.tolerance_bar(self.ambient_bar_mm(depth_mm));
+        let ceiling_mm = self.ceiling_depth_mm(tolerance);
+        let ceiling_bar =
+            ambient_mbar(ceiling_mm, self.surface_bar * 1000.0, self.salinity).round() / 1000.0;
+        self.max_bottom_ceiling_bar = self.max_bottom_ceiling_bar.max(ceiling_bar);
+    }
+
     /// The no-decompression limit: the longest bottom time whose schedule
     /// still has no decompression stops.
     ///
     /// Stop count grows monotonically with bottom time, so this binary-searches
     /// the schedules the planner would actually produce (rather than testing a
     /// static ceiling, which ignores off-gassing during the ascent).
-    pub fn ndl(&self, plan: &DecoSegment) -> Option<Duration> {
+    pub fn ndl(&self, depth: Depth, mode: BreathingMode) -> Option<Duration> {
+        let base = DecoSegment::square(depth, 0.0, mode);
         let has_stops = |minutes: i32| -> bool {
-            let mut probe = *plan;
-            probe.bottom_minutes = minutes as f64;
+            let mut probe = base.clone();
+            probe.points[1].duration = Duration::from_minutes(minutes);
             !self.schedule(&probe, self.stop_timestep).stops.is_empty()
         };
         let max_minutes = 24 * 60;
@@ -540,15 +549,24 @@ impl Vpmb {
         let mut ds = self.clone();
         ds.stop_timestep = timestep;
 
-        let bottom_mm = (plan.bottom_depth.meters() * 1000.0).round() as i32;
-        let descent_seconds = descent_seconds(plan);
-        let bottom_seconds = (plan.bottom_minutes * 60.0).round() as i32;
-
-        // Replay the entered profile: descent, then bottom.
-        ds.interpolate(0, bottom_mm, descent_seconds, plan.mode);
-        ds.hold(bottom_mm, bottom_seconds, plan.mode);
-
-        let bottom_time = (descent_seconds + bottom_seconds) as i64;
+        // Replay the entered profile.
+        let profile: &[PlanPoint] = &plan.points;
+        let mut previous_mm = 0i32;
+        let mut elapsed = 0i32;
+        for point in profile {
+            let to_mm = (point.depth.meters() * 1000.0).round() as i32;
+            if previous_mm > to_mm {
+                // An ascent within the entered profile: remember the deepest
+                // ceiling for the Boyle's-law compensation (Subsurface's
+                // `max_bottom_ceiling_pressure`).
+                ds.register_ascent_ceiling(elapsed as f64, previous_mm);
+            }
+            ds.interpolate(previous_mm, to_mm, point.duration.seconds, point.mode);
+            elapsed += point.duration.seconds;
+            previous_mm = to_mm;
+        }
+        let start_mm = previous_mm;
+        let bottom_time = elapsed as i64;
         ds.nuclear_regeneration(bottom_time as f64);
         ds.start_gradient();
 
@@ -572,9 +590,10 @@ impl Vpmb {
             trial.initial_n2_gradient = ds.initial_n2_gradient;
             trial.initial_he_gradient = ds.initial_he_gradient;
             trial.first_ceiling_bar = ds.first_ceiling_bar;
+            trial.max_bottom_ceiling_bar = ds.max_bottom_ceiling_bar;
             trial.stop_timestep = timestep;
 
-            let (stops, deco_time) = trial.run(plan, bottom_time);
+            let (stops, deco_time) = trial.run(plan, start_mm, bottom_time);
             let first_ceiling_m = trial.ceiling_depth_mm(trial.first_ceiling_bar) as f64 / 1000.0;
             result = (first_ceiling_m, stops);
             ds = trial;
@@ -621,15 +640,6 @@ fn solve_cubic(a: f64, b: f64, c: f64) -> f64 {
     (ba + ba * ba / denominator + denominator) / 3.0
 }
 
-/// The descent time in seconds for a square profile.
-fn descent_seconds(plan: &DecoSegment) -> i32 {
-    if plan.descent_rate <= 0.0 {
-        return 0;
-    }
-    let bottom_mm = (plan.bottom_depth.meters() * 1000.0).round();
-    (bottom_mm / (plan.descent_rate * 1000.0 / 60.0)).round() as i32
-}
-
 /// Plan a square profile with VPM-B, mirroring Subsurface's planner.
 ///
 /// `timestep` is the decompression-stop grid in seconds: Subsurface's planner
@@ -669,10 +679,22 @@ mod tests {
 
     impl Reference {
         fn segment(&self) -> DecoSegment {
+            let mode = BreathingMode::OpenCircuit(GasMix::new(self.o2, self.he));
+            let depth = Depth::from_meters(self.depth);
+            let descent_seconds = (self.depth / self.descent * 60.0).round() as i32;
             DecoSegment {
-                bottom_depth: Depth::from_meters(self.depth),
-                bottom_minutes: self.minutes,
-                mode: BreathingMode::OpenCircuit(GasMix::new(self.o2, self.he)),
+                points: vec![
+                    PlanPoint {
+                        depth,
+                        duration: Duration::new(descent_seconds),
+                        mode,
+                    },
+                    PlanPoint {
+                        depth,
+                        duration: Duration::from_minutes(self.minutes.round() as i32),
+                        mode,
+                    },
+                ],
                 descent_rate: self.descent,
                 ascent_rate: self.ascent,
                 ..Default::default()
@@ -997,13 +1019,18 @@ mod tests {
         // so the NDL must fall between them, and the boundary schedule itself
         // must have no stops.
         let segment = |minutes: f64| DecoSegment {
-            bottom_depth: Depth::from_meters(40.0),
-            bottom_minutes: minutes,
-            mode: BreathingMode::OpenCircuit(AIR),
+            points: DecoSegment::square(
+                Depth::from_meters(40.0),
+                minutes,
+                BreathingMode::OpenCircuit(AIR),
+            )
+            .points,
             ..Default::default()
         };
         let model = Vpmb::new(1.013, 10_300, 3);
-        let ndl = model.ndl(&segment(0.0)).expect("NDL under 24 h");
+        let ndl = model
+            .ndl(Depth::from_meters(40.0), BreathingMode::OpenCircuit(AIR))
+            .expect("NDL under 24 h");
         let minutes = ndl.seconds as f64 / 60.0;
         assert!((5.0..10.0).contains(&minutes), "40 m NDL was {minutes} min");
         assert!(plan(&segment(minutes), 1.013, 10_300, 3, 60.0)
@@ -1017,13 +1044,8 @@ mod tests {
     #[test]
     fn vpmb_ndl_is_long_at_shallow_depth() {
         // 12 m/60 min needs no stops, so the NDL must be at least an hour.
-        let segment = DecoSegment {
-            bottom_depth: Depth::from_meters(12.0),
-            bottom_minutes: 0.0,
-            mode: BreathingMode::OpenCircuit(AIR),
-            ..Default::default()
-        };
-        let ndl = Vpmb::new(1.013, 10_300, 3).ndl(&segment);
+        let ndl = Vpmb::new(1.013, 10_300, 3)
+            .ndl(Depth::from_meters(12.0), BreathingMode::OpenCircuit(AIR));
         assert!(
             ndl.is_none_or(|d| d.seconds >= 60 * 60),
             "12 m NDL was {ndl:?}"
@@ -1033,7 +1055,10 @@ mod tests {
     #[test]
     fn air_is_the_default_gas() {
         assert_eq!(
-            base(30.0, 20.0, 0.0, &[]).segment().mode.cylinder_gas(),
+            base(30.0, 20.0, 0.0, &[])
+                .segment()
+                .bottom_mode()
+                .cylinder_gas(),
             AIR
         );
     }

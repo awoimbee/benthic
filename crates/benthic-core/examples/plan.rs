@@ -28,9 +28,7 @@ fn main() {
     println!("NDL (GF 100/100) at {depth_m} m on {o2:.0}/{he:.0}: {ndl}");
 
     let plan = DecoSegment {
-        bottom_depth: depth,
-        bottom_minutes: minutes,
-        mode: BreathingMode::OpenCircuit(gas),
+        points: DecoSegment::square(depth, minutes, BreathingMode::OpenCircuit(gas)).points,
         gf_low,
         gf_high,
         ..Default::default()

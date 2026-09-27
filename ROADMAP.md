@@ -79,6 +79,8 @@ list below).
       validated against Subsurface's planner: identical first ceilings and
       matching stop tables
 - [x] Ascent planner with decompression stops and a saveable profile
+- [x] Multi-waypoint planner: add a dive planner point per segment, each with
+      depth, duration, gas and dive mode; per-point run time and gas used
 - [x] VPM-B algorithm, validated against Subsurface's planner CLI: identical
       first ceilings and stop tables (conservatism 0-4, nitrox and trimix);
       35 of 37 reference plans match exactly, the rest differ by a single

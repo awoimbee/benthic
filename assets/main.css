@@ -824,6 +824,51 @@ textarea.field {
   padding: 0.8rem 0.9rem 2rem;
 }
 
+/* ---- Planner waypoints ---- */
+.plan-points {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.plan-point {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.plan-point .field-label {
+  flex: 1 1 90px;
+  min-width: 0;
+}
+
+.plan-point-index {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 1.2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.plan-point .readout {
+  padding: 0.4rem 0.1rem;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.point-remove {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.6rem;
+  color: var(--danger);
+}
+
 /* ---- Command palette ---- */
 .palette {
   background: var(--bg-alt);
