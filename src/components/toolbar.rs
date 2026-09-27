@@ -17,6 +17,7 @@ pub fn Toolbar() -> Element {
     let mut show_prefs = state.show_prefs;
     let mut show_palette = state.show_palette;
     let mut show_planner = state.show_planner;
+    let mut show_sync = state.show_sync;
     // On narrow screens the secondary actions fold into a dropdown.
     let mut menu_open = use_signal(|| false);
     let open = (menu_open)();
@@ -132,6 +133,13 @@ pub fn Toolbar() -> Element {
                     title: "Bühlmann dive planner",
                     onclick: move |_| show_planner.set(true),
                     "Planner"
+                }
+
+                button {
+                    class: "btn",
+                    title: "Sync the log with a Git repository or Google Drive",
+                    onclick: move |_| show_sync.set(true),
+                    "Sync"
                 }
                 span { class: "status", "{status}" }
             }

@@ -7,6 +7,7 @@ mod import_export;
 mod planner;
 mod preferences;
 mod profile;
+mod sync_dialog;
 mod toolbar;
 mod trips_dialog;
 
@@ -19,5 +20,6 @@ pub use import_export::ImportExport;
 pub use planner::PlannerDialog;
 pub use preferences::PreferencesDialog;
 pub use profile::DiveProfile;
+pub use sync_dialog::SyncDialog;
 pub use toolbar::Toolbar;
 pub use trips_dialog::TripsDialog;

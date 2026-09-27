@@ -12,6 +12,7 @@ mod format;
 mod platform;
 mod state;
 mod storage;
+mod sync;
 
 use app::App;
 

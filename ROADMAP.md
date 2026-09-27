@@ -119,7 +119,9 @@ list below).
 
 ## Phase 5 — Platform polish
 
-- [ ] IndexedDB storage for large logs; quota handling; migration from v1
+- [x] IndexedDB storage for large logs and migration from the old localStorage log
+- [x] Opt-in remote sync: mirror the log to a Git repository (GitHub, or any
+      compatible API) or Google Drive, with push/pull/conflict handling
 - [ ] PWA: offline install, update prompts, file-handling API for `.ssrf`
 - [ ] Mobile targets (Dioxus iOS/Android)
 - [ ] Internationalization (gettext/fluent) and translations

@@ -6,7 +6,7 @@ use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
     CommandPalette, CompareDialog, DiveDetail, DiveList, FilterBar, PlannerDialog,
-    PreferencesDialog, Toolbar, TripsDialog,
+    PreferencesDialog, SyncDialog, Toolbar, TripsDialog,
 };
 use crate::state::AppState;
 
@@ -29,6 +29,7 @@ pub fn App() -> Element {
     let show_palette = use_signal(|| false);
     let show_trips = use_signal(|| false);
     let show_planner = use_signal(|| false);
+    let show_sync = use_signal(|| false);
     let show_compare = use_signal(|| false);
     let mut mobile_detail = use_signal(|| false);
     let presets = use_signal(|| {
@@ -52,6 +53,7 @@ pub fn App() -> Element {
         show_palette,
         show_trips,
         show_planner,
+        show_sync,
         show_compare,
         mobile_detail,
     };
@@ -211,6 +213,9 @@ pub fn App() -> Element {
             }
             if (show_compare)() {
                 CompareDialog {}
+            }
+            if (show_sync)() {
+                SyncDialog {}
             }
         }
     }

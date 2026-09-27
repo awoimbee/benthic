@@ -20,6 +20,7 @@ pub mod history;
 pub mod io;
 pub mod model;
 pub mod planner;
+pub mod sync;
 pub mod units;
 
 pub use deco::{Buhlmann, DecoModel};
@@ -30,6 +31,7 @@ pub use gas::GasMix;
 pub use history::{Command, History};
 pub use model::*;
 pub use planner::DivePlan;
+pub use sync::{SyncPlan, SyncState};
 pub use units::*;
 
 /// Convenience result alias used throughout the crate.

@@ -32,6 +32,8 @@ pub struct AppState {
     pub show_trips: Signal<bool>,
     /// Whether the dive planner is open.
     pub show_planner: Signal<bool>,
+    /// Whether the remote-sync dialog is open.
+    pub show_sync: Signal<bool>,
     /// Whether the two-dive comparison is open.
     pub show_compare: Signal<bool>,
     /// Narrow screens only: whether the detail screen is showing rather than

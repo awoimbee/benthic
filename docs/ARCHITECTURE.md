@@ -81,8 +81,8 @@ implemented per target:
 
 | Target | Log backend | Preferences | Notes |
 | --- | --- | --- | --- |
-| web | `localStorage` (`benthic.log`) | `benthic.prefs` | ~5 MB limit; IndexedDB planned |
-| desktop | `ProjectDirs::data_dir()/log.benthic.json` | `prefs.json` | created on first save |
+| web | IndexedDB (`benthic.log`), `localStorage` fallback | `localStorage` (`benthic.prefs`) | synchronous cache plus an ordered, coalescing write queue |
+| desktop | `ProjectDirs::data_dir()/benthic.log` | `prefs.json` | created on first save |
 
 The stored payload is the **native JSON** format, which is lossless. SSRF is an
 interchange format, not the autosave format, precisely because it cannot
@@ -95,8 +95,22 @@ hour. If the primary log fails to parse at startup, the app loads the backup
 and reports the recovery; the unreadable primary is left untouched. The
 preferences dialog also offers a manual "Restore last backup".
 
-Autosave runs in a `use_effect` keyed on the log signal. It is intentionally
-synchronous and cheap; debouncing and incremental writes are future work.
+Autosave runs in a `use_effect` keyed on the log signal. On the web it updates
+an in-memory cache synchronously and flushes to IndexedDB in the background, so
+the effect stays cheap and writes never reorder.
+
+## Remote sync
+
+`benthic-core::sync` is the pure, tested decision logic: given the local log,
+the last-synced bookkeeping and the remote copy, it returns `UpToDate`, `Push`,
+`Pull` or `Conflict`. A push happens only when the remote is unchanged since the
+last sync, a pull only when the local copy is unchanged, and otherwise the user
+chooses — nothing is overwritten silently.
+
+The transport lives in the app (`src/sync.rs`) and stores the whole log as one
+file. Two providers are supported: the GitHub contents API (the base URL is
+configurable, so Gitea and enterprise hosts work) and Google Drive's
+`appDataFolder`. The dialogs live behind the toolbar's **Sync** button.
 
 ## Platform abstraction
 

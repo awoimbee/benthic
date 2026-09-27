@@ -23,6 +23,8 @@ const PREFS: &str = "benthic.prefs";
 const PRESETS: &str = "benthic.presets";
 const BACKUP: &str = "benthic.backup";
 const BACKUP_TIME: &str = "benthic.backup_time";
+const SYNC: &str = "benthic.sync";
+const SYNC_STATE: &str = "benthic.sync_state";
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
@@ -251,6 +253,24 @@ pub fn load_prefs() -> Option<String> {
 
 pub fn save_prefs(contents: &str) -> Result<(), String> {
     imp::set(PREFS, contents)
+}
+
+/// The remote-sync configuration (provider, coordinates, token).
+pub fn load_sync() -> Option<String> {
+    imp::get(SYNC)
+}
+
+pub fn save_sync(contents: &str) -> Result<(), String> {
+    imp::set(SYNC, contents)
+}
+
+/// The last-synced bookkeeping.
+pub fn load_sync_state() -> Option<String> {
+    imp::get(SYNC_STATE)
+}
+
+pub fn save_sync_state(contents: &str) -> Result<(), String> {
+    imp::set(SYNC_STATE, contents)
 }
 
 pub fn load_presets() -> Option<String> {
