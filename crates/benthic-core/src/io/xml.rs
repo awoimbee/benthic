@@ -4,7 +4,7 @@
 //! hand-rolled, stack-based tree is plenty and avoids pulling in a full DOM.
 
 use quick_xml::events::Event as XmlEvent;
-use quick_xml::Reader;
+use quick_xml::{Reader, XmlVersion};
 
 use crate::{Error, Result};
 
@@ -62,12 +62,27 @@ pub(crate) fn parse_document(xml: &str) -> Result<Node> {
             }
             XmlEvent::Text(e) => {
                 if let Some(parent) = stack.last_mut() {
-                    parent.text.push_str(&e.unescape()?);
+                    parent.text.push_str(e.as_ref());
+                }
+            }
+            XmlEvent::GeneralRef(e) => {
+                if let Some(parent) = stack.last_mut() {
+                    if let Some(ch) = e.resolve_char_ref()? {
+                        parent.text.push(ch);
+                    } else if let Some(entity) =
+                        quick_xml::escape::resolve_predefined_entity(e.as_ref())
+                    {
+                        parent.text.push_str(entity);
+                    } else {
+                        parent.text.push('&');
+                        parent.text.push_str(e.as_ref());
+                        parent.text.push(';');
+                    }
                 }
             }
             XmlEvent::CData(e) => {
                 if let Some(parent) = stack.last_mut() {
-                    parent.text.push_str(&String::from_utf8_lossy(e.as_ref()));
+                    parent.text.push_str(e.as_ref());
                 }
             }
             XmlEvent::End(_) => {
@@ -91,12 +106,12 @@ pub(crate) fn parse_document(xml: &str) -> Result<Node> {
 }
 
 fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node> {
-    let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+    let name = e.name().as_ref().to_string();
     let mut attrs = Vec::new();
     for attr in e.attributes() {
         let attr = attr?;
-        let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
-        let value = attr.unescape_value()?.into_owned();
+        let key = attr.key.as_ref().to_string();
+        let value = attr.normalized_value(XmlVersion::default())?.into_owned();
         attrs.push((key, value));
     }
     Ok(Node {
@@ -105,4 +120,28 @@ fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node> {
         text: String::new(),
         children: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_text_and_attribute_entities() {
+        let doc = parse_document(
+            r#"<dive><notes>Navy &amp; wreck &lt;deep&gt; &#65;&#x42;</notes><site name="A &amp; B"/></dive>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            doc.child("notes").unwrap().text_trimmed(),
+            "Navy & wreck <deep> AB"
+        );
+        assert_eq!(doc.child("site").unwrap().attr("name"), Some("A & B"));
+    }
+
+    #[test]
+    fn keeps_cdata_verbatim() {
+        let doc = parse_document("<dive><notes><![CDATA[a < b & c]]></notes></dive>").unwrap();
+        assert_eq!(doc.child("notes").unwrap().text_trimmed(), "a < b & c");
+    }
 }
