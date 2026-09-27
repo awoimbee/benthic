@@ -805,7 +805,23 @@ textarea.field {
 }
 
 .planner-results {
-  margin: 1rem 0;
+  margin: 0 0 1rem;
+}
+
+/* The planner is its own full-screen view rather than a modal, so on a phone
+   it can use the whole width and scroll like any other screen. */
+.planner-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.planner-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0.8rem 0.9rem 2rem;
 }
 
 /* ---- Command palette ---- */
@@ -1005,6 +1021,13 @@ textarea.field {
   .detail {
     padding: 0.8rem 0.9rem 2rem;
   }
+  .planner-inner {
+    padding: 0.5rem 0.6rem 2rem;
+  }
+  /* Two summary columns read better than one on a phone. */
+  .planner-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .detail-head h1 {
     font-size: 1.15rem;
   }
@@ -1036,4 +1059,17 @@ textarea.field {
 .zoom {
   width: 5rem;
   accent-color: var(--accent);
+}
+
+/* Content that is available to screen readers and crawlers but not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

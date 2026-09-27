@@ -5,9 +5,10 @@ use benthic_core::gas::{
     ambient_mbar, end_depth_mm, mod_depth_mm, GasMix, DEFAULT_PO2_LIMIT_MBAR, SURFACE_PRESSURE_MBAR,
 };
 use benthic_core::units::{format_duration, Depth, Duration};
-use benthic_core::{Buhlmann, DivePlan};
+use benthic_core::{Buhlmann, Dive, DiveComputer, DivePlan};
 
 use crate::actions;
+use crate::components::DiveProfile;
 use crate::state::AppState;
 
 /// A Bühlmann planner: pick a depth, bottom time, breathing mode and gas and
@@ -106,6 +107,28 @@ pub fn PlannerDialog() -> Element {
         .collect();
     let has_stops = !stops.is_empty();
 
+    // The plan's own profile, drawn with the same interactive chart as a real
+    // dive: descent, bottom time, the ascent and each deco stop plateau.
+    let graph_dive = Dive {
+        max_depth: Some(target_depth),
+        duration: Some(plan.total_time()),
+        computers: vec![DiveComputer {
+            model: "Planner".to_string(),
+            samples: plan.samples(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let header_summary = format!(
+        "{} for {} \u{b7} {} \u{b7} GF {:.0}/{:.0}",
+        prefs.depth(target_depth),
+        format_duration(bottom_time),
+        diluent.name(),
+        gf_low_value * 100.0,
+        gf_high_value * 100.0,
+    );
+
     let plan_for_save = plan.clone();
     let on_save = move |_| {
         actions::save_plan(state, plan_for_save.clone());
@@ -113,13 +136,32 @@ pub fn PlannerDialog() -> Element {
     };
 
     rsx! {
-        div {
-            class: "modal-backdrop",
-            onclick: move |_| show_planner.set(false),
-            div {
-                class: "modal wide",
-                onclick: move |evt| evt.stop_propagation(),
-                h2 { "Dive planner" }
+        section { class: "planner-screen",
+            div { class: "planner-inner",
+                header { class: "detail-head",
+                    div { class: "detail-title-row",
+                        button {
+                            class: "btn back-btn",
+                            title: "Back",
+                            onclick: move |_| show_planner.set(false),
+                            "\u{2039} Back"
+                        }
+                        h1 { "Dive planner" }
+                        div { class: "detail-actions",
+                            button { class: "btn primary", onclick: on_save, "Save as dive" }
+                            button {
+                                class: "btn",
+                                onclick: move |_| show_planner.set(false),
+                                "Close"
+                            }
+                        }
+                    }
+                    p { class: "muted", "{header_summary}" }
+                }
+
+                DiveProfile { dive: graph_dive, dc_index: 0 }
+
+                div { class: "section-title", "Settings" }
                 div { class: "edit-form",
                     label { class: "field-label", "Depth ({prefs.depth_unit()})"
                         input {
@@ -216,6 +258,11 @@ pub fn PlannerDialog() -> Element {
                         }
                     }
                 }
+                if over_mod {
+                    p { class: "warn", "Warning: depth exceeds the diluent MOD at a 1.4 bar pO2 limit." }
+                }
+
+                div { class: "section-title", "Summary" }
                 div { class: "facts planner-results",
                     Result { label: gas_label, value: diluent.name() }
                     Result { label: "Ambient", value: format!("{ambient:.2} bar") }
@@ -232,14 +279,12 @@ pub fn PlannerDialog() -> Element {
                     }
                     if !rebreather {
                         Result { label: "Gas needed", value: format!("{gas_needs:.0} L") }
-                        Result { label: "≈ 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
+                        Result { label: "\u{2248} 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
                     }
                     Result { label: "OC bailout", value: format!("{bailout:.0} L") }
-                    Result { label: "≈ 12 L bailout", value: format!("{bailout_bar_12l:.0} bar") }
+                    Result { label: "\u{2248} 12 L bailout", value: format!("{bailout_bar_12l:.0} bar") }
                 }
-                if over_mod {
-                    p { class: "warn", "Warning: depth exceeds the diluent MOD at a 1.4 bar pO2 limit." }
-                }
+
                 if has_stops {
                     div { class: "section-title", "Decompression schedule" }
                     table { class: "data-table",
@@ -252,14 +297,6 @@ pub fn PlannerDialog() -> Element {
                     }
                 } else {
                     p { class: "muted", "No decompression stops required." }
-                }
-                div { class: "detail-actions",
-                    button { class: "btn primary", onclick: on_save, "Save as dive" }
-                    button {
-                        class: "btn",
-                        onclick: move |_| show_planner.set(false),
-                        "Close"
-                    }
                 }
             }
         }
