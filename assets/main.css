@@ -310,6 +310,12 @@ body {
   opacity: 0.85;
 }
 
+.profile-selection {
+  fill: var(--accent);
+  opacity: 0.18;
+  pointer-events: none;
+}
+
 .profile-gridline {
   stroke: var(--border);
   stroke-width: 0.5;

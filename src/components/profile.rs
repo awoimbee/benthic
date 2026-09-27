@@ -44,6 +44,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let mut zoom = use_signal(|| 1.0f64);
     let mut pan = use_signal(|| 0.5f64);
     let mut hover = use_signal(|| None::<f64>);
+    let mut drag = use_signal(|| None::<(f64, f64)>);
     let mut plot_width = use_signal(|| 0.0f64);
 
     let Some(active) = active_opt else {
@@ -80,6 +81,15 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let win_start = (center - half).clamp(0.0, 1.0 - 1.0 / zoom_value);
     let win_end = win_start + 1.0 / zoom_value;
     let win_span = (win_end - win_start).max(1e-9);
+
+    // Drag-to-select zoom, Grafana style. `selection` is `(x, width, shown)`
+    // in plot percentages.
+    let (sel_x, sel_w, sel_on) = (drag)()
+        .map(|(a, b)| {
+            let (lo, hi) = (a.min(b), a.max(b));
+            (lo * 100.0, (hi - lo) * 100.0, hi - lo > MIN_SELECTION)
+        })
+        .unwrap_or((0.0, 0.0, false));
 
     // The depth trace is split into one path per vertical-speed band, so its
     // colour shows how fast the diver was descending or ascending. The ceiling
@@ -348,6 +358,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         if width > 1.0 {
                             let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
                             hover.set(Some(fraction));
+                            drag.set(Some((fraction, fraction)));
                         }
                     },
                     onpointermove: move |evt: PointerEvent| {
@@ -355,18 +366,42 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         if width > 1.0 {
                             let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
                             hover.set(Some(fraction));
+                            if let Some((start, _)) = (drag)() {
+                                drag.set(Some((start, fraction)));
+                            }
                         }
                     },
                     onpointerup: move |evt: PointerEvent| {
+                        if let Some((a, b)) = (drag)() {
+                            drag.set(None);
+                            let (lo, hi) = (a.min(b), a.max(b));
+                            if hi - lo > MIN_SELECTION {
+                                // The selection is a slice of the visible
+                                // window; map it back to full-profile fractions.
+                                let f0 = win_start + lo * win_span;
+                                let f1 = win_start + hi * win_span;
+                                let span = (f1 - f0).max(1e-9);
+                                zoom.set((1.0 / span).clamp(1.0, MAX_ZOOM));
+                                pan.set((f0 + f1) / 2.0);
+                            }
+                        }
                         if evt.pointer_type() == "mouse" {
                             hover.set(None);
                         }
                     },
-                    onpointercancel: move |_| hover.set(None),
+                    onpointercancel: move |_| {
+                        drag.set(None);
+                        hover.set(None);
+                    },
                     onpointerleave: move |evt: PointerEvent| {
+                        drag.set(None);
                         if evt.pointer_type() == "mouse" {
                             hover.set(None);
                         }
+                    },
+                    ondoubleclick: move |_| {
+                        zoom.set(1.0);
+                        pan.set(0.5);
                     },
                     for (y, _, _) in depth_ticks.iter() {
                         line {
@@ -473,6 +508,15 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         r: "1.4",
                         style: "fill: #dce8f2;",
                     }
+                    if sel_on {
+                        rect {
+                            x: "{sel_x}",
+                            y: "0",
+                            width: "{sel_w}",
+                            height: "100",
+                            class: "profile-selection",
+                        }
+                    }
                 }
                 div { class: "axis-rail axis-right",
                     for (i, (name, name_style, ticks)) in right_axes.iter().enumerate() {
@@ -504,10 +548,21 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         class: "zoom",
                         r#type: "range",
                         min: "1",
-                        max: "20",
-                        step: "0.5",
+                        max: "100",
+                        step: "0.1",
                         value: "{zoom_value}",
                         oninput: move |evt| zoom.set(evt.value().parse().unwrap_or(1.0)),
+                    }
+                }
+                if zoom_value > 1.01 {
+                    button {
+                        class: "btn",
+                        title: "Reset the zoom and pan (or double-click the graph)",
+                        onclick: move |_| {
+                            zoom.set(1.0);
+                            pan.set(0.5);
+                        },
+                        "Reset zoom"
                     }
                 }
                 label { class: "check", "Pan"
@@ -633,19 +688,24 @@ fn scaled_series(
     end: f64,
 ) -> String {
     let span = (end - start).max(1e-9);
-    values
-        .filter_map(|(t, v)| {
-            let fraction = t as f64 / max_t;
-            if fraction < start || fraction > end {
-                return None;
-            }
+    let all: Vec<(f64, i32)> = values.map(|(t, v)| (t as f64 / max_t, v)).collect();
+    let (lo, hi) = value_window(&all, start, end);
+    all[lo..hi]
+        .iter()
+        .map(|(fraction, v)| {
             let x = (fraction - start) / span * 100.0;
-            let y = v as f64 / max_v.max(1e-9) * 90.0 + 5.0;
-            Some(format!("{x:.2},{y:.2}"))
+            let y = *v as f64 / max_v.max(1e-9) * 90.0 + 5.0;
+            format!("{x:.2},{y:.2}")
         })
         .collect::<Vec<_>>()
         .join(" ")
 }
+
+/// A drag narrower than this fraction of the plot is treated as a click, not a
+/// zoom selection.
+const MIN_SELECTION: f64 = 0.02;
+/// The largest zoom a drag selection may request.
+const MAX_ZOOM: f64 = 100.0;
 
 /// Vertical-speed bands used to colour the depth trace, fastest first. `min`
 /// is the lower bound on the *magnitude* of the speed in metres per minute,
@@ -692,6 +752,15 @@ fn speed_band(speed: f64) -> usize {
         .unwrap_or(SPEED_BANDS.len() - 1)
 }
 
+/// The slice `[lo, hi)` of a `(fraction, value)` series covering the visible
+/// window plus one sample on each side, so a segment that crosses the window
+/// edge is still drawn when the window is sparse.
+fn value_window<T>(all: &[(f64, T)], start: f64, end: f64) -> (usize, usize) {
+    let first = all.partition_point(|(f, _)| *f < start);
+    let after = all.partition_point(|(f, _)| *f <= end);
+    (first.saturating_sub(1), (after + 1).min(all.len()))
+}
+
 /// Split the depth trace into segments and group them by the vertical speed
 /// over each segment, returning `(label, colour, path data)` per non-empty
 /// band. Paths are disjoint subpaths (`M … L …`), so one `<path>` per band
@@ -708,12 +777,16 @@ fn speed_bands(
         .iter()
         .map(|(label, color, _)| (*label, *color, String::new()))
         .collect();
+    if samples.is_empty() {
+        return bands;
+    }
+    let first = samples.partition_point(|s| (s.time.seconds as f64 / max_t) < start);
+    let after = samples.partition_point(|s| (s.time.seconds as f64 / max_t) <= end);
+    let lo = first.saturating_sub(1);
+    let hi = (after + 1).min(samples.len());
     let mut previous: Option<(f64, f64, i32, f64)> = None;
-    for sample in samples {
+    for sample in &samples[lo..hi] {
         let fraction = sample.time.seconds as f64 / max_t;
-        if fraction < start || fraction > end {
-            continue;
-        }
         let x = (fraction - start) / span * 100.0;
         let y = sample.depth.mm as f64 / max_d.max(1e-9) * 90.0 + 5.0;
         if let Some((px, py, depth, time)) = previous {
@@ -742,23 +815,25 @@ fn series(
     end: f64,
 ) -> Option<Series> {
     let span = (end - start).max(1e-9);
-    let visible: Vec<(f64, i32)> = values
-        .filter_map(|(t, v)| {
-            let fraction = t as f64 / max_t;
-            if fraction < start || fraction > end {
-                None
-            } else {
-                Some((fraction, v))
-            }
-        })
-        .collect();
-    if visible.len() < 2 {
+    let all: Vec<(f64, i32)> = values.map(|(t, v)| (t as f64 / max_t, v)).collect();
+    if all.is_empty() {
         return None;
     }
-    let min = visible.iter().map(|(_, v)| *v).min()?;
-    let max = visible.iter().map(|(_, v)| *v).max()?;
+    let (lo, hi) = value_window(&all, start, end);
+    let first = all.partition_point(|(f, _)| *f < start);
+    let after = all.partition_point(|(f, _)| *f <= end);
+    // Scale the axis to the samples actually in the window; only fall back to
+    // the bracketing samples when the window is too sparse to have a range.
+    let strict = &all[first..after];
+    let range = if strict.len() >= 2 {
+        strict
+    } else {
+        &all[lo..hi]
+    };
+    let min = range.iter().map(|(_, v)| *v).min()?;
+    let max = range.iter().map(|(_, v)| *v).max()?;
     let value_span = (max - min) as f64;
-    let points = visible
+    let points = all[lo..hi]
         .iter()
         .map(|(fraction, v)| {
             let x = (fraction - start) / span * 100.0;
