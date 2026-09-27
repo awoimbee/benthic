@@ -280,6 +280,28 @@ body {
   color: var(--accent);
 }
 
+.profile-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0 0 0.35rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.legend-swatch {
+  width: 0.9rem;
+  height: 0.2rem;
+  border-radius: 1px;
+}
+
 .profile-caption {
   color: var(--muted);
   font-size: 0.75rem;

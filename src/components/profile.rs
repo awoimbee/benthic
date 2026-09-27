@@ -81,15 +81,10 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let win_end = win_start + 1.0 / zoom_value;
     let win_span = (win_end - win_start).max(1e-9);
 
-    // Depth uses the shared depth scale; the ceiling is a depth too and must
-    // line up with it.
-    let depth_points = scaled_series(
-        active.samples.iter().map(|s| (s.time.seconds, s.depth.mm)),
-        max_d,
-        max_t,
-        win_start,
-        win_end,
-    );
+    // The depth trace is split into one path per vertical-speed band, so its
+    // colour shows how fast the diver was descending or ascending. The ceiling
+    // is a depth too and must line up with the depth scale.
+    let depth_bands = speed_bands(&active.samples, max_d, max_t, win_start, win_end);
     let ceiling = scaled_series(
         active.samples.iter().filter_map(|s| {
             s.stop_depth
@@ -412,9 +407,12 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             }
                         }
                     }
-                    polyline {
-                        points: "{depth_points}",
-                        style: "fill: none; stroke: {COLOR_DEPTH}; stroke-width: 1.5; vector-effect: non-scaling-stroke;",
+                    for (label, color, d) in depth_bands.iter() {
+                        path {
+                            key: "depth-{label}",
+                            d: "{d}",
+                            style: "fill: none; stroke: {color}; stroke-width: 1.5; vector-effect: non-scaling-stroke;",
+                        }
                     }
                     if deco_on && !ceiling.is_empty() {
                         polyline {
@@ -463,6 +461,15 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                                 }
                             }
                         }
+                    }
+                }
+            }
+            div { class: "profile-legend",
+                span { class: "legend-item", "Depth speed" }
+                for (label, color, _) in SPEED_BANDS.iter() {
+                    span { key: "legend-{label}", class: "legend-item",
+                        span { class: "legend-swatch", style: "background: {color};" }
+                        " {label}"
                     }
                 }
             }
@@ -621,6 +628,66 @@ fn scaled_series(
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Vertical-speed bands used to colour the depth trace, fastest descent
+/// first. `min` is the lower bound in metres per minute (positive =
+/// descending); the last band has no lower bound.
+const SPEED_BANDS: [(&str, &str, f64); 5] = [
+    ("Fast descent", "#e5484d", 20.0),
+    ("Descent", "#f2a65a", 2.0),
+    ("Level", "#8b98a5", -2.0),
+    ("Ascent", "#5ab0e0", -10.0),
+    ("Fast ascent", "#3d6fd8", f64::NEG_INFINITY),
+];
+
+/// The band a vertical speed (m/min, positive = descending) falls into.
+fn speed_band(speed: f64) -> usize {
+    SPEED_BANDS
+        .iter()
+        .position(|(_, _, min)| speed >= *min)
+        .unwrap_or(SPEED_BANDS.len() - 1)
+}
+
+/// Split the depth trace into segments and group them by the vertical speed
+/// over each segment, returning `(label, colour, path data)` per non-empty
+/// band. Paths are disjoint subpaths (`M … L …`), so one `<path>` per band
+/// draws the whole trace in that band's colour.
+fn speed_bands(
+    samples: &[benthic_core::Sample],
+    max_d: f64,
+    max_t: f64,
+    start: f64,
+    end: f64,
+) -> Vec<(&'static str, &'static str, String)> {
+    let span = (end - start).max(1e-9);
+    let mut bands: Vec<(&'static str, &'static str, String)> = SPEED_BANDS
+        .iter()
+        .map(|(label, color, _)| (*label, *color, String::new()))
+        .collect();
+    let mut previous: Option<(f64, f64, i32, f64)> = None;
+    for sample in samples {
+        let fraction = sample.time.seconds as f64 / max_t;
+        if fraction < start || fraction > end {
+            continue;
+        }
+        let x = (fraction - start) / span * 100.0;
+        let y = sample.depth.mm as f64 / max_d.max(1e-9) * 90.0 + 5.0;
+        if let Some((px, py, depth, time)) = previous {
+            let minutes = (sample.time.seconds as f64 - time) / 60.0;
+            let speed = if minutes > 0.0 {
+                (sample.depth.mm - depth) as f64 / 1000.0 / minutes
+            } else {
+                0.0
+            };
+            bands[speed_band(speed)]
+                .2
+                .push_str(&format!("M {px:.2} {py:.2} L {x:.2} {y:.2} "));
+        }
+        previous = Some((x, y, sample.depth.mm, sample.time.seconds as f64));
+    }
+    bands.retain(|(_, _, d)| !d.is_empty());
+    bands
 }
 
 /// Normalize a `(seconds, value)` series to its own range, inverting the value
