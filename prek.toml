@@ -1,0 +1,28 @@
+#:schema https://www.schemastore.org/prek.json
+# Git hooks for benthic. Install with `prek install`, run with `prek run --all-files`.
+
+[[repos]]
+repo = "https://github.com/zizmorcore/zizmor-pre-commit"
+rev = "v1.9.0"
+hooks = [{ id = "zizmor" }]
+
+[[repos]]
+repo = "local"
+hooks = [
+    {
+        id = "cargo-fmt",
+        name = "cargo fmt",
+        entry = "cargo fmt --all -- --check",
+        language = "system",
+        types = ["rust"],
+        pass_filenames = false,
+    },
+    {
+        id = "cargo-clippy",
+        name = "cargo clippy",
+        entry = "cargo clippy --workspace --all-targets -- -D warnings",
+        language = "system",
+        types = ["rust"],
+        pass_filenames = false,
+    },
+]

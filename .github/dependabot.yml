@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Keep GitHub Actions (workflows) and the Dioxus CLI pin up to date.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Keep Rust/Cargo dependencies up to date (workspace root + crates/*).
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      cargo:
+        patterns:
+          - "*"
