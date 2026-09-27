@@ -33,6 +33,26 @@ impl UnitSystem {
     }
 }
 
+/// The colour theme for the interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl Theme {
+    pub const ALL: [Theme; 2] = [Theme::Dark, Theme::Light];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Theme::Dark => "Dark",
+            Theme::Light => "Light",
+        }
+    }
+}
+
 /// How to render dates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -126,6 +146,8 @@ impl Salinity {
 /// field is ever added, switch to reading the signal inside closures.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct Preferences {
+    #[serde(default)]
+    pub theme: Theme,
     #[serde(default)]
     pub units: UnitSystem,
     #[serde(default)]

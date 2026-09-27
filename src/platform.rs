@@ -20,6 +20,23 @@ pub fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// Toggle a `theme-light` class on the document root so the page (and the
+/// area around the app) picks up the light palette. The app root also carries
+/// the class, so this is only needed on the web to cover `<body>`.
+#[cfg(target_arch = "wasm32")]
+pub fn set_theme(light: bool) {
+    if let Some(root) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.document_element())
+    {
+        let _ = root.class_list().toggle_with_force("theme-light", light);
+    }
+}
+
+/// Non-web builds have no document root; the app root carries the theme class.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_theme(_light: bool) {}
+
 #[cfg(target_arch = "wasm32")]
 pub fn save_file(filename: &str, contents: &str) -> Result<String, String> {
     use wasm_bindgen::JsCast;

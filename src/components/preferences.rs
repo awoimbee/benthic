@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use benthic_core::{DateFormat, Salinity, TimeFormat, UnitSystem};
+use benthic_core::{DateFormat, Salinity, Theme, TimeFormat, UnitSystem};
 
 use crate::actions;
 use crate::state::AppState;
@@ -12,6 +12,7 @@ pub fn PreferencesDialog() -> Element {
     let mut prefs = state.prefs;
     let mut show_prefs = state.show_prefs;
     let current = (state.prefs)().units;
+    let current_theme = (state.prefs)().theme;
     let current_date = (state.prefs)().date_format;
     let current_time = (state.prefs)().time_format;
     let date_index = DateFormat::ALL
@@ -46,6 +47,22 @@ pub fn PreferencesDialog() -> Element {
                 class: "modal",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "Preferences" }
+                div { class: "pref-group",
+                    div { class: "field-label", "Theme" }
+                    for theme in Theme::ALL {
+                        label {
+                            key: "{theme.label()}",
+                            class: "radio",
+                            input {
+                                r#type: "radio",
+                                name: "theme",
+                                checked: current_theme == theme,
+                                onchange: move |_| prefs.write().theme = theme,
+                            }
+                            span { "{theme.label()}" }
+                        }
+                    }
+                }
                 div { class: "pref-group",
                     div { class: "field-label", "Units" }
                     for units in UnitSystem::ALL {

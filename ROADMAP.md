@@ -55,6 +55,7 @@ Guiding principles:
 - [x] Dive-site merge and de-duplication (by name + GPS)
 - [x] Dive-site map link (a full map picker comes with the Phase 4 map view)
 - [x] Preferences: date and time formats
+- [x] Preferences: dark and light themes
 - [x] Preferences: default salinity and default cylinder
 - [x] Command palette (`Ctrl/Cmd+K`)
 - [x] Manual load/save via import/export; autosave means there are no unsaved changes

@@ -68,6 +68,11 @@ pub fn App() -> Element {
             let _ = crate::storage::save_presets(&text);
         }
     });
+    // Keep the page in sync with the chosen theme (the web build also classes
+    // <html> so the background behind the app matches).
+    use_effect(move || {
+        crate::platform::set_theme(prefs().theme == benthic_core::Theme::Light);
+    });
 
     // Load the autosaved log once at startup.
     use_future(move || async move {
@@ -153,10 +158,16 @@ pub fn App() -> Element {
         }
     };
 
+    let theme_light = (prefs)().theme == benthic_core::Theme::Light;
+
     rsx! {
         style { dangerous_inner_html: CSS }
         link { rel: "icon", r#type: "image/svg+xml", href: "favicon.svg" }
-        div { class: "app", tabindex: "0", autofocus: true, onkeydown: on_keydown,
+        div {
+            class: if theme_light { "app theme-light" } else { "app" },
+            tabindex: "0",
+            autofocus: true,
+            onkeydown: on_keydown,
             Toolbar {}
             FilterBar {}
             div { class: "panes",

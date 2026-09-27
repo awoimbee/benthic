@@ -5,14 +5,14 @@ use benthic_core::{Dive, DiveComputer, Preferences};
 
 use crate::state::AppState;
 
-const COLOR_DEPTH: &str = "#4cc9f0";
-const COLOR_PRESSURE: &str = "#7ee787";
-const COLOR_TEMP: &str = "#f5a623";
-const COLOR_NDL: &str = "#a8dadc";
-const COLOR_TTS: &str = "#f28fad";
-const COLOR_HEART: &str = "#d0ffb7";
-const COLOR_CNS: &str = "#ffd166";
-const COLOR_CEILING: &str = "#c792ea";
+const COLOR_DEPTH: &str = "var(--trace-depth)";
+const COLOR_PRESSURE: &str = "var(--trace-pressure)";
+const COLOR_TEMP: &str = "var(--trace-temp)";
+const COLOR_NDL: &str = "var(--trace-ndl)";
+const COLOR_TTS: &str = "var(--trace-tts)";
+const COLOR_HEART: &str = "var(--trace-heart)";
+const COLOR_CNS: &str = "var(--trace-cns)";
+const COLOR_CEILING: &str = "var(--trace-ceiling)";
 
 /// An interactive SVG depth profile with overlays, event markers, a scrubber
 /// readout, pan/zoom and (when a dive has several computers) the other
@@ -428,9 +428,9 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             x2: "{x}",
                             y2: "10",
                             style: if gas {
-                                "stroke: #f28fad; stroke-width: 1.4; vector-effect: non-scaling-stroke;"
+                                "stroke: var(--trace-tts); stroke-width: 1.4; vector-effect: non-scaling-stroke;"
                             } else {
-                                "stroke: #c792ea; stroke-width: 1; vector-effect: non-scaling-stroke;"
+                                "stroke: var(--trace-ceiling); stroke-width: 1; vector-effect: non-scaling-stroke;"
                             },
                         }
                     }
@@ -634,8 +634,8 @@ fn scaled_series(
 /// is the lower bound on the *magnitude* of the speed in metres per minute,
 /// so descents and ascents share one three-colour scale.
 const SPEED_BANDS: [(&str, &str, f64); 3] = [
-    ("Too fast", "#e5484d", 20.0),
-    ("A bit fast", "#f2a65a", 10.0),
+    ("Too fast", "var(--speed-toofast)", 20.0),
+    ("A bit fast", "var(--speed-fast)", 10.0),
     ("Normal", COLOR_DEPTH, 0.0),
 ];
 

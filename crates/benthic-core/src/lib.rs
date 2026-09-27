@@ -25,7 +25,7 @@ pub mod units;
 pub use deco::Buhlmann;
 pub use equipment::{apply_preset, cylinder_preset, CylinderPreset, CYLINDER_PRESETS};
 pub use filter::{DiveFilter, FilterPreset};
-pub use format::{DateFormat, Preferences, Salinity, TimeFormat, UnitSystem};
+pub use format::{DateFormat, Preferences, Salinity, Theme, TimeFormat, UnitSystem};
 pub use gas::GasMix;
 pub use history::{Command, History};
 pub use model::*;
