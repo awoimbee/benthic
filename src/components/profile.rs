@@ -334,14 +334,35 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             plot_width.set(rect.size.width.max(1.0));
                         }
                     },
-                    onmousemove: move |evt: MouseEvent| {
+                    // Pointer events cover mouse, touch and pen. Touching a
+                    // point shows the same readout as hovering; unlike the
+                    // mouse, a touch does not clear it on release so the
+                    // values stay readable.
+                    onpointerdown: move |evt: PointerEvent| {
                         let width = (plot_width)();
                         if width > 1.0 {
                             let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
                             hover.set(Some(fraction));
                         }
                     },
-                    onmouseleave: move |_| hover.set(None),
+                    onpointermove: move |evt: PointerEvent| {
+                        let width = (plot_width)();
+                        if width > 1.0 {
+                            let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
+                            hover.set(Some(fraction));
+                        }
+                    },
+                    onpointerup: move |evt: PointerEvent| {
+                        if evt.pointer_type() == "mouse" {
+                            hover.set(None);
+                        }
+                    },
+                    onpointercancel: move |_| hover.set(None),
+                    onpointerleave: move |evt: PointerEvent| {
+                        if evt.pointer_type() == "mouse" {
+                            hover.set(None);
+                        }
+                    },
                     for (y, _, _) in depth_ticks.iter() {
                         line {
                             key: "grid-{y}",

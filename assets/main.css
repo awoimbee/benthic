@@ -265,6 +265,9 @@ body {
   min-width: 0;
   height: 100%;
   display: block;
+  /* Let horizontal drags scrub the profile while vertical swipes still
+     scroll the page. */
+  touch-action: pan-y;
 }
 
 .axis-rail {
