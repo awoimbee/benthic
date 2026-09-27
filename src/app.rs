@@ -89,6 +89,7 @@ pub fn App() -> Element {
         let mut selected = selected;
         let mut status = status;
         let mut loaded = loaded;
+        crate::storage::init().await;
         match crate::storage::load() {
             Some(text) => match benthic_core::io::parse_auto(&text) {
                 Ok(parsed) => {
