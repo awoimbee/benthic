@@ -46,6 +46,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let mut hover = use_signal(|| None::<f64>);
     let mut drag = use_signal(|| None::<(f64, f64)>);
     let mut plot_width = use_signal(|| 0.0f64);
+    let mut plot_left = use_signal(|| 0.0f64);
 
     let Some(active) = active_opt else {
         return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
@@ -346,6 +347,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                     preserve_aspect_ratio: "none",
                     onmounted: move |evt: MountedEvent| async move {
                         if let Ok(rect) = evt.get_client_rect().await {
+                            plot_left.set(rect.origin.x);
                             plot_width.set(rect.size.width.max(1.0));
                         }
                     },
@@ -402,7 +404,6 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         hover.set(None);
                     },
                     onpointerleave: move |evt: PointerEvent| {
-                        drag.set(None);
                         if evt.pointer_type() == "mouse" {
                             hover.set(None);
                         }
@@ -570,6 +571,46 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                     max: "{active.samples.len() - 1}",
                     value: "{index}",
                     oninput: move |evt| cursor.set(evt.value().parse().unwrap_or(0)),
+                }
+            }
+            // While a selection drag is active, this full-viewport layer keeps
+            // receiving the moves (and the release) even past the chart edges,
+            // so the selection stays clamped to the ends instead of stopping.
+            if (drag)().is_some() {
+                div {
+                    class: "profile-drag-overlay",
+                    onpointermove: move |evt: PointerEvent| {
+                        let width = (plot_width)();
+                        if width > 1.0 {
+                            let fraction = ((evt.element_coordinates().x - (plot_left)()) / width)
+                                .clamp(0.0, 1.0);
+                            hover.set(Some(fraction));
+                            if let Some((start, _)) = (drag)() {
+                                drag.set(Some((start, fraction)));
+                            }
+                        }
+                    },
+                    onpointerup: move |evt: PointerEvent| {
+                        if let Some((a, b)) = (drag)() {
+                            drag.set(None);
+                            let (lo, hi) = (a.min(b), a.max(b));
+                            if hi - lo > MIN_SELECTION {
+                                let f0 = win_start + lo * win_span;
+                                let f1 = win_start + hi * win_span;
+                                let span = (f1 - f0).max(1e-9);
+                                zoom.set((1.0 / span).clamp(1.0, MAX_ZOOM));
+                                pan.set((f0 + f1) / 2.0);
+                            }
+                        }
+                        // A mouse readout is transient; a touch keeps it.
+                        if evt.pointer_type() == "mouse" {
+                            hover.set(None);
+                        }
+                    },
+                    onpointercancel: move |_| {
+                        drag.set(None);
+                        hover.set(None);
+                    },
                 }
             }
         }

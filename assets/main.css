@@ -265,6 +265,9 @@ body {
   min-width: 0;
   height: 100%;
   display: block;
+  /* A drag selects a zoom window, never page text. */
+  user-select: none;
+  -webkit-user-select: none;
   /* Let horizontal drags scrub the profile while vertical swipes still
      scroll the page. */
   touch-action: pan-y;
@@ -308,6 +311,15 @@ body {
   line-height: 1;
   white-space: nowrap;
   opacity: 0.85;
+}
+
+.profile-drag-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  cursor: col-resize;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .profile-selection {
