@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<!--
+  Custom document shell for the web build.
+
+  The Dioxus CLI reads this file from the crate root, injects the hashed
+  wasm/JS asset tags, and substitutes the title placeholder below with
+  `[web.app].title` from Dioxus.toml. Everything else here is served verbatim,
+  which is what makes the app crawlable: bots and social scrapers see a real
+  title, description and Open Graph metadata without executing any JavaScript.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{app_title}</title>
+
+    <!-- Primary SEO -->
+    <meta
+      name="description"
+      content="benthic is a modern, local-first dive log for scuba divers: import Subsurface logs, plan dives, browse profiles, and keep your data on your own device."
+    />
+    <meta
+      name="keywords"
+      content="dive log, dive computer, scuba diving, Subsurface, decompression planner, Bühlmann, dive profile, open source, local-first"
+    />
+    <meta name="author" content="awoimbee" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="googlebot" content="index, follow" />
+    <link rel="canonical" href="https://awoimbee.github.io/benthic/" />
+
+    <!-- Open Graph (Facebook, LinkedIn, ...) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="benthic" />
+    <meta property="og:title" content="benthic — a modern, local-first dive log" />
+    <meta
+      property="og:description"
+      content="An open-source dive log for scuba divers. Import Subsurface logs, plan dives, browse profiles, and keep your data on your own device."
+    />
+    <meta property="og:url" content="https://awoimbee.github.io/benthic/" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="benthic — a modern, local-first dive log" />
+    <meta
+      name="twitter:description"
+      content="An open-source dive log for scuba divers. Import Subsurface logs, plan dives, browse profiles, and keep your data on your own device."
+    />
+
+    <!-- Presentation -->
+    <meta name="theme-color" content="#0b1622" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+    <!-- Structured data for search engines -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "benthic",
+        "applicationCategory": "SportsApplication",
+        "operatingSystem": "Web, Linux, macOS, Windows",
+        "description": "benthic is a modern, local-first dive log. It reads and writes Subsurface-compatible dive logs, plans dives with a Bühlmann decompression model, and stores everything locally on your device.",
+        "url": "https://awoimbee.github.io/benthic/",
+        "codeRepository": "https://github.com/awoimbee/benthic",
+        "license": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.html",
+        "isAccessibleForFree": true,
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "Import and export Subsurface-compatible dive logs",
+          "Local-first storage with automatic backups",
+          "Interactive dive depth, pressure and temperature profiles",
+          "Bühlmann dive planner (open circuit, CCR and pSCR)",
+          "Equipment and gas tracking"
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <div id="main"></div>
+    <noscript>
+      <h1>benthic — a modern, local-first dive log</h1>
+      <p>
+        benthic is an open-source dive log for scuba divers. Import and export
+        Subsurface-compatible logs, plan dives with a Bühlmann decompression
+        model, browse interactive dive profiles, and track your equipment —
+        all while keeping your data on your own device.
+      </p>
+      <p>
+        This application is a web app that needs JavaScript to run. You can
+        also build it as a native desktop app; see
+        <a href="https://github.com/awoimbee/benthic">the project repository</a>.
+      </p>
+    </noscript>
+  </body>
+</html>

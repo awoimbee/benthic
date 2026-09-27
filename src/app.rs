@@ -177,6 +177,14 @@ pub fn App() -> Element {
     rsx! {
         style { dangerous_inner_html: CSS }
         link { rel: "icon", r#type: "image/svg+xml", href: "favicon.svg" }
+        // A real heading gives search engines and screen readers something
+        // meaningful to announce; it is visually hidden by `.sr-only`.
+        h1 { class: "sr-only", "benthic — a modern, local-first dive log" }
+        p { class: "sr-only",
+            "benthic is an open-source dive log for scuba divers. Import and export \
+             Subsurface-compatible logs, plan dives with a Bühlmann decompression model, \
+             browse interactive dive profiles, and keep your data on your own device."
+        }
         div {
             class: if theme_light { "app theme-light" } else { "app" },
             tabindex: "0",
