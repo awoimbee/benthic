@@ -349,6 +349,14 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             plot_width.set(rect.size.width.max(1.0));
                         }
                     },
+                    // The plot narrows when metric scales are added on the
+                    // right; keep the pixel width the pointer maps against in
+                    // sync so the crosshair stays under the pointer.
+                    onresize: move |evt: ResizeEvent| {
+                        if let Ok(size) = evt.get_border_box_size() {
+                            plot_width.set(size.width.max(1.0));
+                        }
+                    },
                     // Pointer events cover mouse, touch and pen. Touching a
                     // point shows the same readout as hovering; unlike the
                     // mouse, a touch does not clear it on release so the
@@ -496,6 +504,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         }
                     }
                     line {
+                        class: "profile-cursor",
                         x1: "{cursor_x}",
                         y1: "0",
                         x2: "{cursor_x}",
