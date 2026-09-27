@@ -3,11 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::deco::vpmb::{Vpmb, VPMB_TIMESTEP_SECONDS};
 use crate::deco::{BreathingMode, Buhlmann, DecoModel, DecoSegment, Stop};
-
-/// Subsurface's planner resolves decompression stops on a 60-second grid; we
-/// do the same so a VPM-B plan matches its published schedules.
-const VPMB_TIMESTEP_SECONDS: f64 = 60.0;
 use crate::gas::{ambient_mbar, GasMix};
 use crate::model::{Cylinder, Dive, DiveComputer, Divemode, Sample};
 use crate::units::*;
@@ -18,15 +15,36 @@ pub struct DivePlan {
     pub depth: Depth,
     pub bottom_time: Duration,
     pub mode: BreathingMode,
-    pub gf_low: f64,
-    pub gf_high: f64,
     pub stops: Vec<Stop>,
     pub descent_rate: f64,
     pub ascent_rate: f64,
     /// The chosen decompression model. `Buhlmann` carries the gradient factors;
-    /// `Vpmb` carries the conservatism level and ignores them.
+    /// `Vpmb` carries the conservatism level.
     #[serde(default)]
     pub deco_model: DecoModel,
+}
+
+/// The no-decompression limit for a depth and breathing mode under the chosen
+/// decompression model.
+pub fn ndl(
+    depth: Depth,
+    mode: BreathingMode,
+    deco_model: DecoModel,
+    surface_bar: f64,
+    salinity: i32,
+) -> Option<Duration> {
+    match deco_model {
+        DecoModel::Buhlmann { gf_high, .. } => {
+            Buhlmann::new(surface_bar, salinity).ndl_mode(depth, mode, gf_high)
+        }
+        DecoModel::Vpmb { conservatism } => {
+            Vpmb::new(surface_bar, salinity, conservatism).ndl(&DecoSegment {
+                bottom_depth: depth,
+                mode,
+                ..Default::default()
+            })
+        }
+    }
 }
 
 impl DivePlan {
@@ -39,28 +57,22 @@ impl DivePlan {
         surface_bar: f64,
         salinity: i32,
     ) -> Self {
-        let (gf_low, gf_high) = match deco_model {
-            DecoModel::Buhlmann { gf_low, gf_high } => (gf_low, gf_high),
-            DecoModel::Vpmb { .. } => (0.0, 1.0),
-        };
         let stops = match deco_model {
-            DecoModel::Buhlmann { .. } => {
-                Buhlmann::new(surface_bar, salinity).deco_schedule(&DecoSegment {
+            DecoModel::Buhlmann { gf_low, gf_high } => Buhlmann::new(surface_bar, salinity)
+                .deco_schedule(&DecoSegment {
                     bottom_depth: depth,
                     bottom_minutes: bottom_time.seconds as f64 / 60.0,
                     mode,
                     gf_low,
                     gf_high,
                     ..Default::default()
-                })
-            }
+                }),
             DecoModel::Vpmb { conservatism } => {
                 crate::deco::vpmb::plan(
                     &DecoSegment {
                         bottom_depth: depth,
                         bottom_minutes: bottom_time.seconds as f64 / 60.0,
                         mode,
-                        vpmb_conservatism: Some(conservatism),
                         ..Default::default()
                     },
                     surface_bar,
@@ -75,8 +87,6 @@ impl DivePlan {
             depth,
             bottom_time,
             mode,
-            gf_low,
-            gf_high,
             stops,
             descent_rate: 20.0,
             ascent_rate: 10.0,
@@ -85,25 +95,14 @@ impl DivePlan {
     }
 
     /// The no-decompression limit for the chosen model.
-    pub fn ndl(&self, surface_bar: f64, salinity: i32, gf_high: f64) -> Option<Duration> {
-        let segment = DecoSegment {
-            bottom_depth: self.depth,
-            bottom_minutes: 0.0,
-            mode: self.mode,
-            gf_low: self.gf_low,
-            gf_high,
-            descent_rate: self.descent_rate,
-            ascent_rate: self.ascent_rate,
-            ..Default::default()
-        };
-        match self.deco_model {
-            DecoModel::Buhlmann { .. } => {
-                Buhlmann::new(surface_bar, salinity).ndl_mode(self.depth, self.mode, gf_high)
-            }
-            DecoModel::Vpmb { conservatism } => {
-                crate::deco::vpmb::Vpmb::new(surface_bar, salinity, conservatism).ndl(&segment)
-            }
-        }
+    pub fn ndl(&self, surface_bar: f64, salinity: i32) -> Option<Duration> {
+        ndl(
+            self.depth,
+            self.mode,
+            self.deco_model,
+            surface_bar,
+            salinity,
+        )
     }
 
     /// The gas carried in the cylinder (the mix, or the diluent).
@@ -440,5 +439,38 @@ mod tests {
         );
         assert!(plan.stops.is_empty());
         assert!(plan.summary().contains("No decompression stops"));
+    }
+
+    #[test]
+    fn vpmb_plan_has_stops_and_a_summary() {
+        let plan = DivePlan::compute(
+            Depth::from_meters(40.0),
+            Duration::from_minutes(40),
+            oc(),
+            DecoModel::Vpmb { conservatism: 3 },
+            1.01325,
+            EN13319_SALINITY,
+        );
+        assert!(!plan.stops.is_empty());
+        assert!(plan.summary().contains("VPM-B +3"));
+        assert!(plan.ndl(1.01325, EN13319_SALINITY).is_some());
+    }
+
+    #[test]
+    fn vpmb_ndl_ignores_bottom_time() {
+        // The NDL is a property of the depth and gas, not the planned bottom
+        // time, so it must not change when the bottom time does.
+        let make = |minutes: i32| {
+            DivePlan::compute(
+                Depth::from_meters(30.0),
+                Duration::from_minutes(minutes),
+                oc(),
+                DecoModel::Vpmb { conservatism: 3 },
+                1.01325,
+                EN13319_SALINITY,
+            )
+            .ndl(1.01325, EN13319_SALINITY)
+        };
+        assert_eq!(make(10), make(40));
     }
 }

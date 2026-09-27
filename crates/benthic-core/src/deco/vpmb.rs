@@ -44,14 +44,22 @@ const REGENERATION_TIME: f64 = 20160.0;
 const CONSERVATISM_LEVELS: [f64; 5] = [1.0, 1.05, 1.12, 1.22, 1.35];
 /// Subsurface's `base_timestep`: ascent integration step in seconds.
 const BASE_TIMESTEP: i32 = 2;
+/// The planner's decompression-stop grid in seconds. Both Subsurface's Qt
+/// planner and its CLI resolve stops on a 60-second grid, so VPM-B plans match
+/// the published schedules.
+pub const VPMB_TIMESTEP_SECONDS: f64 = 60.0;
+/// Cap on the fixed-point loops (ceiling solve and CVA convergence). Subsurface
+/// converges in a handful of steps; this only prevents a pathological input
+/// from hanging the UI.
+const MAX_CONVERGENCE_STEPS: usize = 100;
 
 /// A VPM-B model instance: the tissue state plus the bubble-nuclei state that
 /// the Bühlmann model does not have.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Vpmb {
-    pub tissues: Tissues,
-    pub surface_bar: f64,
-    pub salinity: i32,
+    tissues: Tissues,
+    surface_bar: f64,
+    salinity: i32,
     crit_radius_n2: f64,
     crit_radius_he: f64,
     max_n2_crushing: [f64; COMPARTMENTS],
@@ -66,7 +74,6 @@ pub struct Vpmb {
     initial_he_gradient: [f64; COMPARTMENTS],
     /// VPM-B tolerated ambient pressure at the start of the ascent (bar).
     first_ceiling_bar: f64,
-    max_bottom_ceiling_bar: f64,
     /// Accumulated decompression time (seconds), used by the CVA loop.
     deco_time: f64,
     /// The decompression-stop grid in seconds (Subsurface's planner timestep).
@@ -109,9 +116,8 @@ impl Vpmb {
             initial_n2_gradient: [0.0; COMPARTMENTS],
             initial_he_gradient: [0.0; COMPARTMENTS],
             first_ceiling_bar: 0.0,
-            max_bottom_ceiling_bar: 0.0,
             deco_time: 0.0,
-            stop_timestep: 60.0,
+            stop_timestep: VPMB_TIMESTEP_SECONDS,
         }
     }
 
@@ -150,12 +156,11 @@ impl Vpmb {
     /// second steps, then crush at the final depth.
     fn interpolate(&mut self, from_mm: i32, to_mm: i32, seconds: i32, mode: BreathingMode) {
         for j in 0..seconds {
-            let depth = if seconds > 0 {
-                ((from_mm as f64 * (seconds - j) as f64 + to_mm as f64 * j as f64) / seconds as f64)
-                    .round() as i32
-            } else {
-                (from_mm + to_mm) / 2
-            };
+            // The range is empty when `seconds <= 0`, so this never divides by
+            // zero.
+            let depth = ((from_mm as f64 * (seconds - j) as f64 + to_mm as f64 * j as f64)
+                / seconds as f64)
+                .round() as i32;
             let amb = self.ambient_bar_mm(depth);
             self.add_segment_bar(amb, 1.0, mode.gas_at(amb));
         }
@@ -216,6 +221,11 @@ impl Vpmb {
         let b = 2.0 * (SKIN_COMPRESSION_GAMMA_C - SURFACE_TENSION_GAMMA);
         let c = onset_tension * onset_radius.powi(3);
         let current_radius = solve_cubic(a, b, c);
+        if !current_radius.is_finite() || current_radius <= 0.0 {
+            // No real positive root: keep the onset tension rather than
+            // propagating an infinity into the crushing pressure.
+            return onset_tension;
+        }
         onset_tension * onset_radius.powi(3) / current_radius.powi(3)
     }
 
@@ -334,7 +344,7 @@ impl Vpmb {
     /// Subsurface's `tissue_tolerance_calc` VPM-B branch.
     fn tolerance_bar(&self, initial_pressure: f64) -> f64 {
         let mut ret = initial_pressure;
-        loop {
+        for _ in 0..MAX_CONVERGENCE_STEPS {
             let reference = ret;
             ret = 0.0;
             for ci in 0..COMPARTMENTS {
@@ -349,7 +359,9 @@ impl Vpmb {
 
     /// Ascent rate at a depth: Subsurface's `ascent_velocity`, in mm/s.
     fn ascent_rate_mm_s(&self, plan: &DecoSegment) -> i32 {
-        (plan.ascent_rate * 1000.0 / 60.0).round() as i32
+        // At least 1 mm/s: a zero rate would divide by zero in the deco-time
+        // calculation and never terminate the ascent loop.
+        ((plan.ascent_rate * 1000.0 / 60.0).round() as i32).max(1)
     }
 
     /// Subsurface's `trial_ascent`: can the diver ascend from `from_mm` to
@@ -403,7 +415,7 @@ impl Vpmb {
         min: i64,
         leap: i64,
     ) -> i64 {
-        let stepsize = self.stop_timestep as i64;
+        let stepsize = self.stop_timestep.max(1.0) as i64;
         if min >= 48 * 3600 {
             return 50 * 3600;
         }
@@ -429,7 +441,7 @@ impl Vpmb {
         let ceiling_mm = self.ceiling_depth_mm(tolerance);
         let first_ceiling_mbar =
             ambient_mbar(ceiling_mm, self.surface_bar * 1000.0, self.salinity).round();
-        self.first_ceiling_bar = (first_ceiling_mbar / 1000.0).max(self.max_bottom_ceiling_bar);
+        self.first_ceiling_bar = first_ceiling_mbar / 1000.0;
 
         let mut depth = bottom_mm;
         let mut clock = bottom_time;
@@ -490,28 +502,36 @@ impl Vpmb {
         (stops, deco_time)
     }
 
-    /// The no-decompression limit for a square profile: how long the diver
-    /// can stay at the bottom before a VPM-B ceiling appears.
+    /// The no-decompression limit: the longest bottom time whose schedule
+    /// still has no decompression stops.
+    ///
+    /// Stop count grows monotonically with bottom time, so this binary-searches
+    /// the schedules the planner would actually produce (rather than testing a
+    /// static ceiling, which ignores off-gassing during the ascent).
     pub fn ndl(&self, plan: &DecoSegment) -> Option<Duration> {
-        let bottom_mm = (plan.bottom_depth.meters() * 1000.0).round() as i32;
-        let descent_seconds = descent_seconds(plan);
-        let mut ds = self.clone();
-        ds.interpolate(0, bottom_mm, descent_seconds, plan.mode);
-        ds.nuclear_regeneration(descent_seconds as f64);
-        ds.start_gradient();
-        ds.first_ceiling_bar = ds.tolerance_bar(ds.ambient_bar_mm(bottom_mm));
-        let mut minutes = 0.0f64;
-        loop {
-            let tolerance = ds.tolerance_bar(ds.ambient_bar_mm(bottom_mm));
-            if ds.ceiling_depth_mm(tolerance) > 0 {
-                return Some(Duration::new((minutes * 60.0).round() as i32));
-            }
-            if minutes >= 24.0 * 60.0 {
-                return None;
-            }
-            ds.hold(bottom_mm, 60, plan.mode);
-            minutes += 1.0;
+        let has_stops = |minutes: i32| -> bool {
+            let mut probe = *plan;
+            probe.bottom_minutes = minutes as f64;
+            !self.schedule(&probe, self.stop_timestep).stops.is_empty()
+        };
+        let max_minutes = 24 * 60;
+        if has_stops(0) {
+            return Some(Duration::ZERO);
         }
+        if !has_stops(max_minutes) {
+            return None;
+        }
+        let mut lo = 0; // no stops
+        let mut hi = max_minutes; // stops
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2;
+            if has_stops(mid) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        Some(Duration::from_minutes(lo))
     }
 
     /// Reproduce Subsurface's planner: replay the square profile, then iterate
@@ -537,6 +557,7 @@ impl Vpmb {
         ds.deco_time = 1.0e7;
 
         let mut result;
+        let mut iterations = 0;
         loop {
             let is_final = (previous_deco_time - ds.deco_time).abs() < 10.0;
             if ds.deco_time != 1.0e7 {
@@ -551,7 +572,6 @@ impl Vpmb {
             trial.initial_n2_gradient = ds.initial_n2_gradient;
             trial.initial_he_gradient = ds.initial_he_gradient;
             trial.first_ceiling_bar = ds.first_ceiling_bar;
-            trial.max_bottom_ceiling_bar = ds.max_bottom_ceiling_bar;
             trial.stop_timestep = timestep;
 
             let (stops, deco_time) = trial.run(plan, bottom_time);
@@ -561,6 +581,10 @@ impl Vpmb {
             ds.deco_time = deco_time;
 
             if is_final {
+                break;
+            }
+            iterations += 1;
+            if iterations >= MAX_CONVERGENCE_STEPS {
                 break;
             }
         }
@@ -638,6 +662,9 @@ mod tests {
         ascent: f64,
         first_ceiling_m: f64,
         stops: &'static [(f64, i32)],
+        /// Allowed difference per stop, in seconds. Zero means exact; the +4
+        /// conservatism plans differ from Subsurface by one 60 s grid step.
+        tolerance_seconds: i32,
     }
 
     impl Reference {
@@ -669,6 +696,7 @@ mod tests {
             ascent: 10.0,
             first_ceiling_m,
             stops,
+            tolerance_seconds: 0,
         }
     }
 
@@ -831,6 +859,50 @@ mod tests {
                     ],
                 )
             },
+            // Conservatism +4 sits right on the 3 m ceiling grid. These two
+            // agree with Subsurface on depth, total and every stop except the
+            // 6 m/3 m split, which differs by one 60 s step.
+            Reference {
+                conservatism: 4,
+                first_ceiling_m: 22.48,
+                tolerance_seconds: 60,
+                ..base(
+                    40.0,
+                    40.0,
+                    0.0,
+                    &[
+                        (24.0, 24),
+                        (21.0, 162),
+                        (18.0, 282),
+                        (15.0, 342),
+                        (12.0, 582),
+                        (9.0, 882),
+                        (6.0, 1362),
+                        (3.0, 2682),
+                    ],
+                )
+            },
+            Reference {
+                conservatism: 4,
+                first_ceiling_m: 25.74,
+                tolerance_seconds: 60,
+                ..base(
+                    45.0,
+                    30.0,
+                    0.0,
+                    &[
+                        (27.0, 55),
+                        (24.0, 102),
+                        (21.0, 162),
+                        (18.0, 282),
+                        (15.0, 342),
+                        (12.0, 522),
+                        (9.0, 762),
+                        (6.0, 1242),
+                        (3.0, 2322),
+                    ],
+                )
+            },
         ];
 
         for c in &cases {
@@ -861,10 +933,15 @@ mod tests {
                     c.minutes,
                     c.conservatism
                 );
-                assert_eq!(
-                    stop.duration.seconds, *exp_seconds,
-                    "{} m/{} min cons{}: {} m stop duration",
-                    c.depth, c.minutes, c.conservatism, exp_depth
+                assert!(
+                    (stop.duration.seconds - exp_seconds).abs() <= c.tolerance_seconds,
+                    "{} m/{} min cons{}: {} m stop duration {} s, Subsurface {} s",
+                    c.depth,
+                    c.minutes,
+                    c.conservatism,
+                    exp_depth,
+                    stop.duration.seconds,
+                    exp_seconds
                 );
             }
         }
@@ -912,6 +989,45 @@ mod tests {
             60.0,
         );
         assert!(plan.stops.is_empty());
+    }
+
+    #[test]
+    fn vpmb_ndl_is_the_no_stop_boundary() {
+        // Subsurface plans 40 m/5 min with no stops and 40 m/10 min with stops,
+        // so the NDL must fall between them, and the boundary schedule itself
+        // must have no stops.
+        let segment = |minutes: f64| DecoSegment {
+            bottom_depth: Depth::from_meters(40.0),
+            bottom_minutes: minutes,
+            mode: BreathingMode::OpenCircuit(AIR),
+            ..Default::default()
+        };
+        let model = Vpmb::new(1.013, 10_300, 3);
+        let ndl = model.ndl(&segment(0.0)).expect("NDL under 24 h");
+        let minutes = ndl.seconds as f64 / 60.0;
+        assert!((5.0..10.0).contains(&minutes), "40 m NDL was {minutes} min");
+        assert!(plan(&segment(minutes), 1.013, 10_300, 3, 60.0)
+            .stops
+            .is_empty());
+        assert!(!plan(&segment(minutes + 1.0), 1.013, 10_300, 3, 60.0)
+            .stops
+            .is_empty());
+    }
+
+    #[test]
+    fn vpmb_ndl_is_long_at_shallow_depth() {
+        // 12 m/60 min needs no stops, so the NDL must be at least an hour.
+        let segment = DecoSegment {
+            bottom_depth: Depth::from_meters(12.0),
+            bottom_minutes: 0.0,
+            mode: BreathingMode::OpenCircuit(AIR),
+            ..Default::default()
+        };
+        let ndl = Vpmb::new(1.013, 10_300, 3).ndl(&segment);
+        assert!(
+            ndl.is_none_or(|d| d.seconds >= 60 * 60),
+            "12 m NDL was {ndl:?}"
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@ use benthic_core::deco::{BreathingMode, PscrParams};
 use benthic_core::gas::{
     ambient_mbar, end_depth_mm, mod_depth_mm, GasMix, DEFAULT_PO2_LIMIT_MBAR, SURFACE_PRESSURE_MBAR,
 };
+use benthic_core::planner::ndl as plan_ndl;
 use benthic_core::units::{format_duration, Depth, Duration};
 use benthic_core::{DecoModel, Dive, DiveComputer, DivePlan};
 
@@ -78,7 +79,44 @@ pub fn PlannerDialog() -> Element {
         SURFACE_PRESSURE_MBAR / 1000.0,
         salinity,
     );
-    let ndl = plan.ndl(SURFACE_PRESSURE_MBAR / 1000.0, salinity, gf_high_value);
+    // The NDL is independent of the planned bottom time, and for VPM-B it costs
+    // a binary search over full schedules. Memoise it on the depth, gas and
+    // model alone so editing the bottom time does not re-run it.
+    let ndl = use_memo(move || {
+        let prefs = (state.prefs)();
+        let depth_value = prefs.depth_from_value((depth)());
+        let diluent = GasMix::percent((o2)(), (he)());
+        let mode = match (mode_index)() {
+            1 => BreathingMode::ClosedCircuit {
+                diluent,
+                setpoint_bar: (setpoint)(),
+            },
+            2 => BreathingMode::PassiveSemiClosed {
+                diluent,
+                params: PscrParams {
+                    dump_ratio: (dump_ratio)().max(1.0),
+                    ..Default::default()
+                },
+            },
+            _ => BreathingMode::OpenCircuit(diluent),
+        };
+        let deco_model = match (deco_model_index)() {
+            1 => DecoModel::Vpmb {
+                conservatism: (vpmb_conservatism)(),
+            },
+            _ => DecoModel::Buhlmann {
+                gf_low: (gf_low)(),
+                gf_high: (gf_high)(),
+            },
+        };
+        plan_ndl(
+            depth_value,
+            mode,
+            deco_model,
+            SURFACE_PRESSURE_MBAR / 1000.0,
+            prefs.default_salinity.value(),
+        )
+    });
 
     let mod_mm = mod_depth_mm(
         diluent,
@@ -102,7 +140,7 @@ pub fn PlannerDialog() -> Element {
     let depth_string = format!("{:.1}", prefs.depth_value(target_depth));
     let gas_label: &'static str = if rebreather { "Diluent" } else { "Gas" };
 
-    let ndl_text = ndl
+    let ndl_text = ndl()
         .map(|d| {
             if d.seconds >= 24 * 3600 {
                 "> 24 h".to_string()

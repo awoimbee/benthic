@@ -615,9 +615,6 @@ pub struct DecoSegment {
     pub ascent_rate: f64,
     /// Descent rate, in metres per minute.
     pub descent_rate: f64,
-    /// When `Some`, plan with VPM-B at this conservatism level (0..=4)
-    /// instead of gradient-factor Bühlmann.
-    pub vpmb_conservatism: Option<u8>,
 }
 
 impl Default for DecoSegment {
@@ -631,7 +628,6 @@ impl Default for DecoSegment {
             stop_step: 3.0,
             ascent_rate: 10.0,
             descent_rate: 20.0,
-            vpmb_conservatism: None,
         }
     }
 }
