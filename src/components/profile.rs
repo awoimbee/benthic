@@ -287,7 +287,12 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let cursor_x = (cursor_fraction - win_start) / win_span * 100.0;
     let cursor_y = sample.depth.mm as f64 / max_d * 90.0 + 5.0;
 
-    let mut readout = vec![format_duration(sample.time), prefs.depth(sample.depth)];
+    let speed = speed_at(&active.samples, index);
+    let mut readout = vec![
+        format_duration(sample.time),
+        prefs.depth(sample.depth),
+        speed_text(speed),
+    ];
     if let Some(t) = sample.temperature {
         readout.push(prefs.temperature(t));
     }
@@ -485,15 +490,6 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                     }
                 }
             }
-            div { class: "profile-legend",
-                span { class: "legend-item", "Depth speed" }
-                for (label, color, _) in SPEED_BANDS.iter() {
-                    span { key: "legend-{label}", class: "legend-item",
-                        span { class: "legend-swatch", style: "background: {color};" }
-                        " {label}"
-                    }
-                }
-            }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
                 Toggle { label: "Pressure", color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: "Cylinder pressure during the dive", onclick: move |_| show_pressure.set(!pressure_on) }
@@ -659,6 +655,33 @@ const SPEED_BANDS: [(&str, &str, f64); 3] = [
     ("A bit fast", "var(--speed-fast)", 10.0),
     ("Normal", COLOR_DEPTH, 0.0),
 ];
+
+/// The depth speed (m/min, positive when descending) arriving at a sample,
+/// taken from the segment leading into it (or leaving it, for the first
+/// sample). The sign matches the depth trace's speed bands.
+fn speed_at(samples: &[benthic_core::Sample], index: usize) -> f64 {
+    let (a, b) = if index > 0 {
+        (index - 1, index)
+    } else if samples.len() > 1 {
+        (0, 1)
+    } else {
+        return 0.0;
+    };
+    let minutes = (samples[b].time.seconds - samples[a].time.seconds) as f64 / 60.0;
+    if minutes <= 0.0 {
+        return 0.0;
+    }
+    (samples[b].depth.mm - samples[a].depth.mm) as f64 / 1000.0 / minutes
+}
+
+/// Format a vertical speed for the readout.
+fn speed_text(speed: f64) -> String {
+    if speed.abs() < 0.5 {
+        "0 m/min".to_string()
+    } else {
+        format!("{speed:.0} m/min")
+    }
+}
 
 /// The band the magnitude of a vertical speed (m/min) falls into.
 fn speed_band(speed: f64) -> usize {
