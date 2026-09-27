@@ -69,6 +69,7 @@ impl DiveForm {
 #[component]
 fn DiveDetailInner(dive: Dive) -> Element {
     let state = use_context::<AppState>();
+    let mut mobile_detail = state.mobile_detail;
     let log = (state.log)();
     let prefs = (state.prefs)();
     let site = dive.site_id.and_then(|id| log.site_by_uuid(id)).cloned();
@@ -264,6 +265,12 @@ fn DiveDetailInner(dive: Dive) -> Element {
         section { class: "detail",
             header { class: "detail-head",
                 div { class: "detail-title-row",
+                    button {
+                        class: "btn back-btn",
+                        title: "Back to the dive list",
+                        onclick: move |_| mobile_detail.set(false),
+                        "‹ Dives"
+                    }
                     h1 { "{title}" }
                     div { class: "detail-actions",
                         if is_editing {

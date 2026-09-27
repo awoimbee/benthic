@@ -79,6 +79,7 @@ body {
 
 /* ---- Toolbar ---- */
 .toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -895,14 +896,125 @@ textarea.field {
   accent-color: var(--accent);
 }
 
+/* Responsive header: on wide screens the grouped wrappers are transparent and
+   the collapse buttons are hidden; the media query below flips that. */
+.menu-toggle,
+.filter-toggle,
+.back-btn {
+  display: none;
+}
+
+.toolbar-actions,
+.filter-fields {
+  display: contents;
+}
+
 @media (max-width: 720px) {
+  /* One compact toolbar row; the rest folds into a dropdown. */
+  .toolbar {
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    padding: 0.45rem 0.6rem;
+  }
+  .toolbar .btn {
+    padding: 0.3rem 0.55rem;
+    font-size: 0.8rem;
+  }
+  .toolbar-count {
+    display: none;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+  }
+  .menu-toggle {
+    display: inline-flex;
+  }
+  .toolbar-actions {
+    display: none;
+  }
+  .toolbar-actions.open {
+    position: absolute;
+    top: 100%;
+    right: 0.5rem;
+    left: 0.5rem;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  }
+  .toolbar-actions .btn {
+    justify-content: flex-start;
+  }
+  .toolbar-actions .status {
+    max-width: none;
+    white-space: normal;
+  }
+
+  /* Filters collapse behind a toggle to save vertical space. */
+  .filter-bar {
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+  }
+  .filter-toggle {
+    display: inline-flex;
+  }
+  .filter-fields {
+    display: none;
+  }
+  .filter-fields.open {
+    display: flex;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .filter-bar .field {
+    flex: 1;
+    min-width: 6rem;
+  }
+
+  /* One pane at a time: the list, or the selected dive with a back button. */
   .panes {
     grid-template-columns: 1fr;
   }
+  .panes .detail {
+    display: none;
+  }
+  .panes.mobile-detail .dive-list {
+    display: none;
+  }
+  .panes.mobile-detail .detail {
+    display: block;
+  }
   .dive-list {
     border-right: none;
-    border-bottom: 1px solid var(--border);
-    max-height: 40vh;
+  }
+  .back-btn {
+    display: inline-flex;
+  }
+  .detail {
+    padding: 0.8rem 0.9rem 2rem;
+  }
+  .detail-head h1 {
+    font-size: 1.15rem;
+  }
+  .detail-title-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .detail-title-row h1 {
+    min-width: 0;
+  }
+  .detail-actions {
+    flex-basis: 100%;
+    flex-wrap: wrap;
   }
 }
 .zoom {

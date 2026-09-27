@@ -30,6 +30,7 @@ pub fn App() -> Element {
     let show_trips = use_signal(|| false);
     let show_planner = use_signal(|| false);
     let show_compare = use_signal(|| false);
+    let mut mobile_detail = use_signal(|| false);
     let presets = use_signal(|| {
         crate::storage::load_presets()
             .and_then(|text| serde_json::from_str::<Vec<FilterPreset>>(&text).ok())
@@ -52,6 +53,7 @@ pub fn App() -> Element {
         show_trips,
         show_planner,
         show_compare,
+        mobile_detail,
     };
     use_context_provider(|| state);
 
@@ -72,6 +74,13 @@ pub fn App() -> Element {
     // <html> so the background behind the app matches).
     use_effect(move || {
         crate::platform::set_theme(prefs().theme == benthic_core::Theme::Light);
+    });
+    // On narrow screens the detail screen replaces the list. With nothing
+    // selected there is no detail to show, so return to the list.
+    use_effect(move || {
+        if (selected)().is_none() {
+            mobile_detail.set(false);
+        }
     });
 
     // Load the autosaved log once at startup.
@@ -159,6 +168,11 @@ pub fn App() -> Element {
     };
 
     let theme_light = (prefs)().theme == benthic_core::Theme::Light;
+    let panes_class = if (mobile_detail)() {
+        "panes mobile-detail"
+    } else {
+        "panes"
+    };
 
     rsx! {
         style { dangerous_inner_html: CSS }
@@ -170,7 +184,7 @@ pub fn App() -> Element {
             onkeydown: on_keydown,
             Toolbar {}
             FilterBar {}
-            div { class: "panes",
+            div { class: "{panes_class}",
                 DiveList {}
                 DiveDetail {}
             }

@@ -65,8 +65,19 @@ pub fn FilterBar() -> Element {
         preset_name.set(String::new());
     };
 
+    // On narrow screens the fields collapse behind a toggle.
+    let mut open = use_signal(|| false);
+    let is_open = (open)();
+
     rsx! {
         div { class: "filter-bar",
+            button {
+                class: "btn filter-toggle",
+                onclick: move |_| open.set(!is_open),
+                if is_open { "Filters ▾" } else { "Filters ▸" }
+            }
+            div {
+                class: if is_open { "filter-fields open" } else { "filter-fields" },
             span { class: "filter-label", "Filter" }
             select {
                 class: "field",
@@ -159,6 +170,7 @@ pub fn FilterBar() -> Element {
                 disabled: selected.is_none(),
                 onclick: on_delete_preset,
                 "Delete"
+            }
             }
         }
     }

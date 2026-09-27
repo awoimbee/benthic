@@ -34,6 +34,9 @@ pub struct AppState {
     pub show_planner: Signal<bool>,
     /// Whether the two-dive comparison is open.
     pub show_compare: Signal<bool>,
+    /// Narrow screens only: whether the detail screen is showing rather than
+    /// the dive list. Ignored on wide screens, where both panes are visible.
+    pub mobile_detail: Signal<bool>,
 }
 
 impl AppState {

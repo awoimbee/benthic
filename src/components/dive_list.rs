@@ -23,6 +23,7 @@ pub fn DiveList() -> Element {
     let state = use_context::<AppState>();
     let mut selected = state.selected;
     let mut selection = state.selection;
+    let mut mobile_detail = state.mobile_detail;
     let log = (state.log)();
     let filter = (state.filter)();
     let prefs = (state.prefs)();
@@ -142,6 +143,7 @@ pub fn DiveList() -> Element {
                         onclick: move |_| {
                             if let Some(id) = row.dive_id {
                                 selected.set(Some(id));
+                                mobile_detail.set(true);
                             } else if let Some(trip_id) = row.trip_id {
                                 let mut set = collapsed_trips.write();
                                 if !set.remove(&trip_id) {

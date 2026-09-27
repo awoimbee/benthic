@@ -31,6 +31,7 @@ Guiding principles:
       read, fully written on write)
 - [x] Format auto-detection and log merging with id renumbering
 - [x] Dioxus app shell: toolbar, dive list, dive detail, SVG depth profile
+- [x] Responsive layout: compact header and separate list/detail screens on phones
 - [x] Local persistence: `localStorage` (web) / platform data dir (desktop)
 - [x] Import (auto-detected SSRF/XML/JSON) and export (SSRF) in the UI
 - [x] Round-trip tests against a real Subsurface sample log
