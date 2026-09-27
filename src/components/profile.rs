@@ -543,17 +543,6 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                 Toggle { label: "Heart", color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: "Heart rate in beats per minute", onclick: move |_| show_heart.set(!heart_on) }
                 Toggle { label: "CNS", color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: "Central nervous system oxygen toxicity, as a share of the NOAA limit", onclick: move |_| show_cns.set(!cns_on) }
                 Toggle { label: "Deco", color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: "Decompression ceiling: the shallowest depth you may ascend to", onclick: move |_| show_deco.set(!deco_on) }
-                label { class: "check", "Zoom"
-                    input {
-                        class: "zoom",
-                        r#type: "range",
-                        min: "1",
-                        max: "100",
-                        step: "0.1",
-                        value: "{zoom_value}",
-                        oninput: move |evt| zoom.set(evt.value().parse().unwrap_or(1.0)),
-                    }
-                }
                 if zoom_value > 1.01 {
                     button {
                         class: "btn",
@@ -563,17 +552,6 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             pan.set(0.5);
                         },
                         "Reset zoom"
-                    }
-                }
-                label { class: "check", "Pan"
-                    input {
-                        class: "zoom",
-                        r#type: "range",
-                        min: "0",
-                        max: "1",
-                        step: "0.01",
-                        value: "{pan_value}",
-                        oninput: move |evt| pan.set(evt.value().parse().unwrap_or(0.5)),
                     }
                 }
                 input {

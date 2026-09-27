@@ -1085,11 +1085,6 @@ textarea.field {
     flex-wrap: wrap;
   }
 }
-.zoom {
-  width: 5rem;
-  accent-color: var(--accent);
-}
-
 /* Content that is available to screen readers and crawlers but not shown. */
 .sr-only {
   position: absolute;
