@@ -3,7 +3,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::deco::{BreathingMode, Buhlmann, DecoSegment, Stop};
+use crate::deco::{BreathingMode, Buhlmann, DecoModel, DecoSegment, Stop};
+
+/// Subsurface's planner resolves decompression stops on a 60-second grid; we
+/// do the same so a VPM-B plan matches its published schedules.
+const VPMB_TIMESTEP_SECONDS: f64 = 60.0;
 use crate::gas::{ambient_mbar, GasMix};
 use crate::model::{Cylinder, Dive, DiveComputer, Divemode, Sample};
 use crate::units::*;
@@ -19,6 +23,10 @@ pub struct DivePlan {
     pub stops: Vec<Stop>,
     pub descent_rate: f64,
     pub ascent_rate: f64,
+    /// The chosen decompression model. `Buhlmann` carries the gradient factors;
+    /// `Vpmb` carries the conservatism level and ignores them.
+    #[serde(default)]
+    pub deco_model: DecoModel,
 }
 
 impl DivePlan {
@@ -27,20 +35,42 @@ impl DivePlan {
         depth: Depth,
         bottom_time: Duration,
         mode: BreathingMode,
-        gf_low: f64,
-        gf_high: f64,
+        deco_model: DecoModel,
         surface_bar: f64,
         salinity: i32,
     ) -> Self {
-        let model = Buhlmann::new(surface_bar, salinity);
-        let stops = model.deco_schedule(&DecoSegment {
-            bottom_depth: depth,
-            bottom_minutes: bottom_time.seconds as f64 / 60.0,
-            mode,
-            gf_low,
-            gf_high,
-            ..Default::default()
-        });
+        let (gf_low, gf_high) = match deco_model {
+            DecoModel::Buhlmann { gf_low, gf_high } => (gf_low, gf_high),
+            DecoModel::Vpmb { .. } => (0.0, 1.0),
+        };
+        let stops = match deco_model {
+            DecoModel::Buhlmann { .. } => {
+                Buhlmann::new(surface_bar, salinity).deco_schedule(&DecoSegment {
+                    bottom_depth: depth,
+                    bottom_minutes: bottom_time.seconds as f64 / 60.0,
+                    mode,
+                    gf_low,
+                    gf_high,
+                    ..Default::default()
+                })
+            }
+            DecoModel::Vpmb { conservatism } => {
+                crate::deco::vpmb::plan(
+                    &DecoSegment {
+                        bottom_depth: depth,
+                        bottom_minutes: bottom_time.seconds as f64 / 60.0,
+                        mode,
+                        vpmb_conservatism: Some(conservatism),
+                        ..Default::default()
+                    },
+                    surface_bar,
+                    salinity,
+                    conservatism,
+                    VPMB_TIMESTEP_SECONDS,
+                )
+                .stops
+            }
+        };
         Self {
             depth,
             bottom_time,
@@ -50,6 +80,29 @@ impl DivePlan {
             stops,
             descent_rate: 20.0,
             ascent_rate: 10.0,
+            deco_model,
+        }
+    }
+
+    /// The no-decompression limit for the chosen model.
+    pub fn ndl(&self, surface_bar: f64, salinity: i32, gf_high: f64) -> Option<Duration> {
+        let segment = DecoSegment {
+            bottom_depth: self.depth,
+            bottom_minutes: 0.0,
+            mode: self.mode,
+            gf_low: self.gf_low,
+            gf_high,
+            descent_rate: self.descent_rate,
+            ascent_rate: self.ascent_rate,
+            ..Default::default()
+        };
+        match self.deco_model {
+            DecoModel::Buhlmann { .. } => {
+                Buhlmann::new(surface_bar, salinity).ndl_mode(self.depth, self.mode, gf_high)
+            }
+            DecoModel::Vpmb { conservatism } => {
+                crate::deco::vpmb::Vpmb::new(surface_bar, salinity, conservatism).ndl(&segment)
+            }
         }
     }
 
@@ -183,13 +236,17 @@ impl DivePlan {
             }
             BreathingMode::PassiveSemiClosed { .. } => "pSCR".to_string(),
         };
+        let deco = match self.deco_model {
+            DecoModel::Buhlmann { gf_low, gf_high } => {
+                format!("GF {:.0}/{:.0}", gf_low * 100.0, gf_high * 100.0)
+            }
+            DecoModel::Vpmb { conservatism } => format!("VPM-B +{conservatism}"),
+        };
         let mut out = format!(
-            "Planned dive: {} for {} on {} ({mode}, GF {:.0}/{:.0})\n",
+            "Planned dive: {} for {} on {} ({mode}, {deco})\n",
             format_depth_m(self.depth),
             format_duration(self.bottom_time),
             self.gas().name(),
-            self.gf_low * 100.0,
-            self.gf_high * 100.0,
         );
         if self.stops.is_empty() {
             out.push_str("No decompression stops required.\n");
@@ -269,8 +326,10 @@ mod tests {
             Depth::from_meters(40.0),
             Duration::from_minutes(40),
             oc(),
-            1.0,
-            1.0,
+            DecoModel::Buhlmann {
+                gf_low: 1.0,
+                gf_high: 1.0,
+            },
             1.01325,
             EN13319_SALINITY,
         );
@@ -296,8 +355,10 @@ mod tests {
                 diluent: AIR,
                 setpoint_bar: 1.3,
             },
-            0.3,
-            0.7,
+            DecoModel::Buhlmann {
+                gf_low: 0.3,
+                gf_high: 0.7,
+            },
             1.01325,
             EN13319_SALINITY,
         );
@@ -314,8 +375,10 @@ mod tests {
             Depth::from_meters(30.0),
             Duration::from_minutes(20),
             oc(),
-            1.0,
-            1.0,
+            DecoModel::Buhlmann {
+                gf_low: 1.0,
+                gf_high: 1.0,
+            },
             1.01325,
             EN13319_SALINITY,
         );
@@ -333,8 +396,10 @@ mod tests {
             Depth::from_meters(40.0),
             Duration::from_minutes(40),
             oc(),
-            1.0,
-            1.0,
+            DecoModel::Buhlmann {
+                gf_low: 1.0,
+                gf_high: 1.0,
+            },
             1.01325,
             EN13319_SALINITY,
         );
@@ -350,8 +415,10 @@ mod tests {
             Depth::from_meters(18.0),
             Duration::from_minutes(20),
             oc(),
-            1.0,
-            1.0,
+            DecoModel::Buhlmann {
+                gf_low: 1.0,
+                gf_high: 1.0,
+            },
             1.01325,
             EN13319_SALINITY,
         );
@@ -364,8 +431,10 @@ mod tests {
             Depth::from_meters(15.0),
             Duration::from_minutes(20),
             oc(),
-            1.0,
-            1.0,
+            DecoModel::Buhlmann {
+                gf_low: 1.0,
+                gf_high: 1.0,
+            },
             1.01325,
             EN13319_SALINITY,
         );

@@ -11,6 +11,8 @@
 //! Gradient factors are applied the conventional way: `gf == 1.0` is the raw
 //! M-value line, lower values are more conservative.
 
+pub mod vpmb;
+
 use serde::{Deserialize, Serialize};
 
 use crate::gas::{
@@ -171,6 +173,25 @@ impl BreathingMode {
     /// Whether this is a rebreather (closed or semi-closed) mode.
     pub fn is_rebreather(&self) -> bool {
         !matches!(self, BreathingMode::OpenCircuit(_))
+    }
+}
+
+/// The decompression model used to plan a dive.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "model", rename_all = "snake_case")]
+pub enum DecoModel {
+    /// Bühlmann ZH-L16 with gradient factors.
+    Buhlmann { gf_low: f64, gf_high: f64 },
+    /// VPM-B at a conservatism level 0..=4.
+    Vpmb { conservatism: u8 },
+}
+
+impl Default for DecoModel {
+    fn default() -> Self {
+        Self::Buhlmann {
+            gf_low: 0.30,
+            gf_high: 0.70,
+        }
     }
 }
 
@@ -594,6 +615,9 @@ pub struct DecoSegment {
     pub ascent_rate: f64,
     /// Descent rate, in metres per minute.
     pub descent_rate: f64,
+    /// When `Some`, plan with VPM-B at this conservatism level (0..=4)
+    /// instead of gradient-factor Bühlmann.
+    pub vpmb_conservatism: Option<u8>,
 }
 
 impl Default for DecoSegment {
@@ -607,6 +631,7 @@ impl Default for DecoSegment {
             stop_step: 3.0,
             ascent_rate: 10.0,
             descent_rate: 20.0,
+            vpmb_conservatism: None,
         }
     }
 }

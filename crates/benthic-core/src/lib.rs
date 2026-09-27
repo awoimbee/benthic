@@ -22,7 +22,7 @@ pub mod model;
 pub mod planner;
 pub mod units;
 
-pub use deco::Buhlmann;
+pub use deco::{Buhlmann, DecoModel};
 pub use equipment::{apply_preset, cylinder_preset, CylinderPreset, CYLINDER_PRESETS};
 pub use filter::{DiveFilter, FilterPreset};
 pub use format::{DateFormat, Preferences, Salinity, Theme, TimeFormat, UnitSystem};

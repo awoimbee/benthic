@@ -5,7 +5,7 @@ use benthic_core::gas::{
     ambient_mbar, end_depth_mm, mod_depth_mm, GasMix, DEFAULT_PO2_LIMIT_MBAR, SURFACE_PRESSURE_MBAR,
 };
 use benthic_core::units::{format_duration, Depth, Duration};
-use benthic_core::{Buhlmann, Dive, DiveComputer, DivePlan};
+use benthic_core::{DecoModel, Dive, DiveComputer, DivePlan};
 
 use crate::actions;
 use crate::components::DiveProfile;
@@ -29,6 +29,8 @@ pub fn PlannerDialog() -> Element {
     let mut dump_ratio = use_signal(|| 100.0f64);
     let mut gf_low = use_signal(|| 0.30f64);
     let mut gf_high = use_signal(|| 0.70f64);
+    let mut deco_model_index = use_signal(|| 0usize);
+    let mut vpmb_conservatism = use_signal(|| 3u8);
     let mut rmv = use_signal(|| 20.0f64);
 
     let target_depth = prefs.depth_from_value((depth)());
@@ -39,6 +41,18 @@ pub fn PlannerDialog() -> Element {
     let dump_ratio_value = (dump_ratio)().max(1.0);
     let gf_low_value = (gf_low)();
     let gf_high_value = (gf_high)();
+    let deco_model_value = (deco_model_index)();
+    let vpmb_conservatism_value = (vpmb_conservatism)();
+    let deco_model = if deco_model_value == 1 {
+        DecoModel::Vpmb {
+            conservatism: vpmb_conservatism_value,
+        }
+    } else {
+        DecoModel::Buhlmann {
+            gf_low: gf_low_value,
+            gf_high: gf_high_value,
+        }
+    };
 
     let mode = match mode_value {
         1 => BreathingMode::ClosedCircuit {
@@ -56,17 +70,15 @@ pub fn PlannerDialog() -> Element {
     };
     let rebreather = mode.is_rebreather();
 
-    let model = Buhlmann::new(SURFACE_PRESSURE_MBAR / 1000.0, salinity);
-    let ndl = model.ndl_mode(target_depth, mode, gf_high_value);
     let plan = DivePlan::compute(
         target_depth,
         bottom_time,
         mode,
-        gf_low_value,
-        gf_high_value,
+        deco_model,
         SURFACE_PRESSURE_MBAR / 1000.0,
         salinity,
     );
+    let ndl = plan.ndl(SURFACE_PRESSURE_MBAR / 1000.0, salinity, gf_high_value);
 
     let mod_mm = mod_depth_mm(
         diluent,
@@ -120,13 +132,17 @@ pub fn PlannerDialog() -> Element {
         ..Default::default()
     };
 
+    let deco_label = match deco_model {
+        DecoModel::Buhlmann { gf_low, gf_high } => {
+            format!("GF {:.0}/{:.0}", gf_low * 100.0, gf_high * 100.0)
+        }
+        DecoModel::Vpmb { conservatism } => format!("VPM-B +{conservatism}"),
+    };
     let header_summary = format!(
-        "{} for {} \u{b7} {} \u{b7} GF {:.0}/{:.0}",
+        "{} for {} \u{b7} {} \u{b7} {deco_label}",
         prefs.depth(target_depth),
         format_duration(bottom_time),
         diluent.name(),
-        gf_low_value * 100.0,
-        gf_high_value * 100.0,
     );
 
     let plan_for_save = plan.clone();
@@ -227,26 +243,48 @@ pub fn PlannerDialog() -> Element {
                             }
                         }
                     }
-                    label { class: "field-label", "GF low"
-                        input {
+                    label { class: "field-label", "Deco model"
+                        select {
                             class: "field",
-                            r#type: "number",
-                            min: "0.1",
-                            max: "1.0",
-                            step: "0.05",
-                            value: "{gf_low_value}",
-                            oninput: move |evt| gf_low.set(evt.value().parse::<f64>().unwrap_or(0.3).clamp(0.1, 1.0)),
+                            value: "{deco_model_value}",
+                            onchange: move |evt| deco_model_index.set(evt.value().parse().unwrap_or(0)),
+                            option { value: "0", "B\u{fc}hlmann (GF)" }
+                            option { value: "1", "VPM-B" }
                         }
                     }
-                    label { class: "field-label", "GF high"
-                        input {
-                            class: "field",
-                            r#type: "number",
-                            min: "0.1",
-                            max: "1.0",
-                            step: "0.05",
-                            value: "{gf_high_value}",
-                            oninput: move |evt| gf_high.set(evt.value().parse::<f64>().unwrap_or(0.7).clamp(0.1, 1.0)),
+                    if deco_model_value == 1 {
+                        label { class: "field-label", "Conservatism"
+                            select {
+                                class: "field",
+                                value: "{vpmb_conservatism_value}",
+                                onchange: move |evt| vpmb_conservatism.set(evt.value().parse().unwrap_or(3)),
+                                for level in 0u8..=4 {
+                                    option { value: "{level}", "+{level}" }
+                                }
+                            }
+                        }
+                    } else {
+                        label { class: "field-label", "GF low"
+                            input {
+                                class: "field",
+                                r#type: "number",
+                                min: "0.1",
+                                max: "1.0",
+                                step: "0.05",
+                                value: "{gf_low_value}",
+                                oninput: move |evt| gf_low.set(evt.value().parse::<f64>().unwrap_or(0.3).clamp(0.1, 1.0)),
+                            }
+                        }
+                        label { class: "field-label", "GF high"
+                            input {
+                                class: "field",
+                                r#type: "number",
+                                min: "0.1",
+                                max: "1.0",
+                                step: "0.05",
+                                value: "{gf_high_value}",
+                                oninput: move |evt| gf_high.set(evt.value().parse::<f64>().unwrap_or(0.7).clamp(0.1, 1.0)),
+                            }
                         }
                     }
                     label { class: "field-label", "RMV (L/min)"
