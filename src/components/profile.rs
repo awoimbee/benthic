@@ -381,7 +381,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             }
                         }
                     },
-                    onpointerup: move |evt: PointerEvent| {
+                    onpointerup: move |_evt: PointerEvent| {
                         if let Some((a, b)) = (drag)() {
                             drag.set(None);
                             let (lo, hi) = (a.min(b), a.max(b));
@@ -395,19 +395,14 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                                 pan.set((f0 + f1) / 2.0);
                             }
                         }
-                        if evt.pointer_type() == "mouse" {
-                            hover.set(None);
-                        }
                     },
                     onpointercancel: move |_| {
                         drag.set(None);
                         hover.set(None);
                     },
-                    onpointerleave: move |evt: PointerEvent| {
-                        if evt.pointer_type() == "mouse" {
-                            hover.set(None);
-                        }
-                    },
+                    // Keep the readout pinned where the pointer left; the
+                    // scrubber (or a new hover) moves it.
+
                     ondoubleclick: move |_| {
                         zoom.set(1.0);
                         pan.set(0.5);
@@ -570,7 +565,10 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                     min: "0",
                     max: "{active.samples.len() - 1}",
                     value: "{index}",
-                    oninput: move |evt| cursor.set(evt.value().parse().unwrap_or(0)),
+                    oninput: move |evt| {
+                        hover.set(None);
+                        cursor.set(evt.value().parse().unwrap_or(0));
+                    },
                 }
             }
             // While a selection drag is active, this full-viewport layer keeps
@@ -590,7 +588,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             }
                         }
                     },
-                    onpointerup: move |evt: PointerEvent| {
+                    onpointerup: move |_evt: PointerEvent| {
                         if let Some((a, b)) = (drag)() {
                             drag.set(None);
                             let (lo, hi) = (a.min(b), a.max(b));
@@ -601,10 +599,6 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                                 zoom.set((1.0 / span).clamp(1.0, MAX_ZOOM));
                                 pan.set((f0 + f1) / 2.0);
                             }
-                        }
-                        // A mouse readout is transient; a touch keeps it.
-                        if evt.pointer_type() == "mouse" {
-                            hover.set(None);
                         }
                     },
                     onpointercancel: move |_| {
