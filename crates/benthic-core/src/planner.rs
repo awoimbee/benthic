@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::deco::vpmb::{Vpmb, VPMB_TIMESTEP_SECONDS};
 use crate::deco::{BreathingMode, Buhlmann, DecoModel, DecoSegment, PlanPoint, Stop};
 use crate::gas::{ambient_mbar, GasMix};
-use crate::model::{Cylinder, Dive, DiveComputer, Divemode, Sample};
+use crate::model::{Cylinder, CylinderUse, Dive, DiveComputer, Divemode, Event, Sample};
 use crate::units::*;
 
 /// A computed dive plan: the entered waypoints plus the generated stops.
@@ -45,8 +45,26 @@ pub fn ndl(
     }
 }
 
+/// The dive mode implied by a breathing mode.
+fn divemode_of(mode: BreathingMode) -> Divemode {
+    match mode {
+        BreathingMode::OpenCircuit(_) => Divemode::OpenCircuit,
+        BreathingMode::ClosedCircuit { .. } => Divemode::Ccr,
+        BreathingMode::PassiveSemiClosed { .. } => Divemode::Pscr,
+    }
+}
+
+/// How a cylinder's gas is used, given the mode breathing it.
+fn cylinder_use(mode: BreathingMode) -> CylinderUse {
+    match mode {
+        BreathingMode::OpenCircuit(_) => CylinderUse::OcGas,
+        BreathingMode::ClosedCircuit { .. } | BreathingMode::PassiveSemiClosed { .. } => {
+            CylinderUse::Diluent
+        }
+    }
+}
+
 impl DivePlan {
-    /// Compute a plan from a bottom segment.
     /// Plan from a sequence of waypoints.
     pub fn compute(
         points: Vec<PlanPoint>,
@@ -296,22 +314,61 @@ impl DivePlan {
     /// Build a dive from this plan. The caller assigns the id and number and
     /// may adjust the start time.
     ///
-    /// Only the bottom gas is written as a cylinder; gas switches between
-    /// waypoints are not yet recorded as events.
+    /// Each distinct gas becomes a cylinder and every change of gas between
+    /// waypoints becomes a gas-switch event, so the saved dive shows the same
+    /// switches the planner does.
     pub fn to_dive(&self, when: Timestamp, salinity: i32) -> Dive {
-        let (gas, setpoint, divemode) = match self.bottom_mode() {
-            BreathingMode::OpenCircuit(gas) => (gas, None, Divemode::OpenCircuit),
-            BreathingMode::ClosedCircuit {
-                diluent,
-                setpoint_bar,
-            } => (diluent, Some(setpoint_bar), Divemode::Ccr),
-            BreathingMode::PassiveSemiClosed { diluent, .. } => (diluent, None, Divemode::Pscr),
-        };
+        // One cylinder per distinct gas, in order of first use.
+        let mut cylinders: Vec<Cylinder> = Vec::new();
+        let mut events: Vec<Event> = Vec::new();
+        let mut previous: Option<BreathingMode> = None;
+        let mut time = 0i32;
+        for point in &self.points {
+            let gas = point.mode.cylinder_gas();
+            let index = match cylinders.iter().position(|c| c.gas == gas) {
+                Some(index) => index,
+                None => {
+                    cylinders.push(Cylinder {
+                        gas,
+                        use_: cylinder_use(point.mode),
+                        description: gas.name(),
+                        ..Default::default()
+                    });
+                    cylinders.len() - 1
+                }
+            };
+            if let Some(prev) = previous {
+                if gas != prev.cylinder_gas() {
+                    events.push(Event {
+                        time: Duration::new(time),
+                        name: "gaschange".to_string(),
+                        gas: Some((index as i32, gas)),
+                        ..Default::default()
+                    });
+                }
+                if divemode_of(point.mode) != divemode_of(prev) {
+                    events.push(Event {
+                        time: Duration::new(time),
+                        name: "modechange".to_string(),
+                        divemode: Some(divemode_of(point.mode)),
+                        ..Default::default()
+                    });
+                }
+            }
+            previous = Some(point.mode);
+            time += point.duration.seconds;
+        }
+        if cylinders.is_empty() {
+            cylinders.push(Cylinder::default());
+        }
 
+        // A CCR sample carries its segment's setpoint.
         let mut samples = self.samples();
-        if let Some(setpoint) = setpoint {
-            for sample in &mut samples {
-                sample.setpoint = Some(O2Pressure::from_bar(setpoint));
+        for sample in &mut samples {
+            if let BreathingMode::ClosedCircuit { setpoint_bar, .. } =
+                self.mode_at(sample.time.seconds)
+            {
+                sample.setpoint = Some(O2Pressure::from_bar(setpoint_bar));
             }
         }
         let duration = samples.last().map(|s| s.time).unwrap_or_default();
@@ -323,20 +380,31 @@ impl DivePlan {
             salinity: Some(salinity),
             notes: self.summary(),
             tags: vec!["planned".to_string()],
-            cylinders: vec![Cylinder {
-                gas,
-                ..Default::default()
-            }],
+            cylinders,
             computers: vec![DiveComputer {
                 model: "Planner".to_string(),
-                divemode,
+                divemode: divemode_of(self.bottom_mode()),
                 duration: Some(duration),
                 max_depth: Some(self.max_depth()),
                 samples,
+                events,
                 ..Default::default()
             }],
             ..Default::default()
         }
+    }
+
+    /// The breathing mode used at a given elapsed time. A switch happens at the
+    /// start of the segment that uses the new mode.
+    fn mode_at(&self, seconds: i32) -> BreathingMode {
+        let mut cumulative = 0;
+        for point in &self.points {
+            cumulative += point.duration.seconds;
+            if seconds < cumulative {
+                return point.mode;
+            }
+        }
+        self.bottom_mode()
     }
 }
 
@@ -515,6 +583,83 @@ mod tests {
             .collect();
         assert_eq!(stops, vec![(12.0, 72), (9.0, 402), (6.0, 582), (3.0, 1122)]);
         assert_eq!(plan.total_time().seconds, 4338);
+    }
+
+    #[test]
+    fn to_dive_records_gas_switches() {
+        let air = BreathingMode::OpenCircuit(AIR);
+        let ean50 = BreathingMode::OpenCircuit(GasMix::new(500, 0));
+        let point = |depth: f64, seconds: i32, mode| PlanPoint {
+            depth: Depth::from_meters(depth),
+            duration: Duration::new(seconds),
+            mode,
+        };
+        let plan = DivePlan::compute(
+            vec![
+                point(30.0, 90, air),
+                point(30.0, 1200, air),
+                point(21.0, 120, ean50),
+            ],
+            DecoModel::Buhlmann {
+                gf_low: 0.3,
+                gf_high: 0.7,
+            },
+            1.01325,
+            EN13319_SALINITY,
+        );
+        let dive = plan.to_dive(1_000, EN13319_SALINITY);
+        assert_eq!(dive.cylinders.len(), 2);
+        assert_eq!(dive.cylinders[0].gas, AIR);
+        assert_eq!(dive.cylinders[1].gas, GasMix::new(500, 0));
+        let dc = dive.primary_computer().unwrap();
+        let switches: Vec<_> = dc.events.iter().filter(|e| e.is_gas_change()).collect();
+        assert_eq!(switches.len(), 1);
+        // The switch to EAN50 happens at the waypoint after the 20 min bottom.
+        assert_eq!(switches[0].time.seconds, 90 + 1200);
+        assert_eq!(switches[0].gas, Some((1, GasMix::new(500, 0))));
+    }
+
+    #[test]
+    fn to_dive_sets_setpoints_per_segment() {
+        let oc = BreathingMode::OpenCircuit(AIR);
+        let ccr = BreathingMode::ClosedCircuit {
+            diluent: AIR,
+            setpoint_bar: 1.3,
+        };
+        let point = |seconds: i32, mode| PlanPoint {
+            depth: Depth::from_meters(30.0),
+            duration: Duration::new(seconds),
+            mode,
+        };
+        let plan = DivePlan::compute(
+            vec![point(90, oc), point(600, ccr)],
+            DecoModel::Buhlmann {
+                gf_low: 0.3,
+                gf_high: 0.7,
+            },
+            1.01325,
+            EN13319_SALINITY,
+        );
+        let dive = plan.to_dive(1_000, EN13319_SALINITY);
+        let dc = dive.primary_computer().unwrap();
+        // The first, open-circuit segment has no setpoint; the CCR segment does.
+        assert!(dc
+            .samples
+            .iter()
+            .find(|s| s.time.seconds < 90)
+            .unwrap()
+            .setpoint
+            .is_none());
+        assert_eq!(
+            dc.samples
+                .iter()
+                .find(|s| s.time.seconds >= 90)
+                .unwrap()
+                .setpoint,
+            Some(O2Pressure::from_bar(1.3))
+        );
+        assert_eq!(dive.cylinders.len(), 1);
+        assert_eq!(dive.cylinders[0].use_, CylinderUse::OcGas);
     }
 
     #[test]
