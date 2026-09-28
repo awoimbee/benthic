@@ -32,12 +32,24 @@ sed -i '/TIOCGSERIAL.*TIOCSSERIAL/s/$/ \&\& defined(HAVE_LINUX_SERIAL_H)/' \
 
 cd "$work/libdc"
 if [ ! -x configure ]; then
-  autoreconf --install >/dev/null 2>&1
+  if ! autoreconf --install >"$work/autoreconf.log" 2>&1; then
+    echo "error: autoreconf failed" >&2
+    tail -n 40 "$work/autoreconf.log" >&2
+    exit 1
+  fi
 fi
-emconfigure ./configure --disable-shared --enable-static >/dev/null 2>&1
-emmake make -j"$(nproc)" >/dev/null 2>&1
+if ! emconfigure ./configure --disable-shared --enable-static >"$work/configure.log" 2>&1; then
+  echo "error: configure failed" >&2
+  tail -n 60 "$work/configure.log" >&2
+  exit 1
+fi
+if ! emmake make -j"$(nproc)" >"$work/make.log" 2>&1; then
+  echo "error: make failed" >&2
+  tail -n 80 "$work/make.log" >&2
+  exit 1
+fi
 
-emcc "$root/web/divecomputer/shim.c" \
+if ! emcc "$root/web/divecomputer/shim.c" \
   -I "$work/libdc/include" \
   -L "$work/libdc/src/.libs" -ldivecomputer \
   -O2 \
@@ -51,6 +63,10 @@ emcc "$root/web/divecomputer/shim.c" \
   -sENVIRONMENT=web,node \
   -sEXPORTED_FUNCTIONS='["_benthic_dc_descriptors","_benthic_dc_parse","_benthic_dc_download","_benthic_dc_selftest","_benthic_dc_free","_malloc","_free"]' \
   -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
-  -o "$out_dir/benthic-dc.js"
+  -o "$out_dir/benthic-dc.js" >"$work/emcc.log" 2>&1; then
+  echo "error: emcc failed" >&2
+  tail -n 60 "$work/emcc.log" >&2
+  exit 1
+fi
 
 echo "built $out_dir/benthic-dc.js"
