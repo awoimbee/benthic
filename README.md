@@ -33,6 +33,12 @@ On openSUSE Tumbleweed the equivalents are `webkitgtk3-devel`, `gtk3-devel`,
 `gdk-pixbuf-devel`, `glib2-devel`, `libayatana-appindicator3-devel`,
 `xdotool-devel` and `libopenssl-devel`.
 
+The native dive-computer integration (`crates/benthic-divecomputer`) builds the
+vendored libdivecomputer, so it also needs `autoconf`, `automake`, `libtool`,
+`pkg-config` and the libusb-1.0 and bluez development headers
+(`libusb-1.0-0-dev libbluetooth-dev libudev-dev` on Debian/Ubuntu;
+`libusb-1_0-devel bluez-devel libudev-devel` on openSUSE).
+
 ```bash
 dx serve                      # web app at http://localhost:8080
 dx serve --platform desktop   # desktop app
@@ -44,6 +50,7 @@ Import `dives/demo.ssrf` to see the app with data.
 
 ```bash
 cargo test                                   # domain model + file formats
+cargo test -p benthic-divecomputer --features native  # libdivecomputer parsing
 cargo check --target wasm32-unknown-unknown  # type-check the web app
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
@@ -59,6 +66,8 @@ Drop `--base-path` (or use `/`) when serving from a domain root.
 ```
 benthic/
 ├── crates/benthic-core/   # domain model + file formats (no UI, no platform)
+├── crates/benthic-divecomputer/  # native-only libdivecomputer wrapper
+├── vendor/libdivecomputer/  # vendored C library (git submodule)
 ├── src/                   # Dioxus app: root component, state, storage, components
 ├── assets/main.css
 ├── public/                # static web assets

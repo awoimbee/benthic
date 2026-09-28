@@ -1,0 +1,33 @@
+[package]
+name = "benthic-divecomputer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "libdivecomputer integration for benthic: device discovery and dive parsing"
+license = "GPL-2.0-or-later"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "benthic_divecomputer"
+path = "src/lib.rs"
+test = false
+
+[features]
+# Build and link the vendored libdivecomputer. Off by default so the plain
+# workspace build stays pure Rust on machines without the C toolchain.
+native = []
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+required-features = ["native"]
+
+[[example]]
+name = "inspect"
+path = "examples/inspect.rs"
+required-features = ["native"]
+
+[dependencies]
+benthic-core = { path = "../benthic-core" }
+thiserror = "2"

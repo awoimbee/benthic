@@ -24,6 +24,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          submodules: recursive
+
+      - name: Install libdivecomputer build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool pkg-config \
+            libusb-1.0-0-dev libbluetooth-dev libudev-dev libftdi1-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -41,6 +49,12 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace
+
+      - name: Clippy the native libdivecomputer integration
+        run: cargo clippy -p benthic-divecomputer --features native --all-targets -- -D warnings
+
+      - name: Test the native libdivecomputer integration
+        run: cargo test -p benthic-divecomputer --features native
 
       - name: Type-check the web app
         run: cargo check --target wasm32-unknown-unknown

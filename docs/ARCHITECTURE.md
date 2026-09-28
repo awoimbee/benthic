@@ -17,10 +17,18 @@ benthic (binary)                apps, UI, platform glue
    │  depends on
    ▼
 benthic-core (lib)              model + formats + math, no UI/platform
+
+benthic-divecomputer (lib)      native-only libdivecomputer wrapper;
+   │  depends on                 an empty crate on wasm32
+   ▼
+benthic-core
 ```
 
 `benthic-core` has no dependency on Dioxus. This keeps it fast to test, easy to
 reuse (e.g. a future CLI or a fullstack server), and free of UI lifetimes.
+`benthic-divecomputer` is kept separate so the C library and its transports
+never leak into the domain or the web build; the app will depend on it for
+device download.
 
 ## Layers in the app crate
 
@@ -132,6 +140,25 @@ Both need a one-time Google Cloud setup. For the web, enable the Drive API and
 register a **Web application** OAuth client, adding the app's origins as
 Authorized JavaScript origins. For the desktop, register a **Desktop app**
 client and set its ID and (non-confidential) secret in `src/sync/gdrive.rs`.
+
+## Dive computer integration
+
+`benthic-divecomputer` wraps [libdivecomputer](https://libdivecomputer.org/).
+The C library is vendored as a git submodule (`vendor/libdivecomputer`, pinned
+to the Subsurface fork that backs the reference implementation) and built by
+the crate's `build.rs` with its own autotools build system, so nothing has to be
+installed system-wide. The crate exposes:
+
+* `descriptors()` — the full table of supported models and their transports;
+* `parse_dump(vendor, product, data)` — turn a raw memory dump into a
+  `benthic_core::Dive` (samples, events, gases, tanks, setpoints, CNS/NDL).
+
+The C build is gated behind the crate's `native` feature and the whole crate
+compiles to nothing on `wasm32`, so a plain workspace `cargo test`/`clippy`
+stays pure Rust on machines without the toolchain. The native path is built in
+the devcontainer and in CI (`just check-native`). Parsing is covered offline by
+the three raw dumps shipped with libdivecomputer; live download over
+serial/USB/BLE is the next layer.
 
 ## Platform abstraction
 

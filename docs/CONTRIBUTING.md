@@ -25,7 +25,9 @@ dx serve --platform desktop       # desktop app
 ```
 
 See [README.md](../README.md#quick-start) for the native Linux system packages
-needed by the desktop build.
+needed by the desktop build. Building the native dive-computer integration
+additionally needs `autoconf`, `automake`, `libtool`, `pkg-config` and the
+`libusb-1.0` and bluez development headers; the dev container provides them.
 
 Import `dives/demo.ssrf` from the app to get sample data.
 
@@ -37,8 +39,12 @@ Run the same checks CI runs:
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo test -p benthic-divecomputer --features native
 cargo check --target wasm32-unknown-unknown
 ```
+
+The native libdivecomputer test needs the C toolchain and USB/Bluetooth headers
+listed above; run it in the dev container if your host lacks them.
 
 ## Where code goes
 

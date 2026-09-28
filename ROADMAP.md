@@ -97,7 +97,9 @@ list below).
 ## Phase 3 — The import ecosystem
 
 - [ ] Dive computer download via `libdivecomputer`
-      (desktop: serial/USB/Bluetooth; web: WebSerial + Web Bluetooth where available)
+      (desktop: serial/USB/Bluetooth; web: WebSerial + Web Bluetooth where available).
+      Parsing raw dumps into the model is done (`benthic-divecomputer`);
+      live device download and the picker UI are the next layer
 - [ ] Device management, firmware/settings, dive computer nicknames
 - [x] CSV import (one dive per row, header-based column mapping)
 - [ ] CSV import with user-defined column mapping (Subsurface templates)

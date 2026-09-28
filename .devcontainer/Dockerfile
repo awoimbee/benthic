@@ -34,6 +34,13 @@ RUN apt-get update \
         librsvg2-dev \
         libxdo-dev \
         libssl-dev \
+        autoconf \
+        automake \
+        libtool \
+        libusb-1.0-0-dev \
+        libbluetooth-dev \
+        libudev-dev \
+        libftdi1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # The web app type-checks and builds for wasm32.

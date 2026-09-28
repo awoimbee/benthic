@@ -11,7 +11,7 @@ readme = "README.md"
 default-run = "benthic"
 
 [workspace]
-members = ["crates/benthic-core"]
+members = ["crates/benthic-core", "crates/benthic-divecomputer"]
 resolver = "2"
 
 [dependencies]

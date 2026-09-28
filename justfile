@@ -23,6 +23,12 @@ test:
 check-web:
     cargo check --target wasm32-unknown-unknown
 
+# Build and test the native libdivecomputer integration. Requires the
+# devcontainer (or autoconf, automake, libtool, pkg-config plus the libusb-1.0
+# and bluez development headers).
+check-native:
+    cargo test -p benthic-divecomputer --features native
+
 # Serve the web app at http://localhost:8080
 serve:
     dx serve
