@@ -37,8 +37,12 @@ serve:
 serve-desktop:
     dx serve --platform desktop
 
+# Build the libdivecomputer wasm shim into public/divecomputer (needs emscripten).
+build-web-shim:
+    bash scripts/build-web-divecomputer.sh
+
 # Production web build, suitable for GitHub Pages
-build-web base_path="/benthic":
+build-web base_path="/benthic": build-web-shim
     dx build --release --platform web --base-path "{{base_path}}"
 
 # Parse a dive log from the command line (developer utility)

@@ -168,13 +168,22 @@ error-path tests; real device protocols need real hardware. BLE has no native
 transport in this libdivecomputer fork (it expects the application to provide
 an I/O stream), so it is not wired up yet.
 
-On the web the same Rust mapping is reused: `scripts/build-web-divecomputer.sh`
+On the web the same Rust mapping is reused. `scripts/build-web-divecomputer.sh`
 builds libdivecomputer with Emscripten plus a small C shim
 (`web/divecomputer/shim.c`) that emits the neutral `RawDive` JSON (see
-`benthic-core::divecomputer`). The app deserialises that and builds the model,
-so there is exactly one implementation of the mapping. Device I/O runs through
-`dc_custom_open` with Asyncify so the synchronous C iostream can drive async
+`benthic-core::divecomputer`); the app deserialises it and builds the model, so
+there is exactly one implementation of the mapping. Device I/O runs through
+`dc_custom_open` with Asyncify, so the synchronous C iostream can drive async
 WebSerial/WebBluetooth.
+
+On the web the shim is loaded on demand: `index.html` defines
+`window.benthicLoadDc`, the app calls it when the download dialog opens, and
+`public/divecomputer/api.js` dynamically imports the Emscripten module and
+installs `globalThis.benthicWeb` (a JSON-in/JSON-out surface) plus
+`globalThis.benthicHost` (the WebSerial implementation in `host.js`).
+`src/divecomputer_web.rs` is the thin `js-sys` bridge; the web download dialog
+merges into the log through the same `actions::merge_downloaded` and
+fingerprint storage as the desktop one.
 
 The app's **Download** dialog (desktop only, behind the `divecomputer` feature)
 drives this: pick a model, scan the bus, choose a device, watch progress and

@@ -8,6 +8,8 @@
 mod actions;
 mod app;
 mod components;
+mod divecomputer;
+mod divecomputer_web;
 mod format;
 mod platform;
 mod state;

@@ -88,3 +88,26 @@ jobs:
 
       - name: Type-check the desktop app
         run: cargo check --no-default-features --features desktop
+
+  wasm-shim:
+    name: wasm shim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install emscripten and autotools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            emscripten autoconf automake libtool pkg-config
+
+      - name: Build the shim
+        run: bash scripts/build-web-divecomputer.sh
+
+      - name: Test the shim in Node
+        run: |
+          node web/divecomputer/test.mjs
+          node web/divecomputer/api.test.mjs

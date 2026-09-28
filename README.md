@@ -62,6 +62,12 @@ Serial, USB, USB-HID and Bluetooth transports are supported; BLE needs an
 application-provided transport and is not wired up yet. The desktop app exposes
 the same functionality through its **Download** button.
 
+The **web** build can download over **Web Serial** (Chrome/Edge/Opera): the
+**Download** button loads libdivecomputer compiled to wasm with Emscripten and
+drives it over an async WebSerial transport (Asyncify). Build the shim with
+`just build-web-shim` before `dx build` / `dx serve`; CI and the Pages workflow
+do it automatically.
+
 ## Building and testing
 
 ```bash

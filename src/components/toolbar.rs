@@ -18,12 +18,12 @@ pub fn Toolbar() -> Element {
     let mut show_palette = state.show_palette;
     let mut show_planner = state.show_planner;
     let mut show_sync = state.show_sync;
-    #[cfg(feature = "divecomputer")]
+    #[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
     let mut show_download = state.show_download;
     // On narrow screens the secondary actions fold into a dropdown.
     let mut menu_open = use_signal(|| false);
     let open = (menu_open)();
-    #[cfg(feature = "divecomputer")]
+    #[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
     let download_button = Some(rsx! {
         button {
             class: "btn",
@@ -32,7 +32,7 @@ pub fn Toolbar() -> Element {
             "Download"
         }
     });
-    #[cfg(not(feature = "divecomputer"))]
+    #[cfg(not(any(feature = "divecomputer", target_arch = "wasm32")))]
     let download_button: Option<Element> = None;
 
     rsx! {

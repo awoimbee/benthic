@@ -300,7 +300,7 @@ pub fn toggle_autogroup(state: AppState) {
 
 /// Merge dives downloaded from a dive computer, skipping any already present
 /// (matched by start time and computer model). Returns `(added, skipped)`.
-#[cfg(feature = "divecomputer")]
+#[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
 pub fn merge_downloaded(state: AppState, dives: Vec<Dive>) -> (usize, usize) {
     let log = (state.log)();
     let key_of = |dive: &Dive| {

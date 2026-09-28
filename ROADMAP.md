@@ -98,9 +98,9 @@ list below).
 
 - [ ] Dive computer download via `libdivecomputer`
       (desktop: serial/USB/Bluetooth; web: WebSerial + Web Bluetooth where available).
-      Discovery, download, parsing and a desktop download dialog are done
-      (serial/USB/USB-HID/Bluetooth); BLE and the web transports
-      (WebSerial/Web Bluetooth) are still to come
+      Discovery, download, parsing and a download dialog are done on desktop
+      (serial/USB/USB-HID/Bluetooth) and on the web (WebSerial via wasm +
+      Asyncify); BLE is still to come
 - [ ] Device management, firmware/settings, dive computer nicknames
 - [x] CSV import (one dive per row, header-based column mapping)
 - [ ] CSV import with user-defined column mapping (Subsurface templates)

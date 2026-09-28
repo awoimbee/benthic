@@ -4,7 +4,6 @@
 //! downloads run on a worker thread and report back through a coroutine. The
 //! dialog never blocks the UI.
 
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -82,8 +81,13 @@ pub fn DeviceDownloadDialog() -> Element {
                                     .and_then(|index| (devices)().get(index).cloned()),
                             ) {
                                 if !latest_fingerprint.is_empty() {
-                                    save_fingerprint(
-                                        &fingerprint_key(&descriptor, &device),
+                                    let key = crate::divecomputer::fingerprint_key(
+                                        &descriptor.vendor,
+                                        &descriptor.product,
+                                        &device.id.address(),
+                                    );
+                                    crate::divecomputer::save_fingerprint(
+                                        &key,
                                         &latest_fingerprint,
                                     );
                                 }
@@ -132,7 +136,12 @@ pub fn DeviceDownloadDialog() -> Element {
             return;
         };
         let id = device.id.clone();
-        let fingerprint = load_fingerprint(&fingerprint_key(&descriptor, &device));
+        let fingerprint =
+            crate::divecomputer::load_fingerprint(&crate::divecomputer::fingerprint_key(
+                &descriptor.vendor,
+                &descriptor.product,
+                &device.id.address(),
+            ));
         let flag = Arc::new(AtomicBool::new(false));
         cancel.set(Some(flag.clone()));
         downloading.set(true);
@@ -286,47 +295,4 @@ fn transport_from_label(label: &str) -> Transport {
         "bluetooth" => Transport::Bluetooth,
         _ => Transport::Serial,
     }
-}
-
-/// Fingerprints are remembered per model and connection so a second download
-/// only fetches new dives.
-fn fingerprint_key(descriptor: &DeviceDescriptor, device: &DiscoveredDevice) -> String {
-    format!("{} @ {}", descriptor.name(), device.id.address())
-}
-
-fn fingerprints() -> Option<BTreeMap<String, String>> {
-    crate::storage::load_device_fingerprints().and_then(|text| serde_json::from_str(&text).ok())
-}
-
-fn load_fingerprint(key: &str) -> Vec<u8> {
-    fingerprints()
-        .and_then(|map| map.get(key).map(|hex| from_hex(hex)))
-        .unwrap_or_default()
-}
-
-fn save_fingerprint(key: &str, value: &[u8]) {
-    let mut map = fingerprints().unwrap_or_default();
-    map.insert(key.to_string(), to_hex(value));
-    if let Ok(text) = serde_json::to_string(&map) {
-        let _ = crate::storage::save_device_fingerprints(&text);
-    }
-}
-
-fn to_hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    bytes.iter().fold(String::new(), |mut out, byte| {
-        let _ = write!(out, "{byte:02x}");
-        out
-    })
-}
-
-fn from_hex(text: &str) -> Vec<u8> {
-    text.as_bytes()
-        .chunks(2)
-        .filter_map(|pair| {
-            std::str::from_utf8(pair)
-                .ok()
-                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
-        })
-        .collect()
 }

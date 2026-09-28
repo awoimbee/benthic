@@ -59,6 +59,11 @@
     <!-- Google Identity Services helper for "Sign in with Google" -->
     <script src="google-auth.js"></script>
 
+    <!-- Dive-computer transport host; the heavy wasm module loads on demand. -->
+    <script>
+      window.benthicLoadDc = () => import("./divecomputer/api.js");
+    </script>
+
     <!-- Structured data for search engines -->
     <script type="application/ld+json">
       {

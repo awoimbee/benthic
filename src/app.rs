@@ -12,6 +12,8 @@ use crate::state::AppState;
 
 #[cfg(feature = "divecomputer")]
 use crate::components::DeviceDownloadDialog;
+#[cfg(target_arch = "wasm32")]
+use crate::components::DeviceDownloadWebDialog;
 
 const CSS: &str = include_str!("../assets/main.css");
 
@@ -184,7 +186,9 @@ pub fn App() -> Element {
 
     #[cfg(feature = "divecomputer")]
     let device_download = (show_download)().then(|| rsx! { DeviceDownloadDialog {} });
-    #[cfg(not(feature = "divecomputer"))]
+    #[cfg(target_arch = "wasm32")]
+    let device_download = (show_download)().then(|| rsx! { DeviceDownloadWebDialog {} });
+    #[cfg(not(any(feature = "divecomputer", target_arch = "wasm32")))]
     let device_download: Option<Element> = None;
 
     rsx! {

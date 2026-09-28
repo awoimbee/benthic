@@ -35,6 +35,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      - name: Install emscripten and autotools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            emscripten autoconf automake libtool pkg-config
+
+      - name: Build the dive-computer wasm shim
+        run: bash scripts/build-web-divecomputer.sh
+
       - name: Install Dioxus CLI
         run: |
           curl -fsSL \
