@@ -41,12 +41,15 @@ emcc "$root/web/divecomputer/shim.c" \
   -I "$work/libdc/include" \
   -L "$work/libdc/src/.libs" -ldivecomputer \
   -O2 \
+  -sASYNCIFY=1 \
+  -sASYNCIFY_EXPORTS='["benthic_dc_selftest","benthic_dc_download"]' \
+  -sASYNCIFY_IMPORTS='["benthic_js_configure","benthic_js_read","benthic_js_write","benthic_js_poll","benthic_js_sleep","benthic_js_close"]' \
   -sALLOW_MEMORY_GROWTH=1 \
   -sSTACK_SIZE=1048576 \
   -sMODULARIZE=1 \
   -sEXPORT_ES6=1 \
   -sENVIRONMENT=web,node \
-  -sEXPORTED_FUNCTIONS='["_benthic_dc_descriptors","_benthic_dc_parse","_benthic_dc_free","_malloc","_free"]' \
+  -sEXPORTED_FUNCTIONS='["_benthic_dc_descriptors","_benthic_dc_parse","_benthic_dc_download","_benthic_dc_selftest","_benthic_dc_free","_malloc","_free"]' \
   -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
   -o "$out_dir/benthic-dc.js"
 

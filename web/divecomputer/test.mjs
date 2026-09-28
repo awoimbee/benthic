@@ -59,6 +59,42 @@ if (parse("No Such", "Computer", Buffer.from([0])) !== null) {
   throw new Error("unknown device should not parse");
 }
 
+// Asyncify transport: a mock host echoes whatever was written, proving the
+// custom iostream round-trips through async JS and back.
+const writes = [];
+globalThis.benthicHost = {
+  async configure() {},
+  async write(bytes) {
+    writes.push(bytes);
+    return bytes.length;
+  },
+  async read(size) {
+    const source = writes.length ? writes[writes.length - 1] : new Uint8Array();
+    return source.slice(0, size);
+  },
+  async poll() {
+    return true;
+  },
+  available() {
+    return 0;
+  },
+  async sleep() {},
+  async close() {},
+  event() {},
+};
+
+function callAsync(fn) {
+  return new Promise((resolve) => {
+    globalThis.benthicHost.result = resolve;
+    fn();
+  });
+}
+
+const selftest = JSON.parse(await callAsync(() => Module._benthic_dc_selftest()));
+if (selftest.wrote !== 4 || selftest.text !== "ping") {
+  throw new Error(`async transport selftest failed: ${JSON.stringify(selftest)}`);
+}
+
 console.log(
-  `OK: ${descriptors.length} descriptors, ${shearwater.samples.length} samples in the Shearwater dump`,
+  `OK: ${descriptors.length} descriptors, ${shearwater.samples.length} samples, async transport ok`,
 );
