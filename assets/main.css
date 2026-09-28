@@ -1129,3 +1129,85 @@ textarea.field {
   white-space: nowrap;
   border: 0;
 }
+
+/* Dive-computer download dialog */
+.device-columns {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.device-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.device-models,
+.device-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.device-model,
+.device-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.device-model:hover,
+.device-entry:hover {
+  background: var(--accent-dim);
+}
+
+.device-model.selected,
+.device-entry.selected {
+  background: var(--accent-dim);
+  outline: 1px solid var(--accent);
+}
+
+.device-model .muted {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.device-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.download-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.download-progress progress {
+  flex: 1;
+}
+
+@media (max-width: 720px) {
+  .device-columns {
+    grid-template-columns: 1fr;
+  }
+}

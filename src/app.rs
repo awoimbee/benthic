@@ -10,6 +10,9 @@ use crate::components::{
 };
 use crate::state::AppState;
 
+#[cfg(feature = "divecomputer")]
+use crate::components::DeviceDownloadDialog;
+
 const CSS: &str = include_str!("../assets/main.css");
 
 #[component]
@@ -30,6 +33,7 @@ pub fn App() -> Element {
     let show_trips = use_signal(|| false);
     let show_planner = use_signal(|| false);
     let show_sync = use_signal(|| false);
+    let show_download = use_signal(|| false);
     let show_compare = use_signal(|| false);
     let mut mobile_detail = use_signal(|| false);
     let presets = use_signal(|| {
@@ -54,6 +58,7 @@ pub fn App() -> Element {
         show_trips,
         show_planner,
         show_sync,
+        show_download,
         show_compare,
         mobile_detail,
     };
@@ -177,6 +182,11 @@ pub fn App() -> Element {
         "panes"
     };
 
+    #[cfg(feature = "divecomputer")]
+    let device_download = (show_download)().then(|| rsx! { DeviceDownloadDialog {} });
+    #[cfg(not(feature = "divecomputer"))]
+    let device_download: Option<Element> = None;
+
     rsx! {
         style { dangerous_inner_html: CSS }
         link { rel: "icon", r#type: "image/svg+xml", href: "favicon.svg" }
@@ -217,6 +227,7 @@ pub fn App() -> Element {
             if (show_sync)() {
                 SyncDialog {}
             }
+            {device_download}
         }
     }
 }

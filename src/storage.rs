@@ -25,6 +25,8 @@ const BACKUP: &str = "benthic.backup";
 const BACKUP_TIME: &str = "benthic.backup_time";
 const SYNC: &str = "benthic.sync";
 const SYNC_STATE: &str = "benthic.sync_state";
+#[cfg(feature = "divecomputer")]
+const DEVICE_FINGERPRINTS: &str = "benthic.device_fingerprints";
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
@@ -271,6 +273,17 @@ pub fn load_sync_state() -> Option<String> {
 
 pub fn save_sync_state(contents: &str) -> Result<(), String> {
     imp::set(SYNC_STATE, contents)
+}
+
+/// Per-device download fingerprints, keyed by model and connection.
+#[cfg(feature = "divecomputer")]
+pub fn load_device_fingerprints() -> Option<String> {
+    imp::get(DEVICE_FINGERPRINTS)
+}
+
+#[cfg(feature = "divecomputer")]
+pub fn save_device_fingerprints(contents: &str) -> Result<(), String> {
+    imp::set(DEVICE_FINGERPRINTS, contents)
 }
 
 pub fn load_presets() -> Option<String> {

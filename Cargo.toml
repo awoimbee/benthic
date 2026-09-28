@@ -48,11 +48,16 @@ sha2 = "0.10"
 getrandom = "0.3"
 webbrowser = "1"
 url = "2"
+futures-util = "0.3"
+# Device download (optional; enables the vendored libdivecomputer).
+benthic-divecomputer = { path = "crates/benthic-divecomputer", optional = true }
 
 [features]
 default = ["web"]
 web = ["dioxus/web"]
-desktop = ["dioxus/desktop"]
+# Dive-computer download; native only.
+divecomputer = ["dep:benthic-divecomputer", "benthic-divecomputer/native"]
+desktop = ["dioxus/desktop", "divecomputer"]
 
 [profile.release]
 opt-level = "s"

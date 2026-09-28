@@ -298,6 +298,41 @@ pub fn toggle_autogroup(state: AppState) {
     state.set_status(message);
 }
 
+/// Merge dives downloaded from a dive computer, skipping any already present
+/// (matched by start time and computer model). Returns `(added, skipped)`.
+#[cfg(feature = "divecomputer")]
+pub fn merge_downloaded(state: AppState, dives: Vec<Dive>) -> (usize, usize) {
+    let log = (state.log)();
+    let key_of = |dive: &Dive| {
+        (
+            dive.when,
+            dive.primary_computer()
+                .map(|c| c.model.clone())
+                .unwrap_or_default(),
+        )
+    };
+    let existing: std::collections::BTreeSet<(i64, String)> =
+        log.dives.iter().map(key_of).collect();
+    let mut fresh = Vec::new();
+    let mut skipped = 0;
+    for dive in dives {
+        if existing.contains(&key_of(&dive)) {
+            skipped += 1;
+        } else {
+            fresh.push(dive);
+        }
+    }
+    let added = fresh.len();
+    if added > 0 {
+        let incoming = benthic_core::DiveLog {
+            dives: fresh,
+            ..Default::default()
+        };
+        merge_log(state, incoming);
+    }
+    (added, skipped)
+}
+
 /// Merge an imported log into the current one as a single undoable step.
 /// Returns the number of dives and sites added.
 pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {

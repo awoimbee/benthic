@@ -168,6 +168,13 @@ error-path tests; real device protocols need real hardware. BLE has no native
 transport in this libdivecomputer fork (it expects the application to provide
 an I/O stream), so it is not wired up yet.
 
+The app's **Download** dialog (desktop only, behind the `divecomputer` feature)
+drives this: pick a model, scan the bus, choose a device, watch progress and
+merge the new dives into the log. libdivecomputer is blocking, so scans and
+downloads run on a worker thread and report back through a Dioxus coroutine.
+Downloaded dives are deduplicated against the log by start time and model, and
+the device fingerprint is remembered so later downloads only fetch new dives.
+
 ## Platform abstraction
 
 The only genuinely platform-specific operations are:

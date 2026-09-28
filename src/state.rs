@@ -34,6 +34,9 @@ pub struct AppState {
     pub show_planner: Signal<bool>,
     /// Whether the remote-sync dialog is open.
     pub show_sync: Signal<bool>,
+    /// Whether the dive-computer download dialog is open.
+    #[cfg_attr(not(feature = "divecomputer"), allow(dead_code))]
+    pub show_download: Signal<bool>,
     /// Whether the two-dive comparison is open.
     pub show_compare: Signal<bool>,
     /// Narrow screens only: whether the detail screen is showing rather than

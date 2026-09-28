@@ -59,7 +59,8 @@ cargo run -p benthic-divecomputer --features native --example dctool -- \
 ```
 
 Serial, USB, USB-HID and Bluetooth transports are supported; BLE needs an
-application-provided transport and is not wired up yet.
+application-provided transport and is not wired up yet. The desktop app exposes
+the same functionality through its **Download** button.
 
 ## Building and testing
 
