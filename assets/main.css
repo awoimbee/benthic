@@ -585,6 +585,26 @@ body {
   gap: 0.4rem;
 }
 
+.sync-account {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sync-advanced {
+  grid-column: 1 / -1;
+}
+
+.sync-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.sync-advanced label {
+  margin-top: 0.5rem;
+}
+
 .edit-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

@@ -8,6 +8,22 @@
 use benthic_core::sync::{RemoteFile, SyncState};
 use serde::{Deserialize, Serialize};
 
+/// OAuth client ID used for "Sign in with Google".
+///
+/// The client ID is a *public* identifier, not a secret, so it can be embedded
+/// in the web build. To create one:
+///
+/// 1. Enable the **Google Drive API** in a Google Cloud project.
+/// 2. Create an **OAuth 2.0 Client ID** of type **Web application**.
+/// 3. Add the app's origins as *Authorized JavaScript origins*:
+///    `https://awoimbee.github.io` and, for development,
+///    `http://localhost:8899`.
+/// 4. Paste the ID here (or set it per-user in the dialog's *Advanced*
+///    section, which is handy for self-hosted builds).
+///
+/// Leave empty to require the ID to be provided at runtime.
+pub const DEFAULT_GOOGLE_CLIENT_ID: &str = "";
+
 /// Which service the log is mirrored to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Provider {
@@ -36,6 +52,13 @@ pub struct SyncConfig {
     /// A personal access token (GitHub) or OAuth access token (Drive).
     #[serde(default)]
     pub token: String,
+    /// Google Drive: OAuth client ID; empty falls back to
+    /// [`DEFAULT_GOOGLE_CLIENT_ID`].
+    #[serde(default)]
+    pub client_id: String,
+    /// Google Drive: access-token expiry in Unix seconds.
+    #[serde(default)]
+    pub token_expiry: i64,
     /// Google Drive: the file id once known.
     #[serde(default)]
     pub file_id: String,
@@ -50,6 +73,8 @@ impl Default for SyncConfig {
             path: "benthic.json".to_string(),
             branch: "main".to_string(),
             token: String::new(),
+            client_id: String::new(),
+            token_expiry: 0,
             file_id: String::new(),
         }
     }
@@ -79,8 +104,22 @@ impl SyncConfig {
             Provider::GitHub => {
                 !self.repo.is_empty() && !self.path.is_empty() && !self.token.is_empty()
             }
-            Provider::GoogleDrive => !self.token.is_empty(),
+            Provider::GoogleDrive => !self.google_client_id().is_empty(),
         }
+    }
+
+    /// The Google OAuth client ID to sign in with.
+    pub fn google_client_id(&self) -> &str {
+        if self.client_id.is_empty() {
+            DEFAULT_GOOGLE_CLIENT_ID
+        } else {
+            &self.client_id
+        }
+    }
+
+    /// Whether the stored Google access token is present and not expired.
+    pub fn drive_signed_in(&self) -> bool {
+        !self.token.is_empty() && self.token_expiry > crate::platform::now_secs()
     }
 }
 
@@ -122,6 +161,23 @@ pub async fn push(
     net::push(config, content, revision).await
 }
 
+/// Run the "Sign in with Google" flow.
+///
+/// Returns the access token and its expiry as Unix seconds. This is
+/// interactive: it opens a Google popup, so call it from a click handler.
+pub async fn google_sign_in(config: &SyncConfig) -> Result<(String, i64), String> {
+    let client_id = config.google_client_id();
+    if client_id.is_empty() {
+        return Err("Set a Google OAuth client ID first.".to_string());
+    }
+    net::google_sign_in(client_id).await
+}
+
+/// Revoke the stored Google access token, if any. Best-effort.
+pub fn google_sign_out(config: &SyncConfig) {
+    net::google_sign_out(&config.token);
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 mod net {
     use super::*;
@@ -137,6 +193,12 @@ mod net {
     ) -> Result<RemoteFile, String> {
         Err("Sync is only available in the web build.".to_string())
     }
+
+    pub async fn google_sign_in(_client_id: &str) -> Result<(String, i64), String> {
+        Err("Google sign-in is only available in the web build.".to_string())
+    }
+
+    pub fn google_sign_out(_token: &str) {}
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -145,6 +207,55 @@ mod net {
     use base64::Engine;
     use gloo_net::http::Request;
     use serde_json::json;
+    use wasm_bindgen::prelude::*;
+
+    /// Drive scope: only this app's private `appDataFolder`.
+    const DRIVE_SCOPE: &str = "https://www.googleapis.com/auth/drive.appdata";
+
+    #[wasm_bindgen]
+    extern "C" {
+        /// Defined by `public/google-auth.js`.
+        #[wasm_bindgen(catch, js_name = benthicGoogleLogin)]
+        fn js_google_login(client_id: &str, scope: &str) -> Result<js_sys::Promise, JsValue>;
+
+        #[wasm_bindgen(js_name = benthicGoogleSignOut)]
+        fn js_google_sign_out(token: &str);
+    }
+
+    pub async fn google_sign_in(client_id: &str) -> Result<(String, i64), String> {
+        let promise = js_google_login(client_id, DRIVE_SCOPE).map_err(js_message)?;
+        let value = wasm_bindgen_futures::JsFuture::from(promise)
+            .await
+            .map_err(js_message)?;
+        let json = value
+            .as_string()
+            .ok_or_else(|| "Google sign-in returned an unexpected value.".to_string())?;
+        let parsed: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+        let token = parsed["access_token"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if token.is_empty() {
+            return Err("Google sign-in did not return a token.".to_string());
+        }
+        let expires_in = parsed["expires_in"].as_i64().unwrap_or(3600);
+        Ok((token, crate::platform::now_secs() + expires_in))
+    }
+
+    pub fn google_sign_out(token: &str) {
+        js_google_sign_out(token);
+    }
+
+    /// Turn a rejected JS value (usually an `Error`) into a message.
+    fn js_message(value: JsValue) -> String {
+        if let Some(message) = value.as_string() {
+            return message;
+        }
+        js_sys::Reflect::get(&value, &JsValue::from_str("message"))
+            .ok()
+            .and_then(|message| message.as_string())
+            .unwrap_or_else(|| "Google sign-in failed.".to_string())
+    }
 
     pub async fn fetch(config: &SyncConfig) -> Result<Option<RemoteFile>, String> {
         match config.provider {

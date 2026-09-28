@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use benthic_core::sync::{self as core_sync, SyncPlan};
 
 use crate::state::AppState;
-use crate::sync::{self, Provider, SyncConfig};
+use crate::sync::{self, Provider, SyncConfig, DEFAULT_GOOGLE_CLIENT_ID};
 
 /// What a sync attempt decided to do.
 enum Mode {
@@ -78,14 +78,30 @@ pub fn SyncDialog() -> Element {
         Provider::GoogleDrive => 1,
     };
     let github = cfg.provider == Provider::GitHub;
+    let drive_signed_in = cfg.provider == Provider::GoogleDrive && cfg.drive_signed_in();
 
     let mut launch = move |mode: Mode| {
-        let snapshot = (config)();
-        sync::save_config(&snapshot);
+        let mut snapshot = (config)();
         busy.set(true);
         conflict.set(false);
         status.set(Some("Syncing…".to_string()));
         spawn(async move {
+            // Google Drive needs an interactive sign-in before the first call.
+            if snapshot.provider == Provider::GoogleDrive && !snapshot.drive_signed_in() {
+                match sync::google_sign_in(&snapshot).await {
+                    Ok((token, expiry)) => {
+                        snapshot.token = token;
+                        snapshot.token_expiry = expiry;
+                        config.set(snapshot.clone());
+                    }
+                    Err(error) => {
+                        status.set(Some(error));
+                        busy.set(false);
+                        return;
+                    }
+                }
+            }
+            sync::save_config(&snapshot);
             match run(state, snapshot, mode).await {
                 Ok(Outcome::Done(message)) => status.set(Some(message)),
                 Ok(Outcome::Conflict) => {
@@ -101,6 +117,37 @@ pub fn SyncDialog() -> Element {
             }
             busy.set(false);
         });
+    };
+
+    let sign_in = move |_| {
+        let snapshot = (config)();
+        busy.set(true);
+        status.set(Some("Signing in to Google…".to_string()));
+        spawn(async move {
+            match sync::google_sign_in(&snapshot).await {
+                Ok((token, expiry)) => {
+                    let mut next = snapshot.clone();
+                    next.token = token;
+                    next.token_expiry = expiry;
+                    config.set(next.clone());
+                    sync::save_config(&next);
+                    status.set(Some("Signed in to Google.".to_string()));
+                }
+                Err(error) => status.set(Some(error)),
+            }
+            busy.set(false);
+        });
+    };
+
+    let sign_out = move |_| {
+        let snapshot = (config)();
+        sync::google_sign_out(&snapshot);
+        let mut next = snapshot.clone();
+        next.token.clear();
+        next.token_expiry = 0;
+        config.set(next.clone());
+        sync::save_config(&next);
+        status.set(Some("Signed out of Google.".to_string()));
     };
 
     rsx! {
@@ -146,21 +193,64 @@ pub fn SyncDialog() -> Element {
                                 oninput: move |evt| config.write().branch = evt.value(),
                             }
                         }
-                    }
-                    label { class: "field-label", "Access token"
-                        input {
-                            class: "field",
-                            r#type: "password",
-                            value: "{cfg.token}",
-                            oninput: move |evt| config.write().token = evt.value(),
+                        label { class: "field-label", "Access token"
+                            input {
+                                class: "field",
+                                r#type: "password",
+                                value: "{cfg.token}",
+                                oninput: move |evt| config.write().token = evt.value(),
+                            }
                         }
-                    }
-                    label { class: "field-label", "API base (optional)"
-                        input {
-                            class: "field",
-                            value: "{cfg.base_url}",
-                            placeholder: "leave blank for the public API",
-                            oninput: move |evt| config.write().base_url = evt.value(),
+                        label { class: "field-label", "API base (optional)"
+                            input {
+                                class: "field",
+                                value: "{cfg.base_url}",
+                                placeholder: "leave blank for the public API",
+                                oninput: move |evt| config.write().base_url = evt.value(),
+                            }
+                        }
+                    } else {
+                        if drive_signed_in {
+                            div { class: "sync-account",
+                                span { class: "muted", "Signed in to Google Drive." }
+                                button {
+                                    class: "btn",
+                                    disabled: (busy)(),
+                                    onclick: sign_out,
+                                    "Sign out"
+                                }
+                            }
+                        } else {
+                            button {
+                                class: "btn primary",
+                                disabled: (busy)() || cfg.google_client_id().is_empty(),
+                                onclick: sign_in,
+                                "Sign in with Google"
+                            }
+                            if cfg.google_client_id().is_empty() {
+                                p { class: "muted",
+                                    "Set a Google OAuth client ID under Advanced to enable sign-in."
+                                }
+                            }
+                        }
+                        details { class: "sync-advanced",
+                            summary { "Advanced" }
+                            label { class: "field-label", "Google client ID"
+                                input {
+                                    class: "field",
+                                    value: "{cfg.client_id}",
+                                    placeholder: "{DEFAULT_GOOGLE_CLIENT_ID}",
+                                    oninput: move |evt| config.write().client_id = evt.value(),
+                                }
+                            }
+                            label { class: "field-label", "API base (optional)"
+                                input {
+                                    class: "field",
+                                    value: "{cfg.base_url}",
+                                    placeholder: "leave blank for the public API",
+                                    oninput: move |evt| config.write().base_url = evt.value(),
+                                }
+                            }
                         }
                     }
                 }

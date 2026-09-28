@@ -112,6 +112,15 @@ file. Two providers are supported: the GitHub contents API (the base URL is
 configurable, so Gitea and enterprise hosts work) and Google Drive's
 `appDataFolder`. The dialogs live behind the toolbar's **Sync** button.
 
+For Drive the user clicks **Sign in with Google**: the app runs Google Identity
+Services' browser token flow (via `public/google-auth.js`), which needs only a
+public OAuth *client ID* — no secret and no backend. The scope is
+`drive.appdata`, so benthic only ever sees its own private folder. The client ID
+is baked in via `DEFAULT_GOOGLE_CLIENT_ID` (or supplied per-user under
+*Advanced*, which self-hosted builds can use). Creating one is a one-time setup:
+enable the Drive API, register a **Web application** OAuth client, and add the
+app's origins as Authorized JavaScript origins.
+
 ## Platform abstraction
 
 The only genuinely platform-specific operations are:
