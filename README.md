@@ -46,6 +46,21 @@ dx serve --platform desktop   # desktop app
 
 Import `dives/demo.ssrf` to see the app with data.
 
+## Dive computers
+
+`crates/benthic-divecomputer` wraps libdivecomputer for device download. The
+crate is built with the `native` feature and shipped with a small CLI, so it
+can be tried against real hardware:
+
+```bash
+cargo run -p benthic-divecomputer --features native --example dctool -- list
+cargo run -p benthic-divecomputer --features native --example dctool -- \
+  scan "<vendor>" "<product>" serial
+```
+
+Serial, USB, USB-HID and Bluetooth transports are supported; BLE needs an
+application-provided transport and is not wired up yet.
+
 ## Building and testing
 
 ```bash

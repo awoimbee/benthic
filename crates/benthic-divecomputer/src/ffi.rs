@@ -19,6 +19,16 @@ pub enum dc_device_t {}
 
 pub const DC_STATUS_SUCCESS: c_int = 0;
 pub const DC_STATUS_DONE: c_int = 1;
+pub const DC_STATUS_UNSUPPORTED: c_int = -1;
+pub const DC_STATUS_INVALIDARGS: c_int = -2;
+pub const DC_STATUS_NOMEMORY: c_int = -3;
+pub const DC_STATUS_NODEVICE: c_int = -4;
+pub const DC_STATUS_NOACCESS: c_int = -5;
+pub const DC_STATUS_IO: c_int = -6;
+pub const DC_STATUS_TIMEOUT: c_int = -7;
+pub const DC_STATUS_PROTOCOL: c_int = -8;
+pub const DC_STATUS_DATAFORMAT: c_int = -9;
+pub const DC_STATUS_CANCELLED: c_int = -10;
 
 // -- Transports (dc_transport_t, a bitmask) --------------------------------
 
@@ -315,4 +325,147 @@ extern "C" {
     pub fn dc_parser_destroy(parser: *mut dc_parser_t) -> c_int;
 
     pub fn dc_datetime_mktime(datetime: *const dc_datetime_t) -> i64;
+}
+
+// -- Devices, I/O streams and transports -----------------------------------
+
+pub enum dc_iostream_t {}
+pub enum dc_serial_device_t {}
+pub enum dc_usb_device_t {}
+pub enum dc_usbhid_device_t {}
+pub enum dc_bluetooth_device_t {}
+
+pub type dc_bluetooth_address_t = u64;
+
+pub const DC_EVENT_WAITING: c_uint = 1 << 0;
+pub const DC_EVENT_PROGRESS: c_uint = 1 << 1;
+pub const DC_EVENT_DEVINFO: c_uint = 1 << 2;
+pub const DC_EVENT_CLOCK: c_uint = 1 << 3;
+pub const DC_EVENT_VENDOR: c_uint = 1 << 4;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct dc_event_progress_t {
+    pub current: c_uint,
+    pub maximum: c_uint,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct dc_event_clock_t {
+    pub devtime: c_uint,
+    pub systime: i64,
+}
+
+pub type dc_cancel_callback_t = extern "C" fn(userdata: *mut c_void) -> c_int;
+pub type dc_event_callback_t = extern "C" fn(
+    device: *mut dc_device_t,
+    event: c_uint,
+    data: *const c_void,
+    userdata: *mut c_void,
+);
+pub type dc_dive_callback_t = extern "C" fn(
+    data: *const u8,
+    size: c_uint,
+    fingerprint: *const u8,
+    fsize: c_uint,
+    userdata: *mut c_void,
+) -> c_int;
+
+extern "C" {
+    // Device
+    pub fn dc_device_open(
+        device: *mut *mut dc_device_t,
+        context: *mut dc_context_t,
+        descriptor: *mut dc_descriptor_t,
+        iostream: *mut dc_iostream_t,
+    ) -> c_int;
+    pub fn dc_device_get_type(device: *mut dc_device_t) -> c_uint;
+    pub fn dc_device_set_cancel(
+        device: *mut dc_device_t,
+        callback: dc_cancel_callback_t,
+        userdata: *mut c_void,
+    ) -> c_int;
+    pub fn dc_device_set_events(
+        device: *mut dc_device_t,
+        events: c_uint,
+        callback: dc_event_callback_t,
+        userdata: *mut c_void,
+    ) -> c_int;
+    pub fn dc_device_set_fingerprint(
+        device: *mut dc_device_t,
+        data: *const u8,
+        size: c_uint,
+    ) -> c_int;
+    pub fn dc_device_foreach(
+        device: *mut dc_device_t,
+        callback: dc_dive_callback_t,
+        userdata: *mut c_void,
+    ) -> c_int;
+    pub fn dc_device_close(device: *mut dc_device_t) -> c_int;
+
+    // I/O stream
+    pub fn dc_iostream_close(iostream: *mut dc_iostream_t) -> c_int;
+
+    // Serial
+    pub fn dc_serial_iterator_new(
+        iterator: *mut *mut dc_iterator_t,
+        context: *mut dc_context_t,
+        descriptor: *mut dc_descriptor_t,
+    ) -> c_int;
+    pub fn dc_serial_device_get_name(device: *mut dc_serial_device_t) -> *const c_char;
+    pub fn dc_serial_device_free(device: *mut dc_serial_device_t);
+    pub fn dc_serial_open(
+        iostream: *mut *mut dc_iostream_t,
+        context: *mut dc_context_t,
+        name: *const c_char,
+    ) -> c_int;
+
+    // USB
+    pub fn dc_usb_iterator_new(
+        iterator: *mut *mut dc_iterator_t,
+        context: *mut dc_context_t,
+        descriptor: *mut dc_descriptor_t,
+    ) -> c_int;
+    pub fn dc_usb_device_get_vid(device: *mut dc_usb_device_t) -> c_uint;
+    pub fn dc_usb_device_get_pid(device: *mut dc_usb_device_t) -> c_uint;
+    pub fn dc_usb_device_free(device: *mut dc_usb_device_t);
+    pub fn dc_usb_open(
+        iostream: *mut *mut dc_iostream_t,
+        context: *mut dc_context_t,
+        device: *mut dc_usb_device_t,
+    ) -> c_int;
+
+    // USB HID
+    pub fn dc_usbhid_iterator_new(
+        iterator: *mut *mut dc_iterator_t,
+        context: *mut dc_context_t,
+        descriptor: *mut dc_descriptor_t,
+    ) -> c_int;
+    pub fn dc_usbhid_device_get_vid(device: *mut dc_usbhid_device_t) -> c_uint;
+    pub fn dc_usbhid_device_get_pid(device: *mut dc_usbhid_device_t) -> c_uint;
+    pub fn dc_usbhid_device_free(device: *mut dc_usbhid_device_t);
+    pub fn dc_usbhid_open(
+        iostream: *mut *mut dc_iostream_t,
+        context: *mut dc_context_t,
+        device: *mut dc_usbhid_device_t,
+    ) -> c_int;
+
+    // Bluetooth
+    pub fn dc_bluetooth_iterator_new(
+        iterator: *mut *mut dc_iterator_t,
+        context: *mut dc_context_t,
+        descriptor: *mut dc_descriptor_t,
+    ) -> c_int;
+    pub fn dc_bluetooth_device_get_address(
+        device: *mut dc_bluetooth_device_t,
+    ) -> dc_bluetooth_address_t;
+    pub fn dc_bluetooth_device_get_name(device: *mut dc_bluetooth_device_t) -> *const c_char;
+    pub fn dc_bluetooth_device_free(device: *mut dc_bluetooth_device_t);
+    pub fn dc_bluetooth_open(
+        iostream: *mut *mut dc_iostream_t,
+        context: *mut dc_context_t,
+        address: dc_bluetooth_address_t,
+        port: c_uint,
+    ) -> c_int;
 }

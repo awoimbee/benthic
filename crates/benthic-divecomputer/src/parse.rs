@@ -15,24 +15,8 @@ use benthic_core::{
     O2Pressure, Pressure, Sample, SensorPressure, Temperature, Volume,
 };
 
+use crate::error::{check, Error};
 use crate::ffi::*;
-
-/// Anything that can go wrong talking to libdivecomputer.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("libdivecomputer returned status {0}")]
-    Status(i32),
-    #[error("unknown dive computer: {vendor} {product}")]
-    UnknownDevice { vendor: String, product: String },
-}
-
-fn check(status: c_int) -> Result<(), Error> {
-    if status == DC_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(Error::Status(status))
-    }
-}
 
 /// A dive computer model known to libdivecomputer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,7 +124,7 @@ unsafe fn descriptors_with(context: *mut dc_context_t) -> Result<Vec<DeviceDescr
     Ok(out)
 }
 
-unsafe fn read_descriptor(descriptor: *const dc_descriptor_t) -> DeviceDescriptor {
+pub(crate) unsafe fn read_descriptor(descriptor: *const dc_descriptor_t) -> DeviceDescriptor {
     let string = |p: *const c_char| {
         if p.is_null() {
             String::new()
@@ -166,47 +150,56 @@ pub fn parse_dump(vendor: &str, product: &str, data: &[u8]) -> Result<Dive, Erro
     unsafe {
         let mut context: *mut dc_context_t = null_mut();
         check(dc_context_new(&mut context))?;
-
-        let mut iterator: *mut dc_iterator_t = null_mut();
-        if let Err(e) = check(dc_descriptor_iterator_new(&mut iterator, context)) {
-            dc_context_free(context);
-            return Err(e);
-        }
-
-        // Find the descriptor matching the requested model, freeing the rest.
-        let mut found: *mut dc_descriptor_t = null_mut();
-        loop {
-            let mut descriptor: *mut dc_descriptor_t = null_mut();
-            if dc_iterator_next(iterator, &mut descriptor as *mut _ as *mut c_void)
-                != DC_STATUS_SUCCESS
-            {
-                break;
+        let result = match find_descriptor(context, vendor, product) {
+            Ok(descriptor) => {
+                let result = parse_with(context, descriptor, data);
+                dc_descriptor_free(descriptor);
+                result
             }
-            let info = read_descriptor(descriptor);
-            if info.vendor == vendor && info.product == product {
-                found = descriptor;
-                break;
-            }
-            dc_descriptor_free(descriptor);
-        }
-        dc_iterator_free(iterator);
-
-        if found.is_null() {
-            dc_context_free(context);
-            return Err(Error::UnknownDevice {
-                vendor: vendor.to_string(),
-                product: product.to_string(),
-            });
-        }
-
-        let result = parse_with(context, found, data);
-        dc_descriptor_free(found);
+            Err(e) => Err(e),
+        };
         dc_context_free(context);
         result
     }
 }
 
-unsafe fn parse_with(
+/// Find the libdivecomputer descriptor for a model. The caller owns the
+/// returned pointer and must release it with `dc_descriptor_free`.
+pub(crate) unsafe fn find_descriptor(
+    context: *mut dc_context_t,
+    vendor: &str,
+    product: &str,
+) -> Result<*mut dc_descriptor_t, Error> {
+    let mut iterator: *mut dc_iterator_t = null_mut();
+    check(dc_descriptor_iterator_new(&mut iterator, context))?;
+
+    let mut found: *mut dc_descriptor_t = null_mut();
+    loop {
+        let mut descriptor: *mut dc_descriptor_t = null_mut();
+        if dc_iterator_next(iterator, &mut descriptor as *mut _ as *mut c_void) != DC_STATUS_SUCCESS
+        {
+            break;
+        }
+        let info = read_descriptor(descriptor);
+        if info.vendor == vendor && info.product == product {
+            found = descriptor;
+            break;
+        }
+        dc_descriptor_free(descriptor);
+    }
+    dc_iterator_free(iterator);
+
+    if found.is_null() {
+        Err(Error::UnknownDevice {
+            vendor: vendor.to_string(),
+            product: product.to_string(),
+        })
+    } else {
+        Ok(found)
+    }
+}
+
+pub(crate) unsafe fn parse_with(
     context: *mut dc_context_t,
     descriptor: *mut dc_descriptor_t,
     data: &[u8],
@@ -225,7 +218,7 @@ unsafe fn parse_with(
     result
 }
 
-unsafe fn parse_parser(
+pub(crate) unsafe fn parse_parser(
     parser: *mut dc_parser_t,
     descriptor: *const dc_descriptor_t,
 ) -> Result<Dive, Error> {

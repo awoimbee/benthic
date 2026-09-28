@@ -151,14 +151,22 @@ installed system-wide. The crate exposes:
 
 * `descriptors()` — the full table of supported models and their transports;
 * `parse_dump(vendor, product, data)` — turn a raw memory dump into a
-  `benthic_core::Dive` (samples, events, gases, tanks, setpoints, CNS/NDL).
+  `benthic_core::Dive` (samples, events, gases, tanks, setpoints, CNS/NDL);
+* `scan(descriptor, transport)` — enumerate matching serial, USB, USB-HID or
+  Bluetooth devices;
+* `download(descriptor, id, fingerprint, cancel, on_event)` — open a device,
+  download every unseen dive and parse it, reporting progress, device info and
+  supporting cooperative cancellation. The returned `latest_fingerprint` is
+  registered on the next run so already-downloaded dives are skipped.
 
 The C build is gated behind the crate's `native` feature and the whole crate
 compiles to nothing on `wasm32`, so a plain workspace `cargo test`/`clippy`
 stays pure Rust on machines without the toolchain. The native path is built in
-the devcontainer and in CI (`just check-native`). Parsing is covered offline by
-the three raw dumps shipped with libdivecomputer; live download over
-serial/USB/BLE is the next layer.
+the devcontainer and in CI (`just check-native`). Parsing and the download
+plumbing are covered by the three raw dumps shipped with libdivecomputer and by
+error-path tests; real device protocols need real hardware. BLE has no native
+transport in this libdivecomputer fork (it expects the application to provide
+an I/O stream), so it is not wired up yet.
 
 ## Platform abstraction
 

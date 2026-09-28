@@ -7,7 +7,13 @@
 //! `build.rs`; see the crate README for the required tools.
 #![cfg(not(target_arch = "wasm32"))]
 
+mod device;
+mod error;
 mod ffi;
 mod parse;
 
-pub use parse::{descriptors, parse_dump, DeviceDescriptor, Error, Transport};
+pub use device::{
+    download, scan, DeviceEvent, DeviceId, DeviceInfo, DiscoveredDevice, Download, DownloadedDive,
+};
+pub use error::Error;
+pub use parse::{descriptors, parse_dump, DeviceDescriptor, Transport};

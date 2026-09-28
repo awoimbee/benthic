@@ -23,9 +23,19 @@ name = "fixtures"
 path = "tests/fixtures.rs"
 required-features = ["native"]
 
+[[test]]
+name = "device"
+path = "tests/device.rs"
+required-features = ["native"]
+
 [[example]]
 name = "inspect"
 path = "examples/inspect.rs"
+required-features = ["native"]
+
+[[example]]
+name = "dctool"
+path = "examples/dctool.rs"
 required-features = ["native"]
 
 [dependencies]
