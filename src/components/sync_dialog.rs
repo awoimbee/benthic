@@ -3,7 +3,8 @@ use dioxus::prelude::*;
 use benthic_core::sync::{self as core_sync, SyncPlan};
 
 use crate::state::AppState;
-use crate::sync::{self, Provider, SyncConfig, DEFAULT_GOOGLE_CLIENT_ID};
+use crate::sync::backend::{self, AuthKind};
+use crate::sync::SyncConfig;
 
 /// What a sync attempt decided to do.
 enum Mode {
@@ -19,11 +20,11 @@ enum Outcome {
 
 /// Fetch, plan, then push or pull. Conflicting edits are never overwritten
 /// silently; the caller offers the user a choice.
-async fn run(state: AppState, config: SyncConfig, mode: Mode) -> Result<Outcome, String> {
+async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outcome, String> {
     let log = (state.log)();
-    let local = benthic_core::io::json::to_string(&log).map_err(|e| e.to_string())?;
-    let remote = sync::fetch(&config).await?;
-    let mut bookmark = sync::load_state();
+    let local = benthic_core::io::json::to_string(&log).map_err(|error| error.to_string())?;
+    let remote = crate::sync::fetch(&mut config).await?;
+    let mut bookmark = crate::sync::load_state();
     let plan = match mode {
         Mode::Auto => core_sync::plan(&local, log.is_empty(), &bookmark, remote.as_ref()),
         Mode::ForcePush => SyncPlan::Push,
@@ -33,17 +34,17 @@ async fn run(state: AppState, config: SyncConfig, mode: Mode) -> Result<Outcome,
         SyncPlan::UpToDate => Ok(Outcome::Done("Already up to date.".to_string())),
         SyncPlan::Push => {
             let revision = remote.as_ref().map(|r| r.revision.clone());
-            let pushed = sync::push(&config, &local, revision.as_deref()).await?;
+            let pushed = crate::sync::push(&mut config, &local, revision.as_deref()).await?;
             bookmark.remote_revision = Some(pushed.revision);
             bookmark.local_fingerprint = Some(core_sync::fingerprint(&local));
             bookmark.last_sync_secs = crate::platform::now_secs();
-            sync::save_state(&bookmark);
+            crate::sync::save_state(&bookmark);
             Ok(Outcome::Done("Uploaded the local log.".to_string()))
         }
         SyncPlan::Pull => {
             let remote = remote.ok_or_else(|| "The remote is empty.".to_string())?;
             let parsed =
-                benthic_core::io::parse_auto(&remote.content).map_err(|e| e.to_string())?;
+                benthic_core::io::parse_auto(&remote.content).map_err(|error| error.to_string())?;
             let count = parsed.dives.len();
             if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
                 let mut selected = state.selected;
@@ -54,7 +55,7 @@ async fn run(state: AppState, config: SyncConfig, mode: Mode) -> Result<Outcome,
             bookmark.remote_revision = Some(remote.revision);
             bookmark.local_fingerprint = Some(core_sync::fingerprint(&remote.content));
             bookmark.last_sync_secs = crate::platform::now_secs();
-            sync::save_state(&bookmark);
+            crate::sync::save_state(&bookmark);
             state.set_status(format!("Downloaded {count} dives from the remote"));
             Ok(Outcome::Done("Downloaded the remote log.".to_string()))
         }
@@ -67,18 +68,30 @@ async fn run(state: AppState, config: SyncConfig, mode: Mode) -> Result<Outcome,
 pub fn SyncDialog() -> Element {
     let state = use_context::<AppState>();
     let mut show_sync = state.show_sync;
-    let mut config = use_signal(sync::load_config);
+    let mut config = use_signal(crate::sync::load_config);
     let mut status = use_signal(|| None::<String>);
     let mut busy = use_signal(|| false);
     let mut conflict = use_signal(|| false);
 
     let cfg = (config)();
-    let provider_index = match cfg.provider {
-        Provider::GitHub => 0,
-        Provider::GoogleDrive => 1,
-    };
-    let github = cfg.provider == Provider::GitHub;
-    let drive_signed_in = cfg.provider == Provider::GoogleDrive && cfg.drive_signed_in();
+    let backend = cfg.backend();
+    let signed_in = backend.signed_in(cfg.settings());
+    let oauth = backend.auth() == AuthKind::OAuth;
+    let visible = backend
+        .fields()
+        .iter()
+        .filter(|field| field.platforms.current())
+        .collect::<Vec<_>>();
+    let normal = visible
+        .iter()
+        .copied()
+        .filter(|field| !field.advanced)
+        .collect::<Vec<_>>();
+    let advanced = visible
+        .iter()
+        .copied()
+        .filter(|field| field.advanced)
+        .collect::<Vec<_>>();
 
     let mut launch = move |mode: Mode| {
         let mut snapshot = (config)();
@@ -86,22 +99,20 @@ pub fn SyncDialog() -> Element {
         conflict.set(false);
         status.set(Some("Syncing…".to_string()));
         spawn(async move {
-            // Google Drive needs an interactive sign-in before the first call.
-            if snapshot.provider == Provider::GoogleDrive && !snapshot.drive_signed_in() {
-                match sync::google_sign_in(&snapshot).await {
-                    Ok((token, expiry)) => {
-                        snapshot.token = token;
-                        snapshot.token_expiry = expiry;
-                        config.set(snapshot.clone());
-                    }
-                    Err(error) => {
-                        status.set(Some(error));
-                        busy.set(false);
-                        return;
-                    }
+            // OAuth backends sign in interactively before the first request.
+            let needs_sign_in = {
+                let backend = snapshot.backend();
+                backend.auth() == AuthKind::OAuth && !backend.signed_in(snapshot.settings())
+            };
+            if needs_sign_in {
+                if let Err(error) = crate::sync::sign_in(&mut snapshot).await {
+                    status.set(Some(error));
+                    busy.set(false);
+                    return;
                 }
+                config.set(snapshot.clone());
             }
-            sync::save_config(&snapshot);
+            crate::sync::save_config(&snapshot);
             match run(state, snapshot, mode).await {
                 Ok(Outcome::Done(message)) => status.set(Some(message)),
                 Ok(Outcome::Conflict) => {
@@ -111,27 +122,22 @@ pub fn SyncDialog() -> Element {
                             .to_string(),
                     ));
                 }
-                Err(error) => {
-                    status.set(Some(error));
-                }
+                Err(error) => status.set(Some(error)),
             }
             busy.set(false);
         });
     };
 
-    let sign_in = move |_| {
-        let snapshot = (config)();
+    let do_sign_in = move |_| {
+        let mut snapshot = (config)();
         busy.set(true);
-        status.set(Some("Signing in to Google…".to_string()));
+        status.set(Some("Signing in…".to_string()));
         spawn(async move {
-            match sync::google_sign_in(&snapshot).await {
-                Ok((token, expiry)) => {
-                    let mut next = snapshot.clone();
-                    next.token = token;
-                    next.token_expiry = expiry;
-                    config.set(next.clone());
-                    sync::save_config(&next);
-                    status.set(Some("Signed in to Google.".to_string()));
+            match crate::sync::sign_in(&mut snapshot).await {
+                Ok(()) => {
+                    config.set(snapshot.clone());
+                    crate::sync::save_config(&snapshot);
+                    status.set(Some("Signed in.".to_string()));
                 }
                 Err(error) => status.set(Some(error)),
             }
@@ -139,15 +145,14 @@ pub fn SyncDialog() -> Element {
         });
     };
 
-    let sign_out = move |_| {
-        let snapshot = (config)();
-        sync::google_sign_out(&snapshot);
-        let mut next = snapshot.clone();
-        next.token.clear();
-        next.token_expiry = 0;
-        config.set(next.clone());
-        sync::save_config(&next);
-        status.set(Some("Signed out of Google.".to_string()));
+    let do_sign_out = move |_| {
+        let mut snapshot = (config)();
+        spawn(async move {
+            crate::sync::sign_out(&mut snapshot).await;
+            config.set(snapshot.clone());
+            crate::sync::save_config(&snapshot);
+            status.set(Some("Signed out.".to_string()));
+        });
     };
 
     rsx! {
@@ -155,100 +160,67 @@ pub fn SyncDialog() -> Element {
             div { class: "modal wide", onclick: move |evt| evt.stop_propagation(),
                 h2 { "Sync" }
                 p { class: "muted",
-                    "Mirror the log to a file in a Git repository (GitHub, or any compatible API) or in Google Drive's app data folder."
+                    "Mirror the log to a remote service. Nothing is overwritten silently: benthic asks when both sides changed."
                 }
                 div { class: "edit-form",
                     label { class: "field-label", "Service"
                         select {
                             class: "field",
-                            value: "{provider_index}",
-                            onchange: move |evt| {
-                                let index: usize = evt.value().parse().unwrap_or(0);
-                                config.write().provider = if index == 1 { Provider::GoogleDrive } else { Provider::GitHub };
-                            },
-                            option { value: "0", "GitHub" }
-                            option { value: "1", "Google Drive" }
+                            onchange: move |evt| config.write().provider = evt.value(),
+                            for candidate in backend::all() {
+                                option {
+                                    value: "{candidate.id()}",
+                                    selected: candidate.id() == cfg.provider,
+                                    "{candidate.name()}"
+                                }
+                            }
                         }
                     }
-                    if github {
-                        label { class: "field-label", "Repository (owner/name)"
+                    for field in normal {
+                        label { class: "field-label", "{field.label}"
                             input {
                                 class: "field",
-                                value: "{cfg.repo}",
-                                placeholder: "awoimbee/benthic-dives",
-                                oninput: move |evt| config.write().repo = evt.value(),
+                                r#type: field.kind.input_type(),
+                                value: "{cfg.settings().text(field.key)}",
+                                placeholder: field.placeholder,
+                                oninput: move |evt| config.write().settings_mut().set(field.key, evt.value()),
                             }
                         }
-                        label { class: "field-label", "File path"
-                            input {
-                                class: "field",
-                                value: "{cfg.path}",
-                                oninput: move |evt| config.write().path = evt.value(),
-                            }
-                        }
-                        label { class: "field-label", "Branch"
-                            input {
-                                class: "field",
-                                value: "{cfg.branch}",
-                                oninput: move |evt| config.write().branch = evt.value(),
-                            }
-                        }
-                        label { class: "field-label", "Access token"
-                            input {
-                                class: "field",
-                                r#type: "password",
-                                value: "{cfg.token}",
-                                oninput: move |evt| config.write().token = evt.value(),
-                            }
-                        }
-                        label { class: "field-label", "API base (optional)"
-                            input {
-                                class: "field",
-                                value: "{cfg.base_url}",
-                                placeholder: "leave blank for the public API",
-                                oninput: move |evt| config.write().base_url = evt.value(),
-                            }
-                        }
-                    } else {
-                        if drive_signed_in {
+                    }
+                    if oauth {
+                        if signed_in {
                             div { class: "sync-account",
-                                span { class: "muted", "Signed in to Google Drive." }
+                                span { class: "muted", "Signed in to {backend.name()}." }
                                 button {
                                     class: "btn",
                                     disabled: (busy)(),
-                                    onclick: sign_out,
+                                    onclick: do_sign_out,
                                     "Sign out"
                                 }
                             }
                         } else {
                             button {
                                 class: "btn primary",
-                                disabled: (busy)() || cfg.google_client_id().is_empty(),
-                                onclick: sign_in,
-                                "Sign in with Google"
-                            }
-                            if cfg.google_client_id().is_empty() {
-                                p { class: "muted",
-                                    "Set a Google OAuth client ID under Advanced to enable sign-in."
-                                }
+                                disabled: (busy)() || !cfg.is_configured(),
+                                onclick: do_sign_in,
+                                "{backend.sign_in_label()}"
                             }
                         }
-                        details { class: "sync-advanced",
-                            summary { "Advanced" }
-                            label { class: "field-label", "Google client ID"
-                                input {
-                                    class: "field",
-                                    value: "{cfg.client_id}",
-                                    placeholder: "{DEFAULT_GOOGLE_CLIENT_ID}",
-                                    oninput: move |evt| config.write().client_id = evt.value(),
-                                }
-                            }
-                            label { class: "field-label", "API base (optional)"
-                                input {
-                                    class: "field",
-                                    value: "{cfg.base_url}",
-                                    placeholder: "leave blank for the public API",
-                                    oninput: move |evt| config.write().base_url = evt.value(),
+                    }
+                }
+                if !advanced.is_empty() {
+                    details { class: "sync-advanced",
+                        summary { "Advanced" }
+                        div { class: "edit-form",
+                            for field in advanced {
+                                label { class: "field-label", "{field.label}"
+                                    input {
+                                        class: "field",
+                                        r#type: field.kind.input_type(),
+                                        value: "{cfg.settings().text(field.key)}",
+                                        placeholder: field.placeholder,
+                                        oninput: move |evt| config.write().settings_mut().set(field.key, evt.value()),
+                                    }
                                 }
                             }
                         }

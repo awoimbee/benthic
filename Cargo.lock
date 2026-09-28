@@ -276,19 +276,26 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 name = "benthic"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.23.1",
  "benthic-core",
  "dioxus",
  "directories",
+ "getrandom 0.3.4",
  "gloo-net 0.7.0",
  "gloo-storage",
  "indexed_db_futures",
  "js-sys",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2",
+ "tokio",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webbrowser",
 ]
 
 [[package]]
