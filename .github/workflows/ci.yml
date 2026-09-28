@@ -98,11 +98,18 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Install emscripten and autotools
+      - name: Install emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 3.1.69
+          "$RUNNER_TEMP/emsdk/emsdk" activate 3.1.69
+          echo "$RUNNER_TEMP/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+          find "$RUNNER_TEMP/emsdk/node" -maxdepth 2 -name bin -type d | head -1 >> "$GITHUB_PATH"
+
+      - name: Install autotools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            emscripten autoconf automake libtool pkg-config
+          sudo apt-get install -y --no-install-recommends autoconf automake libtool pkg-config
 
       - name: Build the shim
         run: bash scripts/build-web-divecomputer.sh
