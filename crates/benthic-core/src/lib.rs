@@ -12,6 +12,7 @@
 //! provided by the application crate.
 
 pub mod deco;
+pub mod divecomputer;
 pub mod equipment;
 pub mod filter;
 pub mod format;

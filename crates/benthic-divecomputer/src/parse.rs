@@ -10,10 +10,11 @@ use std::os::raw::{c_char, c_double, c_int, c_uint, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr::null_mut;
 
-use benthic_core::{
-    Bearing, Cylinder, CylinderUse, Depth, Dive, DiveComputer, Divemode, Duration, Event, GasMix,
-    O2Pressure, Pressure, Sample, SensorPressure, Temperature, Volume,
+use benthic_core::divecomputer::{
+    RawDateTime, RawDecoKind, RawDeviceInfo, RawDive, RawDivemode, RawGasMix, RawGradientFactors,
+    RawSample, RawTank, RawUsage,
 };
+use benthic_core::Dive;
 
 use crate::error::{check, Error};
 use crate::ffi::*;
@@ -222,6 +223,13 @@ pub(crate) unsafe fn parse_parser(
     parser: *mut dc_parser_t,
     descriptor: *const dc_descriptor_t,
 ) -> Result<Dive, Error> {
+    let info = read_descriptor(descriptor);
+    let mut raw = RawDive {
+        vendor: info.vendor,
+        product: info.product,
+        ..Default::default()
+    };
+
     let mut datetime = dc_datetime_t {
         year: 0,
         month: 0,
@@ -231,7 +239,63 @@ pub(crate) unsafe fn parse_parser(
         second: 0,
         timezone: DC_TIMEZONE_NONE,
     };
-    let have_datetime = dc_parser_get_datetime(parser, &mut datetime) == DC_STATUS_SUCCESS;
+    if dc_parser_get_datetime(parser, &mut datetime) == DC_STATUS_SUCCESS {
+        raw.datetime = Some(RawDateTime {
+            year: datetime.year,
+            month: datetime.month as u8,
+            day: datetime.day as u8,
+            hour: datetime.hour as u8,
+            minute: datetime.minute as u8,
+            second: datetime.second as u8,
+            timezone: (datetime.timezone != DC_TIMEZONE_NONE).then_some(datetime.timezone),
+        });
+    }
+
+    raw.divetime = field_uint(parser, DC_FIELD_DIVETIME);
+    raw.max_depth = field_double(parser, DC_FIELD_MAXDEPTH);
+    raw.mean_depth = field_double(parser, DC_FIELD_AVGDEPTH);
+    raw.atmospheric = field_double(parser, DC_FIELD_ATMOSPHERIC);
+    raw.temperature_surface = field_double(parser, DC_FIELD_TEMPERATURE_SURFACE);
+    raw.temperature_min = field_double(parser, DC_FIELD_TEMPERATURE_MINIMUM);
+    raw.divemode = field_uint(parser, DC_FIELD_DIVEMODE).map(divemode_of);
+
+    let mut salinity = dc_salinity_t {
+        water: 0,
+        density: 0.0,
+    };
+    if dc_parser_get_field(
+        parser,
+        DC_FIELD_SALINITY,
+        0,
+        &mut salinity as *mut _ as *mut c_void,
+    ) == DC_STATUS_SUCCESS
+        && salinity.density > 0.0
+    {
+        raw.salinity_density = Some(salinity.density);
+    }
+
+    let mut decomodel = dc_decomodel_t {
+        type_: 0,
+        conservatism: 0,
+        params: dc_decomodel_params_t {
+            gf: dc_gf_t { high: 0, low: 0 },
+        },
+    };
+    if dc_parser_get_field(
+        parser,
+        DC_FIELD_DECOMODEL,
+        0,
+        &mut decomodel as *mut _ as *mut c_void,
+    ) == DC_STATUS_SUCCESS
+    {
+        let gf = decomodel.params.gf;
+        if gf.low > 0 || gf.high > 0 {
+            raw.gf = Some(RawGradientFactors {
+                low: gf.low,
+                high: gf.high,
+            });
+        }
+    }
 
     let mut devinfo = dc_event_devinfo_t {
         model: 0,
@@ -239,38 +303,30 @@ pub(crate) unsafe fn parse_parser(
         serial: 0,
         hw_id: 0,
     };
-    let have_devinfo = dc_parser_get_device_info(parser, &mut devinfo) == DC_STATUS_SUCCESS;
+    if dc_parser_get_device_info(parser, &mut devinfo) == DC_STATUS_SUCCESS {
+        raw.info = Some(RawDeviceInfo {
+            model: devinfo.model,
+            firmware: devinfo.firmware,
+            serial: devinfo.serial,
+            hw_id: devinfo.hw_id,
+        });
+    }
 
-    let gasmixes = read_gasmixes(parser);
-    let tanks = read_tanks(parser);
+    raw.gasmixes = read_gasmixes(parser);
+    raw.tanks = read_tanks(parser);
 
-    let mut collector = Collector {
-        gasmixes: &gasmixes,
-        samples: Vec::new(),
-        events: Vec::new(),
-        current: None,
-    };
+    let mut collector = SampleAccumulator::default();
     check(dc_parser_samples_foreach(
         parser,
         sample_callback,
         &mut collector as *mut _ as *mut c_void,
     ))?;
-    collector.finish();
+    raw.samples = collector.samples;
 
-    let info = read_descriptor(descriptor);
-    Ok(build_dive(
-        &info,
-        &datetime,
-        have_datetime,
-        have_devinfo.then_some(&devinfo),
-        parser,
-        &gasmixes,
-        &tanks,
-        collector,
-    ))
+    Ok(raw.to_dive())
 }
 
-unsafe fn read_gasmixes(parser: *mut dc_parser_t) -> Vec<(GasMix, c_uint)> {
+unsafe fn read_gasmixes(parser: *mut dc_parser_t) -> Vec<RawGasMix> {
     let count = field_uint(parser, DC_FIELD_GASMIX_COUNT).unwrap_or(0);
     (0..count)
         .filter_map(|i| {
@@ -286,20 +342,16 @@ unsafe fn read_gasmixes(parser: *mut dc_parser_t) -> Vec<(GasMix, c_uint)> {
                 i,
                 &mut mix as *mut _ as *mut c_void,
             );
-            (status == DC_STATUS_SUCCESS).then(|| {
-                (
-                    GasMix::new(
-                        (mix.oxygen * 1000.0).round() as u16,
-                        (mix.helium * 1000.0).round() as u16,
-                    ),
-                    mix.usage,
-                )
+            (status == DC_STATUS_SUCCESS).then(|| RawGasMix {
+                oxygen: mix.oxygen,
+                helium: mix.helium,
+                usage: raw_usage(mix.usage),
             })
         })
         .collect()
 }
 
-unsafe fn read_tanks(parser: *mut dc_parser_t) -> Vec<dc_tank_t> {
+unsafe fn read_tanks(parser: *mut dc_parser_t) -> Vec<RawTank> {
     let count = field_uint(parser, DC_FIELD_TANK_COUNT).unwrap_or(0);
     (0..count)
         .filter_map(|i| {
@@ -314,7 +366,13 @@ unsafe fn read_tanks(parser: *mut dc_parser_t) -> Vec<dc_tank_t> {
             };
             let status =
                 dc_parser_get_field(parser, DC_FIELD_TANK, i, &mut tank as *mut _ as *mut c_void);
-            (status == DC_STATUS_SUCCESS).then_some(tank)
+            (status == DC_STATUS_SUCCESS).then(|| RawTank {
+                gasmix: (tank.gasmix != DC_GASMIX_UNKNOWN).then_some(tank.gasmix),
+                volume: tank.volume,
+                workpressure: tank.workpressure,
+                beginpressure: tank.beginpressure,
+                endpressure: tank.endpressure,
+            })
         })
         .collect()
 }
@@ -333,292 +391,38 @@ unsafe fn field_double(parser: *mut dc_parser_t, field: c_int) -> Option<c_doubl
         .then_some(value)
 }
 
-#[allow(clippy::too_many_arguments)]
-unsafe fn build_dive(
-    info: &DeviceDescriptor,
-    datetime: &dc_datetime_t,
-    have_datetime: bool,
-    devinfo: Option<&dc_event_devinfo_t>,
-    parser: *mut dc_parser_t,
-    gasmixes: &[(GasMix, c_uint)],
-    tanks: &[dc_tank_t],
-    collector: Collector,
-) -> Dive {
-    let mut computer = DiveComputer {
-        model: info.name(),
-        ..Default::default()
-    };
-
-    if let Some(seconds) = field_uint(parser, DC_FIELD_DIVETIME) {
-        computer.duration = Some(Duration::new(seconds as i32));
-    }
-    if let Some(meters) = field_double(parser, DC_FIELD_MAXDEPTH) {
-        computer.max_depth = Some(Depth::from_meters(meters));
-    }
-    if let Some(meters) = field_double(parser, DC_FIELD_AVGDEPTH) {
-        computer.mean_depth = Some(Depth::from_meters(meters));
-    }
-    if let Some(bar) = field_double(parser, DC_FIELD_ATMOSPHERIC) {
-        computer.surface_pressure = Some(Pressure::from_bar(bar));
-    }
-    if let Some(celsius) = field_double(parser, DC_FIELD_TEMPERATURE_SURFACE) {
-        computer.air_temp = Some(Temperature::from_celsius(celsius));
-    }
-    if let Some(celsius) = field_double(parser, DC_FIELD_TEMPERATURE_MINIMUM) {
-        computer.water_temp = Some(Temperature::from_celsius(celsius));
-    }
-    if let Some(usage) = field_uint(parser, DC_FIELD_DIVEMODE) {
-        computer.divemode = divemode_of(usage);
-    }
-    let mut salinity = dc_salinity_t {
-        water: 0,
-        density: 0.0,
-    };
-    if dc_parser_get_field(
-        parser,
-        DC_FIELD_SALINITY,
-        0,
-        &mut salinity as *mut _ as *mut c_void,
-    ) == DC_STATUS_SUCCESS
-        && salinity.density > 0.0
-    {
-        // libdivecomputer reports density in kg/m^3; the model stores
-        // grams of salt per 10 litres (so 1020 kg/m^3 -> 10200).
-        computer.salinity = Some((salinity.density * 10.0).round() as i32);
-    }
-    let mut decomodel = dc_decomodel_t {
-        type_: 0,
-        conservatism: 0,
-        params: dc_decomodel_params_t {
-            gf: dc_gf_t { high: 0, low: 0 },
-        },
-    };
-    if dc_parser_get_field(
-        parser,
-        DC_FIELD_DECOMODEL,
-        0,
-        &mut decomodel as *mut _ as *mut c_void,
-    ) == DC_STATUS_SUCCESS
-    {
-        let gf = decomodel.params.gf;
-        if gf.low > 0 || gf.high > 0 {
-            computer
-                .extra_data
-                .push(("GF".to_string(), format!("{}/{}", gf.low, gf.high)));
-        }
-    }
-    if have_datetime && datetime.timezone != DC_TIMEZONE_NONE {
-        computer.timezone_offset = Some(datetime.timezone);
-    }
-    if let Some(devinfo) = devinfo {
-        computer.device_id = devinfo.serial;
-        computer.firmware = Some(devinfo.firmware.to_string());
-        if devinfo.serial != 0 {
-            computer.serial = Some(devinfo.serial.to_string());
-        }
-    }
-    computer.samples = collector.samples;
-    computer.events = collector.events;
-
-    let cylinders = build_cylinders(gasmixes, tanks);
-    let when = if have_datetime {
-        dc_datetime_mktime(datetime)
-    } else {
-        0
-    };
-
-    Dive {
-        when,
-        cylinders,
-        computers: vec![computer],
-        ..Default::default()
-    }
-}
-
-fn build_cylinders(gasmixes: &[(GasMix, c_uint)], tanks: &[dc_tank_t]) -> Vec<Cylinder> {
-    let mix_of = |index: c_uint| -> Option<&(GasMix, c_uint)> {
-        if index == DC_GASMIX_UNKNOWN {
-            None
-        } else {
-            gasmixes.get(index as usize)
-        }
-    };
-
-    if tanks.is_empty() {
-        return gasmixes
-            .iter()
-            .map(|(gas, usage)| Cylinder {
-                gas: *gas,
-                use_: cylinder_use(*usage),
-                ..Default::default()
-            })
-            .collect();
-    }
-
-    tanks
-        .iter()
-        .map(|tank| {
-            let mix = mix_of(tank.gasmix);
-            Cylinder {
-                size: (tank.volume > 0.0).then(|| Volume::from_liters(tank.volume)),
-                working_pressure: (tank.workpressure > 0.0)
-                    .then(|| Pressure::from_bar(tank.workpressure)),
-                gas: mix.map(|(gas, _)| *gas).unwrap_or_default(),
-                start_pressure: (tank.beginpressure > 0.0)
-                    .then(|| Pressure::from_bar(tank.beginpressure)),
-                end_pressure: (tank.endpressure > 0.0)
-                    .then(|| Pressure::from_bar(tank.endpressure)),
-                use_: mix
-                    .map(|(_, usage)| cylinder_use(*usage))
-                    .unwrap_or_default(),
-                ..Default::default()
-            }
-        })
-        .collect()
-}
-
-fn divemode_of(mode: c_uint) -> Divemode {
+fn divemode_of(mode: c_uint) -> RawDivemode {
     match mode {
-        DC_DIVEMODE_FREEDIVE => Divemode::Freedive,
-        DC_DIVEMODE_CCR => Divemode::Ccr,
-        DC_DIVEMODE_SCR => Divemode::Pscr,
-        _ => Divemode::OpenCircuit,
+        DC_DIVEMODE_FREEDIVE => RawDivemode::Freedive,
+        DC_DIVEMODE_GAUGE => RawDivemode::Gauge,
+        DC_DIVEMODE_CCR => RawDivemode::Ccr,
+        DC_DIVEMODE_SCR => RawDivemode::Scr,
+        _ => RawDivemode::Oc,
     }
 }
 
-fn cylinder_use(usage: c_uint) -> CylinderUse {
+fn raw_usage(usage: c_uint) -> RawUsage {
     match usage {
-        DC_USAGE_OXYGEN => CylinderUse::Oxygen,
-        DC_USAGE_DILUENT => CylinderUse::Diluent,
-        DC_USAGE_OPEN_CIRCUIT => CylinderUse::OcGas,
-        _ => CylinderUse::OcGas,
+        DC_USAGE_OXYGEN => RawUsage::Oxygen,
+        DC_USAGE_DILUENT => RawUsage::Diluent,
+        DC_USAGE_OPEN_CIRCUIT => RawUsage::OpenCircuit,
+        _ => RawUsage::None,
     }
 }
 
-/// Accumulates the flat libdivecomputer sample stream into per-time samples.
-struct Collector<'a> {
-    gasmixes: &'a [(GasMix, c_uint)],
-    samples: Vec<Sample>,
-    events: Vec<Event>,
-    current: Option<Sample>,
+fn deco_kind(kind: c_uint) -> RawDecoKind {
+    match kind {
+        DC_DECO_NDL => RawDecoKind::Ndl,
+        DC_DECO_SAFETYSTOP => RawDecoKind::SafetyStop,
+        DC_DECO_DEEPSTOP => RawDecoKind::DeepStop,
+        _ => RawDecoKind::DecoStop,
+    }
 }
 
-impl Collector<'_> {
-    fn ensure(&mut self) -> &mut Sample {
-        self.current.get_or_insert_with(Sample::default)
-    }
-
-    fn finish(&mut self) {
-        if let Some(sample) = self.current.take() {
-            self.samples.push(sample);
-        }
-    }
-
-    fn time(&self) -> Duration {
-        self.current.as_ref().map(|s| s.time).unwrap_or_default()
-    }
-
-    fn on_sample(&mut self, kind: c_int, value: &dc_sample_value_t) {
-        // Safety: the union is only read for the variant matching `kind`,
-        // which is exactly the contract of the C callback.
-        unsafe {
-            match kind {
-                DC_SAMPLE_TIME => {
-                    self.finish();
-                    self.current = Some(Sample {
-                        time: Duration::new((value.time / 1000) as i32),
-                        ..Default::default()
-                    });
-                }
-                DC_SAMPLE_DEPTH => {
-                    self.ensure().depth = Depth::from_meters(value.depth);
-                }
-                DC_SAMPLE_TEMPERATURE => {
-                    self.ensure().temperature = Some(Temperature::from_celsius(value.temperature));
-                }
-                DC_SAMPLE_PRESSURE => {
-                    let reading = value.pressure;
-                    let sensor = reading.tank as i16;
-                    let pressure = Pressure::from_bar(reading.value);
-                    let sample = self.ensure();
-                    match sample.pressures.iter_mut().find(|p| p.sensor == sensor) {
-                        Some(existing) => existing.pressure = pressure,
-                        None => sample.pressures.push(SensorPressure { sensor, pressure }),
-                    }
-                }
-                DC_SAMPLE_SETPOINT => {
-                    self.ensure().setpoint = Some(O2Pressure::from_bar(value.setpoint));
-                }
-                DC_SAMPLE_PPO2 => {
-                    let reading = value.ppo2;
-                    let sensor = reading.sensor as usize;
-                    let sample = self.ensure();
-                    if sample.o2_sensors.len() <= sensor {
-                        sample.o2_sensors.resize(sensor + 1, O2Pressure::ZERO);
-                    }
-                    sample.o2_sensors[sensor] = O2Pressure::from_bar(reading.value);
-                }
-                DC_SAMPLE_CNS => {
-                    self.ensure().cns = Some((value.cns * 100.0).round() as u16);
-                }
-                DC_SAMPLE_RBT => {
-                    self.ensure().rbt = Some(Duration::new(value.rbt as i32));
-                }
-                DC_SAMPLE_HEARTBEAT => {
-                    self.ensure().heartbeat = Some(value.heartbeat as u8);
-                }
-                DC_SAMPLE_BEARING => {
-                    self.ensure().bearing = Some(Bearing::new(value.bearing as i16));
-                }
-                DC_SAMPLE_TTS => {
-                    self.ensure().tts = Some(Duration::new(value.time as i32));
-                }
-                DC_SAMPLE_DECO => {
-                    let deco = value.deco;
-                    if deco.type_ == DC_DECO_NDL {
-                        self.ensure().ndl = Some(Duration::new(deco.time as i32));
-                    } else {
-                        let sample = self.ensure();
-                        sample.stop_depth = Some(Depth::from_meters(deco.depth));
-                        sample.stop_time = Some(Duration::new(deco.time as i32));
-                        if deco.type_ == DC_DECO_DECOSTOP {
-                            sample.in_deco = true;
-                        }
-                    }
-                }
-                DC_SAMPLE_GASMIX => {
-                    let index = value.gasmix;
-                    if index != DC_GASMIX_UNKNOWN {
-                        let time = self.time();
-                        let gas = self.gasmixes.get(index as usize).map(|(gas, _)| *gas);
-                        self.events.push(Event {
-                            time,
-                            name: "gaschange".to_string(),
-                            gas: gas.map(|gas| (index as i32, gas)),
-                            ..Default::default()
-                        });
-                    }
-                }
-                DC_SAMPLE_EVENT => {
-                    let raw = value.event;
-                    let time = if raw.time != 0 {
-                        Duration::new((raw.time / 1000) as i32)
-                    } else {
-                        self.time()
-                    };
-                    let name = event_name(raw.type_, raw.name);
-                    self.events.push(Event {
-                        time,
-                        name,
-                        flags: raw.flags as i32,
-                        value: raw.value as i32,
-                        ..Default::default()
-                    });
-                }
-                _ => {}
-            }
-        }
-    }
+/// Collects libdivecomputer's flat sample stream into the neutral records.
+#[derive(Default)]
+struct SampleAccumulator {
+    samples: Vec<RawSample>,
 }
 
 extern "C" fn sample_callback(kind: c_int, value: *const dc_sample_value_t, userdata: *mut c_void) {
@@ -627,47 +431,81 @@ extern "C" fn sample_callback(kind: c_int, value: *const dc_sample_value_t, user
         if value.is_null() || userdata.is_null() {
             return;
         }
-        let collector = unsafe { &mut *(userdata as *mut Collector) };
+        let accumulator = unsafe { &mut *(userdata as *mut SampleAccumulator) };
         let value = unsafe { &*value };
-        collector.on_sample(kind, value);
+        if let Some(sample) = unsafe { raw_sample(kind, value) } {
+            accumulator.samples.push(sample);
+        }
     }));
 }
 
-fn event_name(kind: c_uint, name: *const c_char) -> String {
-    let static_name = match kind {
-        DC_SAMPLE_EVENT_DECOSTOP => Some("deco"),
-        DC_SAMPLE_EVENT_RBT => Some("rbt"),
-        DC_SAMPLE_EVENT_ASCENT => Some("ascent"),
-        DC_SAMPLE_EVENT_CEILING => Some("ceiling"),
-        DC_SAMPLE_EVENT_WORKLOAD => Some("workload"),
-        DC_SAMPLE_EVENT_TRANSMITTER => Some("transmitter"),
-        DC_SAMPLE_EVENT_VIOLATION => Some("violation"),
-        DC_SAMPLE_EVENT_BOOKMARK => Some("bookmark"),
-        DC_SAMPLE_EVENT_SURFACE => Some("surface"),
-        DC_SAMPLE_EVENT_SAFETYSTOP => Some("safety stop"),
-        DC_SAMPLE_EVENT_GASCHANGE | DC_SAMPLE_EVENT_GASCHANGE2 => Some("gaschange"),
-        DC_SAMPLE_EVENT_SAFETYSTOP_VOLUNTARY => Some("safety stop (voluntary)"),
-        DC_SAMPLE_EVENT_SAFETYSTOP_MANDATORY => Some("safety stop (mandatory)"),
-        DC_SAMPLE_EVENT_DEEPSTOP => Some("deepstop"),
-        DC_SAMPLE_EVENT_CEILING_SAFETYSTOP => Some("ceiling-safety"),
-        DC_SAMPLE_EVENT_FLOOR => Some("floor"),
-        DC_SAMPLE_EVENT_DIVETIME => Some("divetime"),
-        DC_SAMPLE_EVENT_MAXDEPTH => Some("maxdepth"),
-        DC_SAMPLE_EVENT_OLF => Some("OLF"),
-        DC_SAMPLE_EVENT_PO2 => Some("PO2"),
-        DC_SAMPLE_EVENT_AIRTIME => Some("airtime"),
-        DC_SAMPLE_EVENT_RGBM => Some("RGBM"),
-        DC_SAMPLE_EVENT_HEADING => Some("heading"),
-        DC_SAMPLE_EVENT_TISSUELEVEL => Some("tissuelevel"),
-        _ => None,
-    };
-    if let Some(name) = static_name {
-        return name.to_string();
-    }
-    if !name.is_null() {
-        return unsafe { CStr::from_ptr(name) }
-            .to_string_lossy()
-            .into_owned();
-    }
-    "event".to_string()
+/// Safety: `value` is read only for the variant matching `kind`, which is the
+/// contract of the C callback.
+unsafe fn raw_sample(kind: c_int, value: &dc_sample_value_t) -> Option<RawSample> {
+    Some(match kind {
+        DC_SAMPLE_TIME => RawSample::Time { ms: value.time },
+        DC_SAMPLE_DEPTH => RawSample::Depth { m: value.depth },
+        DC_SAMPLE_PRESSURE => {
+            let reading = value.pressure;
+            RawSample::Pressure {
+                tank: reading.tank,
+                bar: reading.value,
+            }
+        }
+        DC_SAMPLE_TEMPERATURE => RawSample::Temperature {
+            c: value.temperature,
+        },
+        DC_SAMPLE_SETPOINT => RawSample::Setpoint {
+            bar: value.setpoint,
+        },
+        DC_SAMPLE_PPO2 => {
+            let reading = value.ppo2;
+            RawSample::Ppo2 {
+                sensor: reading.sensor,
+                bar: reading.value,
+            }
+        }
+        DC_SAMPLE_CNS => RawSample::Cns {
+            fraction: value.cns,
+        },
+        DC_SAMPLE_RBT => RawSample::Rbt { s: value.rbt },
+        DC_SAMPLE_HEARTBEAT => RawSample::Heartbeat {
+            bpm: value.heartbeat,
+        },
+        DC_SAMPLE_BEARING => RawSample::Bearing { deg: value.bearing },
+        DC_SAMPLE_TTS => RawSample::Tts { s: value.time },
+        DC_SAMPLE_DECO => {
+            let deco = value.deco;
+            RawSample::Deco {
+                kind: deco_kind(deco.type_),
+                s: deco.time,
+                m: deco.depth,
+                tts: deco.tts,
+            }
+        }
+        DC_SAMPLE_GASMIX => {
+            if value.gasmix == DC_GASMIX_UNKNOWN {
+                return None;
+            }
+            RawSample::Gasmix {
+                index: value.gasmix,
+            }
+        }
+        DC_SAMPLE_EVENT => {
+            let event = value.event;
+            let name = if event.name.is_null() {
+                None
+            } else {
+                Some(CStr::from_ptr(event.name).to_string_lossy().into_owned())
+            };
+            RawSample::Event {
+                kind: event.type_,
+                ms: event.time,
+                flags: event.flags,
+                value: event.value as i32,
+                name,
+            }
+        }
+        _ => return None,
+    })
 }
