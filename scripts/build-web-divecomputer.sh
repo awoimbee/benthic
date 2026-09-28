@@ -38,7 +38,7 @@ if [ ! -x configure ]; then
     exit 1
   fi
 fi
-if ! emconfigure ./configure --disable-shared --enable-static >"$work/configure.log" 2>&1; then
+if ! emconfigure ./configure --host=wasm32-unknown-emscripten --disable-shared --enable-static >"$work/configure.log" 2>&1; then
   echo "error: configure failed" >&2
   tail -n 60 "$work/configure.log" >&2
   exit 1
