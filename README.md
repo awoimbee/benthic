@@ -14,10 +14,24 @@ See [ROADMAP.md](ROADMAP.md) for status and what's next.
 
 ## Quick start
 
-Requires stable Rust and the
-[Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started)
-(`cargo install dioxus-cli`); the Linux desktop build also needs
-`webkit2gtk-4.1`.
+The easiest path is the checked-in [dev container](.devcontainer/), which
+provides Rust, the [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started)
+and every system library the desktop build needs. Open the folder in
+VS Code ("Reopen in Container") or run `devcontainer up --workspace-folder .`.
+
+Building natively instead requires stable Rust, the Dioxus CLI
+(`cargo install dioxus-cli`) and the Linux desktop libraries; on Debian/Ubuntu:
+
+```bash
+sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+  libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+  libxdo-dev libssl-dev pkg-config
+```
+
+On openSUSE Tumbleweed the equivalents are `webkitgtk3-devel`, `gtk3-devel`,
+`libsoup-devel`, `at-spi2-core-devel`, `cairo-devel`, `pango-devel`,
+`gdk-pixbuf-devel`, `glib2-devel`, `libayatana-appindicator3-devel`,
+`xdotool-devel` and `libopenssl-devel`.
 
 ```bash
 dx serve                      # web app at http://localhost:8080

@@ -1,0 +1,41 @@
+{
+  "name": "benthic",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  // Forward the Dioxus web dev server.
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "dx serve (web)",
+      "onAutoForward": "notify"
+    }
+  },
+
+  // GUI forwarding for `dx serve --platform desktop`. X11 (incl. XWayland)
+  // is the portable path; see README.md for native Wayland notes.
+  "runArgs": [
+    "--net=host",
+    "--env=DISPLAY",
+    "--volume=/tmp/.X11-unix:/tmp/.X11-unix"
+  ],
+
+  "remoteUser": "vscode",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "DioxusLabs.dioxus"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy"
+      }
+    }
+  },
+
+  "postCreateCommand": "cargo fetch && rustup target list --installed && dx --version"
+}

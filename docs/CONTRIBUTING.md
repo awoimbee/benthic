@@ -6,6 +6,13 @@ fidelity fixes, and UI for the Phase 1 features in [ROADMAP.md](../ROADMAP.md).
 
 ## Getting set up
 
+The repo ships a [dev container](../.devcontainer/) with Rust, the Dioxus CLI
+and all the desktop system libraries, so no host setup is required. Open the
+folder in a dev-container-aware editor (VS Code: "Reopen in Container") or run
+`devcontainer up --workspace-folder .`.
+
+To set up a host manually:
+
 ```bash
 git clone https://github.com/awoimbee/benthic
 cd benthic
@@ -16,6 +23,9 @@ cargo test                        # run the core test suite
 dx serve                          # web app at localhost:8080
 dx serve --platform desktop       # desktop app
 ```
+
+See [README.md](../README.md#quick-start) for the native Linux system packages
+needed by the desktop build.
 
 Import `dives/demo.ssrf` from the app to get sample data.
 
