@@ -6,7 +6,7 @@
 #   * the Linux desktop system libraries (wry/tao -> WebKitGTK/GTK3)
 #
 # The base image ships Rust, rustup, cargo, git and common build tools.
-FROM mcr.microsoft.com/devcontainers/rust:1-bookworm
+FROM mcr.microsoft.com/devcontainers/rust:1-trixie
 
 USER root
 
