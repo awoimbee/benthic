@@ -56,7 +56,6 @@ if ! emcc "$root/web/divecomputer/shim.c" \
   -sASYNCIFY=1 \
   -sASYNCIFY_IMPORTS='["benthic_js_configure","benthic_js_read","benthic_js_write","benthic_js_poll","benthic_js_sleep","benthic_js_close"]' \
   -sALLOW_MEMORY_GROWTH=1 \
-  -sSTACK_SIZE=1048576 \
   -sMODULARIZE=1 \
   -sEXPORT_ES6=1 \
   -sENVIRONMENT=web,node \
