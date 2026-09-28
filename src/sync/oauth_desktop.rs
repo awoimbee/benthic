@@ -250,4 +250,36 @@ mod tests {
         };
         assert!(error.contains("invalid_grant"), "{error}");
     }
+
+    /// Drive the loopback listener the way a browser redirect would.
+    async fn redirect(address: std::net::SocketAddr, target: &str) {
+        let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+        socket
+            .write_all(format!("GET {target} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        let mut buffer = [0u8; 1024];
+        let _ = socket.read(&mut buffer).await;
+    }
+
+    #[tokio::test]
+    async fn wait_for_code_reads_the_query() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            redirect(address, "/?code=abc123&scope=x").await;
+        });
+        assert_eq!(wait_for_code(&listener).await.unwrap(), "abc123");
+    }
+
+    #[tokio::test]
+    async fn wait_for_code_surfaces_an_error_redirect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            redirect(address, "/?error=access_denied").await;
+        });
+        let error = wait_for_code(&listener).await.unwrap_err();
+        assert!(error.contains("access_denied"), "{error}");
+    }
 }

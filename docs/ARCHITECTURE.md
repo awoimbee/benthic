@@ -107,19 +107,31 @@ the last-synced bookkeeping and the remote copy, it returns `UpToDate`, `Push`,
 last sync, a pull only when the local copy is unchanged, and otherwise the user
 chooses — nothing is overwritten silently.
 
-The transport lives in the app (`src/sync.rs`) and stores the whole log as one
-file. Two providers are supported: the GitHub contents API (the base URL is
-configurable, so Gitea and enterprise hosts work) and Google Drive's
-`appDataFolder`. The dialogs live behind the toolbar's **Sync** button.
+The transport lives in the app (`src/sync/`) and stores the whole log as one
+file. Backends implement the `Backend` trait (`src/sync/backend.rs`), which
+owns the settings fields the dialog renders, the optional interactive sign-in,
+and fetch/push. They are listed in one registry, so adding a service (OneDrive,
+FTP, ...) is a new module plus a registry entry — nothing else changes. HTTP
+goes through a single cross-platform shim: `gloo-net` on the web, `reqwest`
+natively. Settings are stored per backend as JSON, and old flat configs are
+migrated on load.
 
-For Drive the user clicks **Sign in with Google**: the app runs Google Identity
-Services' browser token flow (via `public/google-auth.js`), which needs only a
-public OAuth *client ID* — no secret and no backend. The scope is
-`drive.appdata`, so benthic only ever sees its own private folder. The client ID
-is baked in via `DEFAULT_GOOGLE_CLIENT_ID` (or supplied per-user under
-*Advanced*, which self-hosted builds can use). Creating one is a one-time setup:
-enable the Drive API, register a **Web application** OAuth client, and add the
-app's origins as Authorized JavaScript origins.
+GitHub uses the repository-contents API (the base URL is configurable, so Gitea
+and enterprise hosts work). Google Drive stores the log in the app's private
+`appDataFolder` (scope `drive.appdata`) and signs in differently per target:
+
+* **Web** uses Google Identity Services' browser token flow
+  (`public/google-auth.js` + `src/sync/oauth_web.rs`), which needs only a public
+  OAuth *client ID* — no secret and no backend.
+* **Desktop** runs the installed-app loopback flow with PKCE
+  (`src/sync/oauth_desktop.rs`): it opens the system browser, receives the code
+  on a temporary `127.0.0.1` listener, exchanges it, and keeps the refresh token
+  so later syncs need no interaction.
+
+Both need a one-time Google Cloud setup. For the web, enable the Drive API and
+register a **Web application** OAuth client, adding the app's origins as
+Authorized JavaScript origins. For the desktop, register a **Desktop app**
+client and set its ID and (non-confidential) secret in `src/sync/gdrive.rs`.
 
 ## Platform abstraction
 
