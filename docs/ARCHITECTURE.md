@@ -168,6 +168,14 @@ error-path tests; real device protocols need real hardware. BLE has no native
 transport in this libdivecomputer fork (it expects the application to provide
 an I/O stream), so it is not wired up yet.
 
+On the web the same Rust mapping is reused: `scripts/build-web-divecomputer.sh`
+builds libdivecomputer with Emscripten plus a small C shim
+(`web/divecomputer/shim.c`) that emits the neutral `RawDive` JSON (see
+`benthic-core::divecomputer`). The app deserialises that and builds the model,
+so there is exactly one implementation of the mapping. Device I/O runs through
+`dc_custom_open` with Asyncify so the synchronous C iostream can drive async
+WebSerial/WebBluetooth.
+
 The app's **Download** dialog (desktop only, behind the `divecomputer` feature)
 drives this: pick a model, scan the bus, choose a device, watch progress and
 merge the new dives into the log. libdivecomputer is blocking, so scans and
