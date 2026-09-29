@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <libdivecomputer/ble.h>
 #include <libdivecomputer/context.h>
 #include <libdivecomputer/custom.h>
 #include <libdivecomputer/descriptor.h>
@@ -536,6 +537,26 @@ EM_JS(int, benthic_js_close, (), {
 	});
 });
 
+/* BLE ioctl operations, mirrored by the JS host. */
+#define BLE_OP_NAME 0
+#define BLE_OP_PINCODE 1
+#define BLE_OP_GET_ACCESSCODE 2
+#define BLE_OP_SET_ACCESSCODE 3
+#define BLE_OP_CHARACTERISTIC_READ 4
+
+EM_JS(int, benthic_js_ble_ioctl, (int op, void *data, unsigned int size), {
+	return Asyncify.handleAsync(async () => {
+		try {
+			const input = new Uint8Array(HEAPU8.subarray(data, data + size));
+			const output = await globalThis.benthicHost.bleIoctl(op, input);
+			if (output) HEAPU8.set(output.subarray(0, size), data);
+			return 0;
+		} catch (error) {
+			return -1;
+		}
+	});
+});
+
 EM_JS(void, benthic_js_event, (const char *json), {
 	try {
 		globalThis.benthicHost.event?.(JSON.parse(UTF8ToString(json)));
@@ -618,7 +639,29 @@ static dc_status_t io_set_break(void *userdata, unsigned int value) { (void)user
 static dc_status_t io_set_dtr(void *userdata, unsigned int value) { (void)userdata; (void)value; return DC_STATUS_UNSUPPORTED; }
 static dc_status_t io_set_rts(void *userdata, unsigned int value) { (void)userdata; (void)value; return DC_STATUS_UNSUPPORTED; }
 static dc_status_t io_get_lines(void *userdata, unsigned int *value) { (void)userdata; (void)value; return DC_STATUS_UNSUPPORTED; }
-static dc_status_t io_ioctl(void *userdata, unsigned int request, void *data, size_t size) { (void)userdata; (void)request; (void)data; (void)size; return DC_STATUS_UNSUPPORTED; }
+static dc_status_t ble_ioctl(int op, void *data, size_t size)
+{
+	return benthic_js_ble_ioctl(op, data, (unsigned int)size) == 0 ? DC_STATUS_SUCCESS : DC_STATUS_IO;
+}
+
+static dc_status_t io_ioctl(void *userdata, unsigned int request, void *data, size_t size)
+{
+	(void)userdata;
+	switch (request) {
+	case DC_IOCTL_BLE_GET_NAME:
+		return ble_ioctl(BLE_OP_NAME, data, size);
+	case DC_IOCTL_BLE_GET_PINCODE:
+		return ble_ioctl(BLE_OP_PINCODE, data, size);
+	case DC_IOCTL_BLE_GET_ACCESSCODE:
+		return ble_ioctl(BLE_OP_GET_ACCESSCODE, data, size);
+	case DC_IOCTL_BLE_SET_ACCESSCODE:
+		return ble_ioctl(BLE_OP_SET_ACCESSCODE, data, size);
+	case DC_IOCTL_BLE_CHARACTERISTIC_READ:
+		return ble_ioctl(BLE_OP_CHARACTERISTIC_READ, data, size);
+	default:
+		return DC_STATUS_UNSUPPORTED;
+	}
+}
 
 static const dc_custom_cbs_t io_callbacks = {
 	.set_timeout = io_set_timeout,
@@ -709,7 +752,7 @@ static int dive_cb(const unsigned char *data, unsigned int size,
 }
 
 EMSCRIPTEN_KEEPALIVE
-void benthic_dc_download(const char *vendor, const char *product, const char *fingerprint_hex)
+void benthic_dc_download(const char *vendor, const char *product, int transport, const char *fingerprint_hex)
 {
 	dc_context_t *context = NULL;
 	dc_descriptor_t *descriptor = NULL;
@@ -731,8 +774,9 @@ void benthic_dc_download(const char *vendor, const char *product, const char *fi
 		return;
 	}
 
-	if (dc_custom_open(&iostream, context, DC_TRANSPORT_SERIAL, &io_callbacks, &custom)
-		!= DC_STATUS_SUCCESS) {
+	if (dc_custom_open(&iostream, context,
+			transport == 1 ? DC_TRANSPORT_BLE : DC_TRANSPORT_SERIAL,
+			&io_callbacks, &custom) != DC_STATUS_SUCCESS) {
 		buf_put(&result, "{\"error\":\"could not open the transport\"}");
 		goto cleanup;
 	}
@@ -791,7 +835,7 @@ cleanup:
  * round-trip.
  */
 EMSCRIPTEN_KEEPALIVE
-void benthic_dc_selftest(void)
+void benthic_dc_selftest(int transport)
 {
 	dc_context_t *context = NULL;
 	dc_iostream_t *iostream = NULL;
@@ -805,8 +849,9 @@ void benthic_dc_selftest(void)
 		benthic_js_result("{\"error\":\"no context\"}");
 		return;
 	}
-	if (dc_custom_open(&iostream, context, DC_TRANSPORT_SERIAL, &io_callbacks, &custom)
-		!= DC_STATUS_SUCCESS) {
+	if (dc_custom_open(&iostream, context,
+			transport == 1 ? DC_TRANSPORT_BLE : DC_TRANSPORT_SERIAL,
+			&io_callbacks, &custom) != DC_STATUS_SUCCESS) {
 		dc_context_free(context);
 		benthic_js_result("{\"error\":\"no iostream\"}");
 		return;

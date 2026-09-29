@@ -90,9 +90,14 @@ function callAsync(fn) {
   });
 }
 
-const selftest = JSON.parse(await callAsync(() => Module._benthic_dc_selftest()));
+const selftest = JSON.parse(await callAsync(() => Module._benthic_dc_selftest(0)));
 if (selftest.wrote !== 4 || selftest.text !== "ping") {
   throw new Error(`async transport selftest failed: ${JSON.stringify(selftest)}`);
+}
+
+const bleSelftest = JSON.parse(await callAsync(() => Module._benthic_dc_selftest(1)));
+if (bleSelftest.wrote !== 4 || bleSelftest.text !== "ping") {
+  throw new Error(`BLE iostream selftest failed: ${JSON.stringify(bleSelftest)}`);
 }
 
 console.log(

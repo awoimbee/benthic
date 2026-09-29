@@ -54,7 +54,7 @@ if ! emcc "$root/web/divecomputer/shim.c" \
   -L "$work/libdc/src/.libs" -ldivecomputer \
   -O2 \
   -sASYNCIFY=1 \
-  -sASYNCIFY_IMPORTS='["benthic_js_configure","benthic_js_read","benthic_js_write","benthic_js_poll","benthic_js_sleep","benthic_js_close"]' \
+  -sASYNCIFY_IMPORTS='["benthic_js_configure","benthic_js_read","benthic_js_write","benthic_js_poll","benthic_js_sleep","benthic_js_close","benthic_js_ble_ioctl"]' \
   -sALLOW_MEMORY_GROWTH=1 \
   -sMODULARIZE=1 \
   -sEXPORT_ES6=1 \

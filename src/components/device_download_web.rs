@@ -1,4 +1,5 @@
-//! Download dives from a dive computer in the browser over WebSerial.
+//! Download dives from a dive computer in the browser over Web Serial or
+//! Web Bluetooth.
 #![cfg(target_arch = "wasm32")]
 
 use dioxus::prelude::*;
@@ -10,32 +11,39 @@ use crate::divecomputer;
 use crate::divecomputer_web::{self, WebModel};
 use crate::state::AppState;
 
-/// A dialog to download dives from a WebSerial dive computer.
+/// A dialog to download dives from a web-connected dive computer.
 #[component]
 pub fn DeviceDownloadWebDialog() -> Element {
     let state = use_context::<AppState>();
     let mut show = state.show_download;
 
-    let mut supported = use_signal(|| None::<bool>);
+    let mut serial_ok = use_signal(|| false);
+    let mut bluetooth_ok = use_signal(|| false);
     let mut models = use_signal(Vec::<WebModel>::new);
     let mut search = use_signal(String::new);
     let mut selected = use_signal(|| None::<WebModel>);
+    let mut transport = use_signal(|| divecomputer_web::TRANSPORT_SERIAL);
     let mut connected = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut message = use_signal(|| Option::<String>::None);
 
     // Load the model table once the on-demand wasm module has come up.
     use_future(move || async move {
-        if !divecomputer_web::supported().await {
-            supported.set(Some(false));
+        let serial = divecomputer_web::supported().await;
+        let bluetooth = divecomputer_web::bluetooth_supported().await;
+        serial_ok.set(serial);
+        bluetooth_ok.set(bluetooth);
+        if !serial && !bluetooth {
             message.set(Some(
-                "This browser has no Web Serial support. Chrome, Edge and Opera on \
-                 desktop do; Safari and Firefox do not yet."
+                "This browser has no Web Serial or Web Bluetooth support. Chrome, \
+                 Edge and Opera on desktop provide both."
                     .to_string(),
             ));
             return;
         }
-        supported.set(Some(true));
+        if !serial {
+            transport.set(divecomputer_web::TRANSPORT_BLE);
+        }
         match divecomputer_web::descriptors().await {
             Ok(list) => models.set(list),
             Err(error) => message.set(Some(format!("Could not load the device list: {error}"))),
@@ -47,19 +55,19 @@ pub fn DeviceDownloadWebDialog() -> Element {
             message.set(Some("Choose a dive computer model first".to_string()));
             return;
         }
+        let transport_now = (transport)();
         busy.set(true);
-        message.set(Some("Waiting for you to pick a port…".to_string()));
+        message.set(Some("Waiting for you to pick a device…".to_string()));
         spawn(async move {
-            match divecomputer_web::request_port().await {
+            match divecomputer_web::connect(transport_now).await {
                 Ok(true) => {
                     connected.set(true);
                     message.set(Some(
-                        "Port selected. Put the dive computer in transfer mode, then download."
-                            .to_string(),
+                        "Device selected. Put it in transfer mode, then download.".to_string(),
                     ));
                 }
-                Ok(false) => message.set(Some("No port selected.".to_string())),
-                Err(error) => message.set(Some(format!("Could not open the port: {error}"))),
+                Ok(false) => message.set(Some("No device selected.".to_string())),
+                Err(error) => message.set(Some(format!("Could not connect: {error}"))),
             }
             busy.set(false);
         });
@@ -69,13 +77,21 @@ pub fn DeviceDownloadWebDialog() -> Element {
         let Some(model) = (selected)() else {
             return;
         };
+        let transport_now = (transport)();
         busy.set(true);
         message.set(Some("Downloading…".to_string()));
         spawn(async move {
-            let key = divecomputer::fingerprint_key(&model.vendor, &model.product, "");
+            let link = if transport_now == divecomputer_web::TRANSPORT_BLE {
+                "bluetooth"
+            } else {
+                "serial"
+            };
+            let key = divecomputer::fingerprint_key(&model.vendor, &model.product, link);
             let fingerprint = divecomputer::load_fingerprint(&key);
             let hex = divecomputer::to_hex(&fingerprint);
-            match divecomputer_web::download(&model.vendor, &model.product, &hex).await {
+            match divecomputer_web::download(&model.vendor, &model.product, transport_now, &hex)
+                .await
+            {
                 Ok(result) => {
                     if let Some(error) = result.error {
                         message.set(Some(format!("Download failed: {error}")));
@@ -105,9 +121,11 @@ pub fn DeviceDownloadWebDialog() -> Element {
 
     let query = (search)().to_lowercase();
     let selected_now = (selected)();
+    let transport_now = (transport)();
     let models_now = (models)();
     let model_buttons = models_now
         .iter()
+        .filter(|model| model.transports & transport_now != 0)
         .filter(|model| query.is_empty() || model.name().to_lowercase().contains(&query))
         .take(200)
         .map(|model| {
@@ -126,16 +144,47 @@ pub fn DeviceDownloadWebDialog() -> Element {
             }
         });
 
+    let any_supported = (serial_ok)() || (bluetooth_ok)();
+
     rsx! {
         div { class: "modal-backdrop", onclick: move |_| show.set(false),
             div { class: "modal wide", onclick: move |evt| evt.stop_propagation(),
                 h2 { "Download from a dive computer" }
                 p { class: "muted",
-                    "Connect a USB dive computer and pick it when the browser asks. Nothing is imported twice."
+                    "Choose a model and connect over USB (Web Serial) or Bluetooth. Nothing is imported twice."
                 }
-                if supported() == Some(false) {
-                    p { class: "warn", "Web Serial is not available in this browser." }
+                if !any_supported {
+                    p { class: "warn", "Neither Web Serial nor Web Bluetooth is available here." }
                 } else {
+                    if (serial_ok)() && (bluetooth_ok)() {
+                        label { class: "field-label", "Connection"
+                            select {
+                                class: "field",
+                                onchange: move |evt| {
+                                    transport.set(if evt.value() == "bluetooth" {
+                                        divecomputer_web::TRANSPORT_BLE
+                                    } else {
+                                        divecomputer_web::TRANSPORT_SERIAL
+                                    });
+                                    connected.set(false);
+                                },
+                                option {
+                                    value: "serial",
+                                    selected: transport_now == divecomputer_web::TRANSPORT_SERIAL,
+                                    "USB (Web Serial)"
+                                }
+                                option {
+                                    value: "bluetooth",
+                                    selected: transport_now == divecomputer_web::TRANSPORT_BLE,
+                                    "Bluetooth"
+                                }
+                            }
+                        }
+                    } else if (bluetooth_ok)() {
+                        p { class: "muted", "Using Bluetooth." }
+                    } else {
+                        p { class: "muted", "Using USB (Web Serial)." }
+                    }
                     label { class: "field-label", "Model"
                         input {
                             class: "field",
@@ -155,7 +204,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
                         class: "btn",
                         disabled: (busy)() || (selected)().is_none(),
                         onclick: on_connect,
-                        if (connected)() { "Port selected" } else { "Connect…" }
+                        if (connected)() { "Connected" } else { "Connect…" }
                     }
                     button {
                         class: "btn primary",

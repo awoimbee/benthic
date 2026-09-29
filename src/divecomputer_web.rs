@@ -130,16 +130,38 @@ pub async fn descriptors() -> Result<Vec<WebModel>, String> {
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
-/// Prompt the user for a serial port (must run from a user gesture).
-pub async fn request_port() -> Result<bool, String> {
+/// Whether the browser exposes Web Bluetooth.
+pub async fn bluetooth_supported() -> bool {
+    if ensure_loaded().await.is_err() {
+        return false;
+    }
+    let Ok(api) = api() else { return false };
+    let Ok(function) = Reflect::get(&api, &JsValue::from_str("bluetoothSupported")) else {
+        return false;
+    };
+    let Ok(function): Result<Function, _> = function.dyn_into() else {
+        return false;
+    };
+    function
+        .call0(&api)
+        .map(|value| value.is_truthy())
+        .unwrap_or(false)
+}
+
+/// Prompt the user to choose a device (must run from a user gesture).
+pub async fn connect(transport: u32) -> Result<bool, String> {
     ensure_loaded().await?;
-    Ok(call("requestPort", &[]).await?.as_bool().unwrap_or(false))
+    Ok(call("connect", &[JsValue::from_f64(transport as f64)])
+        .await?
+        .as_bool()
+        .unwrap_or(false))
 }
 
 /// Download the unseen dives from the selected device.
 pub async fn download(
     vendor: &str,
     product: &str,
+    transport: u32,
     fingerprint_hex: &str,
 ) -> Result<WebDownload, String> {
     ensure_loaded().await?;
@@ -148,9 +170,15 @@ pub async fn download(
         &[
             JsValue::from_str(vendor),
             JsValue::from_str(product),
+            JsValue::from_f64(transport as f64),
             JsValue::from_str(fingerprint_hex),
         ],
     )
     .await?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
+
+/// libdivecomputer's `DC_TRANSPORT_SERIAL` bit.
+pub const TRANSPORT_SERIAL: u32 = 1 << 0;
+/// libdivecomputer's `DC_TRANSPORT_BLE` bit.
+pub const TRANSPORT_BLE: u32 = 1 << 5;

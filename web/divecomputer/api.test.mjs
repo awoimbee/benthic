@@ -20,7 +20,7 @@ Object.defineProperty(globalThis, "navigator", {
 });
 
 const api = (await import("../../public/divecomputer/api.js")).default;
-if (typeof api.supported !== "function" || !api.supported()) {
+if (typeof api.serialSupported !== "function" || !api.serialSupported()) {
   throw new Error("supported() should be true with navigator.serial present");
 }
 const models = JSON.parse(await api.descriptorsJson());
@@ -28,6 +28,7 @@ if (models.length < 100) throw new Error(`only ${models.length} models`);
 if (!models.some((m) => m.vendor === "Shearwater" && m.product === "Petrel 2")) {
   throw new Error("missing Shearwater Petrel 2");
 }
-if (!(await api.requestPort())) throw new Error("requestPort failed");
+if (!(await api.connect(0))) throw new Error("serial connect failed");
+if (typeof api.bluetoothSupported !== "function") throw new Error("no bluetoothSupported");
 
 console.log(`OK: api loader, ${models.length} models, port request`);
