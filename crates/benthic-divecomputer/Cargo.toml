@@ -14,9 +14,10 @@ path = "src/lib.rs"
 test = false
 
 [features]
-# Build and link the vendored libdivecomputer. Off by default so the plain
-# workspace build stays pure Rust on machines without the C toolchain.
-native = []
+# Build and link the vendored libdivecomputer, plus the BlueZ BLE transport.
+# Off by default so the plain workspace build stays pure Rust on machines
+# without the C toolchain or D-Bus.
+native = ["dep:bluer", "dep:futures", "dep:tokio"]
 
 [[test]]
 name = "fixtures"
@@ -41,3 +42,8 @@ required-features = ["native"]
 [dependencies]
 benthic-core = { path = "../benthic-core" }
 thiserror = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd"], optional = true }
+futures = { version = "0.3", optional = true }
+tokio = { version = "1", features = ["rt", "time", "macros"], optional = true }

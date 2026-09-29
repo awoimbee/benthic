@@ -12,8 +12,8 @@ use futures_util::StreamExt;
 
 use benthic_core::Dive;
 use benthic_divecomputer::{
-    descriptors, download, scan, DeviceDescriptor, DeviceEvent, DiscoveredDevice, Download,
-    Transport,
+    descriptors, download, scan, DeviceDescriptor, DeviceEvent, DeviceId, DiscoveredDevice,
+    Download, Transport,
 };
 
 use crate::actions;
@@ -120,7 +120,28 @@ pub fn DeviceDownloadDialog() -> Element {
         message.set(Some("Scanning…".to_string()));
         let sender = task.tx();
         std::thread::spawn(move || {
-            let result = scan(&descriptor, transport).map_err(|e| e.to_string());
+            let result = if transport == Transport::Ble {
+                // libdivecomputer has no native BLE; we scan through BlueZ and
+                // open the GATT stream ourselves.
+                match benthic_divecomputer::ble::scan(std::time::Duration::from_secs(8)) {
+                    Ok(found) => Ok(found
+                        .into_iter()
+                        .map(|device| DiscoveredDevice {
+                            name: if device.name.is_empty() {
+                                device.address.clone()
+                            } else {
+                                device.name
+                            },
+                            id: DeviceId::Ble {
+                                address: device.address,
+                            },
+                        })
+                        .collect()),
+                    Err(error) => Err(error.to_string()),
+                }
+            } else {
+                scan(&descriptor, transport).map_err(|e| e.to_string())
+            };
             let _ = sender.unbounded_send(Task::Scanned(result));
         });
     };

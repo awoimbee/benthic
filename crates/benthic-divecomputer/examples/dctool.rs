@@ -26,8 +26,16 @@ fn main() {
         Some("scan") if args.len() == 4 => {
             let descriptor = find(&args[1], &args[2]);
             let transport = parse_transport(&args[3]);
-            for device in scan(&descriptor, transport).expect("scan") {
-                println!("{}\t{}", device.id.address(), device.label());
+            if transport == Transport::Ble {
+                let found = benthic_divecomputer::ble::scan(std::time::Duration::from_secs(8))
+                    .expect("scan");
+                for device in found {
+                    println!("{}\t{}", device.address, device.name);
+                }
+            } else {
+                for device in scan(&descriptor, transport).expect("scan") {
+                    println!("{}\t{}", device.id.address(), device.label());
+                }
             }
         }
         Some("download") if args.len() == 5 => {
@@ -78,6 +86,7 @@ fn parse_transport(name: &str) -> Transport {
         "usb" => Transport::Usb,
         "usbhid" => Transport::UsbHid,
         "bluetooth" | "bt" => Transport::Bluetooth,
+        "ble" => Transport::Ble,
         other => panic!("unknown transport: {other}"),
     }
 }
@@ -94,6 +103,9 @@ fn device_id(transport: Transport, address: &str) -> DeviceId {
                 _ => DeviceId::UsbHid { vid, pid },
             }
         }
+        Transport::Ble => DeviceId::Ble {
+            address: address.to_string(),
+        },
         Transport::Bluetooth => {
             let value = address
                 .split(':')

@@ -469,3 +469,56 @@ extern "C" {
         port: c_uint,
     ) -> c_int;
 }
+
+// -- Custom I/O streams (custom.h) -----------------------------------------
+//
+// The BLE ioctl numbers are `DC_IOCTL_IOR/IOW('b', n, 0)`, computed with the
+// same formula as ioctl.h so they match the compiled library.
+
+pub const DC_IOCTL_BLE_GET_NAME: c_uint = 0x4000_6200;
+pub const DC_IOCTL_BLE_GET_PINCODE: c_uint = 0x4000_6201;
+pub const DC_IOCTL_BLE_GET_ACCESSCODE: c_uint = 0x4000_6202;
+pub const DC_IOCTL_BLE_SET_ACCESSCODE: c_uint = 0x8000_6202;
+pub const DC_IOCTL_BLE_CHARACTERISTIC_READ: c_uint = 0x4000_6203;
+
+pub type dc_custom_fn0 = extern "C" fn(*mut c_void) -> c_int;
+pub type dc_custom_fn_u32 = extern "C" fn(*mut c_void, c_uint) -> c_int;
+pub type dc_custom_fn_timeout = extern "C" fn(*mut c_void, c_int) -> c_int;
+pub type dc_custom_fn_lines = extern "C" fn(*mut c_void, *mut c_uint) -> c_int;
+pub type dc_custom_fn_available = extern "C" fn(*mut c_void, *mut usize) -> c_int;
+pub type dc_custom_fn_configure =
+    extern "C" fn(*mut c_void, c_uint, c_uint, c_uint, c_uint, c_uint) -> c_int;
+pub type dc_custom_fn_poll = extern "C" fn(*mut c_void, c_int) -> c_int;
+pub type dc_custom_fn_read = extern "C" fn(*mut c_void, *mut c_void, usize, *mut usize) -> c_int;
+pub type dc_custom_fn_write = extern "C" fn(*mut c_void, *const c_void, usize, *mut usize) -> c_int;
+pub type dc_custom_fn_ioctl = extern "C" fn(*mut c_void, c_uint, *mut c_void, usize) -> c_int;
+pub type dc_custom_fn_direction = extern "C" fn(*mut c_void, c_uint) -> c_int;
+
+#[repr(C)]
+pub struct dc_custom_cbs_t {
+    pub set_timeout: Option<dc_custom_fn_timeout>,
+    pub set_break: Option<dc_custom_fn_u32>,
+    pub set_dtr: Option<dc_custom_fn_u32>,
+    pub set_rts: Option<dc_custom_fn_u32>,
+    pub get_lines: Option<dc_custom_fn_lines>,
+    pub get_available: Option<dc_custom_fn_available>,
+    pub configure: Option<dc_custom_fn_configure>,
+    pub poll: Option<dc_custom_fn_poll>,
+    pub read: Option<dc_custom_fn_read>,
+    pub write: Option<dc_custom_fn_write>,
+    pub ioctl: Option<dc_custom_fn_ioctl>,
+    pub flush: Option<dc_custom_fn0>,
+    pub purge: Option<dc_custom_fn_direction>,
+    pub sleep: Option<dc_custom_fn_u32>,
+    pub close: Option<dc_custom_fn0>,
+}
+
+extern "C" {
+    pub fn dc_custom_open(
+        iostream: *mut *mut dc_iostream_t,
+        context: *mut dc_context_t,
+        transport: c_uint,
+        callbacks: *const dc_custom_cbs_t,
+        userdata: *mut c_void,
+    ) -> c_int;
+}

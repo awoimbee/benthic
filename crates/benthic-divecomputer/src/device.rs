@@ -39,6 +39,8 @@ pub enum DeviceId {
         port: u32,
         name: String,
     },
+    /// A Bluetooth LE device, reached through BlueZ rather than libdivecomputer.
+    Ble { address: String },
 }
 
 impl DeviceId {
@@ -48,6 +50,7 @@ impl DeviceId {
             DeviceId::Usb { .. } => Transport::Usb,
             DeviceId::UsbHid { .. } => Transport::UsbHid,
             DeviceId::Bluetooth { .. } => Transport::Bluetooth,
+            DeviceId::Ble { .. } => Transport::Ble,
         }
     }
 
@@ -59,6 +62,7 @@ impl DeviceId {
                 format!("{vid:04x}:{pid:04x}")
             }
             DeviceId::Bluetooth { name, .. } => name.clone(),
+            DeviceId::Ble { address } => address.clone(),
         }
     }
 }
@@ -182,9 +186,12 @@ unsafe fn download_inner(
         descriptor: raw,
         iostream: null_mut(),
         device: null_mut(),
+        _ble: None,
     };
 
-    owned.iostream = open_stream(context, raw, id)?;
+    let (iostream, ble) = open_stream(context, raw, id)?;
+    owned.iostream = iostream;
+    owned._ble = ble;
     check(dc_device_open(
         &mut owned.device,
         context,
@@ -249,6 +256,8 @@ struct Owned {
     descriptor: *mut dc_descriptor_t,
     iostream: *mut dc_iostream_t,
     device: *mut dc_device_t,
+    /// Keeps the BLE GATT thread alive for the whole download.
+    _ble: Option<crate::ble::BleConnection>,
 }
 
 impl Drop for Owned {
@@ -271,8 +280,9 @@ unsafe fn open_stream(
     context: *mut dc_context_t,
     descriptor: *mut dc_descriptor_t,
     id: &DeviceId,
-) -> Result<*mut dc_iostream_t, Error> {
+) -> Result<(*mut dc_iostream_t, Option<crate::ble::BleConnection>), Error> {
     let mut iostream: *mut dc_iostream_t = null_mut();
+    let mut ble = None;
     match id {
         DeviceId::Serial(name) => {
             let name = CString::new(name.as_str()).map_err(|_| Error::NoDevice {
@@ -295,8 +305,13 @@ unsafe fn open_stream(
         DeviceId::Bluetooth { address, port, .. } => {
             check(dc_bluetooth_open(&mut iostream, context, *address, *port))?;
         }
+        DeviceId::Ble { address } => {
+            let connection = crate::ble::BleConnection::connect(address)?;
+            iostream = connection.open_iostream(context)?;
+            ble = Some(connection);
+        }
     }
-    Ok(iostream)
+    Ok((iostream, ble))
 }
 
 unsafe fn scan_raw(

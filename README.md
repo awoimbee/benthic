@@ -37,7 +37,8 @@ The native dive-computer integration (`crates/benthic-divecomputer`) builds the
 vendored libdivecomputer, so it also needs `autoconf`, `automake`, `libtool`,
 `pkg-config` and the libusb-1.0 and bluez development headers
 (`libusb-1.0-0-dev libbluetooth-dev libudev-dev` on Debian/Ubuntu;
-`libusb-1_0-devel bluez-devel libudev-devel` on openSUSE).
+`libusb-1_0-devel bluez-devel libudev-devel` on openSUSE). BLE also needs
+D-Bus (`libdbus-1-dev` / `dbus-1-devel`).
 
 ```bash
 dx serve                      # web app at http://localhost:8080
@@ -58,15 +59,17 @@ cargo run -p benthic-divecomputer --features native --example dctool -- \
   scan "<vendor>" "<product>" serial
 ```
 
-Serial, USB, USB-HID and Bluetooth transports are supported; BLE needs an
-application-provided transport and is not wired up yet. The desktop app exposes
-the same functionality through its **Download** button.
+Serial, USB, USB-HID, classic Bluetooth and **BLE** are supported. BLE is not
+part of libdivecomputer: the desktop build talks to BlueZ (`bluer`) and the web
+build to Web Bluetooth, both providing a `dc_custom_open` iostream that picks a
+known GATT serial service. The desktop app exposes all of this through its
+**Download** button.
 
-The **web** build can download over **Web Serial** (Chrome/Edge/Opera): the
-**Download** button loads libdivecomputer compiled to wasm with Emscripten and
-drives it over an async WebSerial transport (Asyncify). Build the shim with
-`just build-web-shim` before `dx build` / `dx serve`; CI and the Pages workflow
-do it automatically.
+The **web** build downloads over **Web Serial** or **Web Bluetooth**
+(Chrome/Edge/Opera): the **Download** button loads libdivecomputer compiled to
+wasm with Emscripten and drives it over the async browser transport (Asyncify).
+Build the shim with `just build-web-shim` before `dx build` / `dx serve`; CI
+and the Pages workflow do it automatically.
 
 ## Building and testing
 

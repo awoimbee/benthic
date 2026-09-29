@@ -15,6 +15,8 @@ pub enum Error {
     NoDevice { transport: &'static str },
     #[error("download cancelled")]
     Cancelled,
+    #[error("{0}")]
+    Message(String),
 }
 
 pub(crate) fn check(status: c_int) -> Result<(), Error> {

@@ -185,6 +185,15 @@ installs `globalThis.benthicWeb` (a JSON-in/JSON-out surface) plus
 merges into the log through the same `actions::merge_downloaded` and
 fingerprint storage as the desktop one.
 
+BLE is the exception to "libdivecomputer owns the transport": the library has no
+native BLE support, so benthic supplies a `dc_custom_open` iostream. The desktop
+build uses BlueZ through `bluer` on a dedicated thread with a current-thread
+tokio runtime; the synchronous C callbacks post a request and block on the
+reply. The web build does the same in `host.js` over Web Bluetooth. Both pick a
+known GATT serial service (`SERIAL_SERVICE_UUIDS`, mirrored from Subsurface) and
+stream over its write/notify characteristics, handling the `DC_IOCTL_BLE_*`
+operations the few backends need.
+
 The app's **Download** dialog (desktop only, behind the `divecomputer` feature)
 drives this: pick a model, scan the bus, choose a device, watch progress and
 merge the new dives into the log. libdivecomputer is blocking, so scans and

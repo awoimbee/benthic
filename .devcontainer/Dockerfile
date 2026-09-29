@@ -41,6 +41,7 @@ RUN apt-get update \
         libbluetooth-dev \
         libudev-dev \
         libftdi1-dev \
+        libdbus-1-dev \
         emscripten \
     && rm -rf /var/lib/apt/lists/*
 
