@@ -6,6 +6,11 @@
  * globalThis.benthicWeb, so the Rust side never touches the Emscripten glue.
  *
  * Transport 0 is Web Serial, 1 is Web Bluetooth.
+ *
+ * Everything under public/divecomputer/ is prebuilt and shipped with a `.mjs`
+ * extension on purpose: the Dioxus bundler only runs esbuild over `.js` assets,
+ * and the Emscripten glue contains Node-only imports it cannot resolve. `.mjs`
+ * assets are treated as opaque files and copied verbatim.
  */
 
 import {
@@ -13,7 +18,7 @@ import {
   createSerialHost,
   webBluetoothSupported,
   webSerialSupported,
-} from "./host.js";
+} from "./host.mjs";
 
 const SERIAL = 0;
 const BLUETOOTH = 1;
@@ -24,7 +29,7 @@ let bleHost = null;
 
 async function loadModule() {
   if (!modulePromise) {
-    modulePromise = import("./benthic-dc.js").then((mod) => mod.default());
+    modulePromise = import("./benthic-dc.mjs").then((mod) => mod.default());
   }
   return modulePromise;
 }

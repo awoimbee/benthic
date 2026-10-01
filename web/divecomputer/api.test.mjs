@@ -1,4 +1,4 @@
-// Exercises public/divecomputer/api.js: the on-demand loader, the model list
+// Exercises public/divecomputer/api.mjs: the on-demand loader, the model list
 // and the port request, with a fake `navigator.serial`.
 globalThis.performance ??= { now: () => Date.now() };
 
@@ -19,7 +19,7 @@ Object.defineProperty(globalThis, "navigator", {
   configurable: true,
 });
 
-const api = (await import("../../public/divecomputer/api.js")).default;
+const api = (await import("../../public/divecomputer/api.mjs")).default;
 if (typeof api.serialSupported !== "function" || !api.serialSupported()) {
   throw new Error("supported() should be true with navigator.serial present");
 }

@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
-    CommandPalette, CompareDialog, DiveDetail, DiveList, FilterBar, PlannerDialog,
+    CommandPalette, CompareDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog,
     PreferencesDialog, SyncDialog, Toolbar, TripsDialog,
 };
 use crate::state::AppState;
@@ -33,6 +33,7 @@ pub fn App() -> Element {
     let show_prefs = use_signal(|| false);
     let show_palette = use_signal(|| false);
     let show_trips = use_signal(|| false);
+    let show_map = use_signal(|| false);
     let show_planner = use_signal(|| false);
     let show_sync = use_signal(|| false);
     let show_download = use_signal(|| false);
@@ -58,6 +59,7 @@ pub fn App() -> Element {
         show_prefs,
         show_palette,
         show_trips,
+        show_map,
         show_planner,
         show_sync,
         show_download,
@@ -221,6 +223,9 @@ pub fn App() -> Element {
             }
             if (show_trips)() {
                 TripsDialog {}
+            }
+            if (show_map)() {
+                MapDialog {}
             }
             if (show_planner)() {
                 PlannerDialog {}

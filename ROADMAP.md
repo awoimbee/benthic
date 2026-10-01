@@ -113,7 +113,7 @@ list below).
 
 - [ ] Statistics view: histograms, box plots, scatter plots, regression
 - [ ] Charts of consumption, temperature, depth, SAC over time
-- [ ] Map view of dive sites (MapLibre/Leaflet) with clustering
+- [x] Map view of dive sites (Leaflet) with clustering, satellite/street layers
 - [ ] Photo/video gallery; EXIF time sync to dive timeline
 - [ ] Printable logs and export to HTML/PDF (Subsurface templates)
 - [ ] Year-in-review / summary dashboards

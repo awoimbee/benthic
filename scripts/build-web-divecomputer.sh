@@ -61,10 +61,10 @@ if ! emcc "$root/web/divecomputer/shim.c" \
   -sENVIRONMENT=web,node \
   -sEXPORTED_FUNCTIONS='["_benthic_dc_descriptors","_benthic_dc_parse","_benthic_dc_download","_benthic_dc_selftest","_benthic_dc_free","_malloc","_free"]' \
   -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
-  -o "$out_dir/benthic-dc.js" >"$work/emcc.log" 2>&1; then
+  -o "$out_dir/benthic-dc.mjs" >"$work/emcc.log" 2>&1; then
   echo "error: emcc failed" >&2
   tail -n 60 "$work/emcc.log" >&2
   exit 1
 fi
 
-echo "built $out_dir/benthic-dc.js"
+echo "built $out_dir/benthic-dc.mjs"

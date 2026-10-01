@@ -5,7 +5,7 @@ use benthic_core::units::{format_duration, Weight};
 use benthic_core::{Command, Cylinder, CylinderUse, Dive, DiveSite, Location, WeightSystem};
 
 use crate::actions;
-use crate::components::DiveProfile;
+use crate::components::{DiveProfile, MapSite, MapView};
 use crate::state::AppState;
 
 #[component]
@@ -554,12 +554,30 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 }
 
                 if let Some(location) = site.as_ref().and_then(|s| s.location).filter(|l| l.is_valid()) {
-                    a {
-                        class: "map-link",
-                        target: "_blank",
-                        rel: "noopener",
-                        href: "https://www.openstreetmap.org/?mlat={location.lat}&mlon={location.lon}#map=15/{location.lat}/{location.lon}",
-                        "Open site in map ↗"
+                    div { class: "detail-map-wrap",
+                        MapView {
+                            sites: vec![MapSite {
+                                site_id: site.as_ref().map(|s| s.uuid).unwrap_or_default(),
+                                name: site
+                                    .as_ref()
+                                    .map(|s| s.name.clone())
+                                    .unwrap_or_default(),
+                                lat: location.lat,
+                                lon: location.lon,
+                                dive_id: Some(dive.id),
+                                dives: 1,
+                                country: site.as_ref().and_then(|s| s.country.clone()),
+                            }],
+                            max_zoom: 13,
+                            height: "240px".to_string(),
+                        }
+                        a {
+                            class: "map-link",
+                            target: "_blank",
+                            rel: "noopener",
+                            href: "https://www.openstreetmap.org/?mlat={location.lat}&mlon={location.lon}#map=15/{location.lat}/{location.lon}",
+                            "Open in OpenStreetMap ↗"
+                        }
                     }
                 }
 

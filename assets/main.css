@@ -957,6 +957,17 @@ textarea.field {
   text-decoration: underline;
 }
 
+.link {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
 .pref-group {
   display: flex;
   flex-direction: column;
@@ -1209,5 +1220,157 @@ textarea.field {
 @media (max-width: 720px) {
   .device-columns {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Map ---- */
+.benthic-map {
+  width: 100%;
+  min-height: 320px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  z-index: 0;
+}
+
+.detail-map-wrap {
+  margin-bottom: 1rem;
+}
+
+.detail-map-wrap .benthic-map {
+  min-height: 0;
+  height: 240px;
+  margin-bottom: 0.35rem;
+}
+
+.map-modal {
+  width: min(1000px, 94vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.map-modal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.map-modal-head h2 {
+  margin: 0;
+}
+
+.map-modal-body {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) 1fr;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.map-site-list {
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  max-height: 60vh;
+}
+
+.map-site-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-site-row:hover:not(:disabled) {
+  background: var(--accent-dim);
+}
+
+.map-site-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.map-site-name {
+  font-size: 0.88rem;
+}
+
+.map-site-meta {
+  font-size: 0.75rem;
+}
+
+.map-modal-body .benthic-map {
+  max-height: 60vh;
+}
+
+.benthic-site-icon {
+  background: transparent;
+  border: 0;
+}
+
+.benthic-site-icon span {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+
+.benthic-map-layers {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.benthic-map-layers button {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.benthic-map-layers button.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.benthic-map-popup-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--bg-alt);
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .map-modal-body {
+    grid-template-columns: 1fr;
+  }
+
+  .map-site-list {
+    max-height: 30vh;
   }
 }

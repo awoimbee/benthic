@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import createBenthicDc from "../../public/divecomputer/benthic-dc.js";
+import createBenthicDc from "../../public/divecomputer/benthic-dc.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const Module = await createBenthicDc();

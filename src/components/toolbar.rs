@@ -16,6 +16,7 @@ pub fn Toolbar() -> Element {
     let mut selection = state.selection;
     let mut show_prefs = state.show_prefs;
     let mut show_palette = state.show_palette;
+    let mut show_map = state.show_map;
     let mut show_planner = state.show_planner;
     let mut show_sync = state.show_sync;
     #[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
@@ -77,6 +78,12 @@ pub fn Toolbar() -> Element {
                     title: "Rename, merge and delete trips",
                     onclick: move |_| actions::open_trips(state),
                     "Trips"
+                }
+                button {
+                    class: "btn",
+                    title: "Show dive sites on a map",
+                    onclick: move |_| show_map.set(true),
+                    "Map"
                 }
                 button {
                     class: "btn",

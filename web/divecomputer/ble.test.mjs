@@ -1,4 +1,4 @@
-// Exercises public/divecomputer/host.js BLE support against a fake
+// Exercises public/divecomputer/host.mjs BLE support against a fake
 // navigator.bluetooth GATT server.
 globalThis.performance ??= { now: () => Date.now() };
 
@@ -60,7 +60,7 @@ Object.defineProperty(globalThis, "navigator", {
   configurable: true,
 });
 
-const { createBleHost, webBluetoothSupported, SERIAL_SERVICE_UUIDS } = await import("../../public/divecomputer/host.js");
+const { createBleHost, webBluetoothSupported, SERIAL_SERVICE_UUIDS } = await import("../../public/divecomputer/host.mjs");
 if (!webBluetoothSupported()) throw new Error("bluetooth should be supported");
 if (SERIAL_SERVICE_UUIDS.length < 10) throw new Error("service table too small");
 

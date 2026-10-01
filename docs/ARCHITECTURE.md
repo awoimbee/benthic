@@ -178,9 +178,11 @@ WebSerial/WebBluetooth.
 
 On the web the shim is loaded on demand: `index.html` defines
 `window.benthicLoadDc`, the app calls it when the download dialog opens, and
-`public/divecomputer/api.js` dynamically imports the Emscripten module and
+`public/divecomputer/api.mjs` dynamically imports the Emscripten module and
 installs `globalThis.benthicWeb` (a JSON-in/JSON-out surface) plus
-`globalThis.benthicHost` (the WebSerial implementation in `host.js`).
+`globalThis.benthicHost` (the WebSerial implementation in `host.mjs`).
+These files are shipped with a `.mjs` extension so the Dioxus bundler copies
+them verbatim instead of running esbuild over the prebuilt Emscripten glue.
 `src/divecomputer_web.rs` is the thin `js-sys` bridge; the web download dialog
 merges into the log through the same `actions::merge_downloaded` and
 fingerprint storage as the desktop one.
@@ -189,7 +191,7 @@ BLE is the exception to "libdivecomputer owns the transport": the library has no
 native BLE support, so benthic supplies a `dc_custom_open` iostream. The desktop
 build uses BlueZ through `bluer` on a dedicated thread with a current-thread
 tokio runtime; the synchronous C callbacks post a request and block on the
-reply. The web build does the same in `host.js` over Web Bluetooth. Both pick a
+reply. The web build does the same in `host.mjs` over Web Bluetooth. Both pick a
 known GATT serial service (`SERIAL_SERVICE_UUIDS`, mirrored from Subsurface) and
 stream over its write/notify characteristics, handling the `DC_IOCTL_BLE_*`
 operations the few backends need.
@@ -200,6 +202,20 @@ merge the new dives into the log. libdivecomputer is blocking, so scans and
 downloads run on a worker thread and report back through a Dioxus coroutine.
 Downloaded dives are deduplicated against the log by start time and model, and
 the device fingerprint is remembered so later downloads only fetch new dives.
+
+## Map view
+
+`src/components/map.rs` shows dive sites on an interactive [Leaflet](https://leafletjs.com/)
+map: the **Map** toolbar button opens a modal with a site list and a clustered
+map, and the dive detail embeds a small map for the selected site. Leaflet and
+its marker-cluster plugin are vendored under `assets/map/` and loaded as asset
+bundles, so only the tiles are fetched from the network: Esri World Imagery
+(satellite, the default) and OpenStreetMap (streets), switchable in the map.
+
+Drawing is delegated to a script injected with `document::eval`. Rust serialises
+the sites as JSON, the script builds the map and sends marker clicks back over
+the eval channel, and Rust turns a click into a dive selection. This keeps the
+same code path on web and desktop and leaves the domain crate untouched.
 
 ## Platform abstraction
 

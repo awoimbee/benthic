@@ -333,6 +333,29 @@ pub fn merge_downloaded(state: AppState, dives: Vec<Dive>) -> (usize, usize) {
     (added, skipped)
 }
 
+/// Replace the entire log with an imported one as a single undoable step.
+///
+/// This backs the "open" action: the current log (and the autosaved copy,
+/// which is rewritten on the next autosave) is discarded in favour of the
+/// file's contents. The previous log stays on the undo stack and in the
+/// automatic backup, so an accidental open is recoverable.
+pub fn open_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {
+    incoming.fixup_all();
+    let dives = incoming.dives.len();
+    let sites = incoming.sites.len();
+    let before = (state.log)();
+    let mut filter = state.filter;
+    let mut selection = state.selection;
+    filter.set(benthic_core::DiveFilter::default());
+    selection.write().clear();
+    state.dispatch(Command::Snapshot {
+        label: format!("Open {dives} dives, {sites} sites"),
+        before: Box::new(before),
+        after: Box::new(incoming),
+    });
+    (dives, sites)
+}
+
 /// Merge an imported log into the current one as a single undoable step.
 /// Returns the number of dives and sites added.
 pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {

@@ -5,7 +5,7 @@
  * callbacks (via Asyncify). This module implements them over WebSerial.
  *
  * Usage:
- *   import { installSerialHost, webSerialSupported } from './host.js';
+ *   import { installSerialHost, webSerialSupported } from './host.mjs';
  *   installSerialHost();
  *   await window.benthicDc.requestPort(); // from a user gesture
  */

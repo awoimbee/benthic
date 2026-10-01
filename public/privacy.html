@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy — benthic</title>
+    <meta
+      name="description"
+      content="benthic is a local-first dive log. It has no server: your log stays on your device unless you configure an optional remote sync to a third-party store you control."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b1622" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <style>
+      :root {
+        --bg: #0b1622;
+        --panel: #0f1c2b;
+        --border: #1e3347;
+        --text: #dce8f2;
+        --muted: #7f97ad;
+        --accent: #4cc9f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        line-height: 1.6;
+      }
+      main {
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1.5rem;
+      }
+      .brand {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: var(--accent);
+        text-decoration: none;
+      }
+      h1 {
+        font-size: 1.6rem;
+        margin: 0 0 0.25rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin: 2rem 0 0.5rem;
+      }
+      p,
+      li {
+        margin: 0.4rem 0;
+      }
+      ul {
+        padding-left: 1.25rem;
+      }
+      a {
+        color: var(--accent);
+      }
+      code {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.05rem 0.3rem;
+        font-size: 0.9em;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin: 1rem 0;
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a class="brand" href="./">benthic</a>
+        <span class="muted">Local-first dive log</span>
+      </header>
+
+      <h1>Privacy policy</h1>
+      <p class="muted">Last updated: 1 October 2026</p>
+
+      <div class="card">
+        <p>
+          <strong>The short version:</strong> benthic is a local-first
+          application. It has no server and no account. Your dive log stays on
+          your device. It only leaves your device if you explicitly turn on
+          remote sync and connect a storage service that you own and control.
+          The developer never receives your data.
+        </p>
+      </div>
+
+      <h2>Who we are</h2>
+      <p>
+        benthic is an open-source project hosted at
+        <a
+          href="https://github.com/awoimbee/benthic"
+          target="_blank"
+          rel="noopener"
+          >github.com/awoimbee/benthic</a
+        >. This policy explains what the application does with your
+        information.
+      </p>
+
+      <h2>Data stored on your device</h2>
+      <p>By default, benthic stores everything locally, on the device you use:</p>
+      <ul>
+        <li>
+          your dive log (dives, sites, trips, equipment, notes and, where
+          present, GPS coordinates) and any imported files;
+        </li>
+        <li>your display preferences and saved filter presets;</li>
+        <li>
+          a rolling automatic backup of your log, kept so you can recover from
+          an accidental change; and
+        </li>
+        <li>
+          per-device dive-computer download bookkeeping (which dives have
+          already been downloaded).
+        </li>
+      </ul>
+      <p>
+        On the web this lives in your browser's site storage (IndexedDB with a
+        <code>localStorage</code> fallback). On the desktop app it lives in the
+        operating system's application-data directory. This data is not
+        transmitted to the developer and is not accessible to us.
+      </p>
+
+      <h2>Optional remote sync</h2>
+      <p>
+        benthic can optionally sync your log through a storage service that you
+        configure yourself. This is off by default. When you enable it, the
+        application talks <strong>directly</strong> from your device to the
+        service you chose — there is no intermediary server operated by benthic.
+        The remote copy is stored in your own account, and you can delete it at
+        any time from that service.
+      </p>
+      <p>The available backends today are:</p>
+      <ul>
+        <li>
+          <strong>Google Drive.</strong> The log is stored in the application's
+          private app-data folder (<code>appDataFolder</code>), using the
+          <code>https://www.googleapis.com/auth/drive.appdata</code> scope.
+          This scope only exposes files that benthic itself creates; benthic
+          cannot see, read or modify any other file in your Google Drive.
+        </li>
+        <li>
+          <strong>A Git repository (for example GitHub or a compatible host).</strong>
+          The log is stored as a single file in a repository you specify, using
+          a personal access token that you provide.
+        </li>
+      </ul>
+      <p>
+        Credentials needed for sync (an OAuth access/refresh token or a personal
+        access token) are stored locally alongside your sync settings, in the
+        same on-device storage described above. They are used only to
+        authenticate your device to the service you configured. You can sign out
+        from a service at any time, which removes the stored credentials.
+      </p>
+
+      <h2>Google user data</h2>
+      <p>
+        If you connect Google Drive, benthic accesses only the contents of its
+        own private app-data folder in order to store and retrieve your dive
+        log. It does not access other Google user data. Google user data is used
+        solely to provide the sync feature you requested, is never sold or
+        shared with third parties, and is never transferred to the developer.
+      </p>
+      <p>
+        benthic's use and transfer of information received from Google APIs to
+        any other app will adhere to the
+        <a
+          href="https://developers.google.com/terms/api-services-user-data-policy"
+          target="_blank"
+          rel="noopener"
+          >Google API Services User Data Policy</a
+        >, including the Limited Use requirements.
+      </p>
+
+      <h2>What we do not do</h2>
+      <ul>
+        <li>We do not run a server and we never receive your dive log.</li>
+        <li>We do not require or create user accounts.</li>
+        <li>
+          We do not use analytics, telemetry, advertising, tracking pixels or
+          tracking cookies.
+        </li>
+        <li>We do not sell, rent or share your data with anyone.</li>
+      </ul>
+      <p>
+        The map view requests map tiles directly from the tile providers (Esri
+        for satellite imagery and OpenStreetMap for the street layer); those
+        requests are subject to the providers' own policies, and your dive data
+        is not sent with them.
+      </p>
+
+      <h2>Third-party services</h2>
+      <p>
+        When you choose to use remote sync or the map, your use of those
+        services is governed by their own privacy policies:
+      </p>
+      <ul>
+        <li>
+          Google:
+          <a href="https://policies.google.com/privacy" target="_blank" rel="noopener"
+            >policies.google.com/privacy</a
+          >
+        </li>
+        <li>
+          GitHub:
+          <a
+            href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement"
+            target="_blank"
+            rel="noopener"
+            >GitHub privacy statement</a
+          >
+        </li>
+        <li>
+          OpenStreetMap:
+          <a
+            href="https://osmfoundation.org/wiki/Privacy_Policy"
+            target="_blank"
+            rel="noopener"
+            >OSMF privacy policy</a
+          >
+        </li>
+      </ul>
+
+      <h2>Retention and deletion</h2>
+      <ul>
+        <li>
+          <strong>Local data:</strong> clear your browser's site data for
+          benthic (or delete the application's data directory on desktop) to
+          remove everything. You can also export your log to a file first if you
+          want a copy.
+        </li>
+        <li>
+          <strong>Remote data:</strong> delete the file from the connected
+          service (for example, remove <code>benthic.json</code> from the Git
+          repository, or delete the app's data from your Google account), and
+          sign out from within benthic to remove the stored credentials.
+        </li>
+        <li>
+          <strong>Google access:</strong> you can revoke benthic's access at any
+          time from your
+          <a
+            href="https://myaccount.google.com/permissions"
+            target="_blank"
+            rel="noopener"
+            >Google Account permissions</a
+          >.
+        </li>
+      </ul>
+
+      <h2>Children</h2>
+      <p>
+        benthic is not directed at children and we do not knowingly collect
+        information from children.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        This policy may be updated from time to time. Material changes will be
+        reflected in the date at the top of this page, and the page's history is
+        public in the
+        <a
+          href="https://github.com/awoimbee/benthic"
+          target="_blank"
+          rel="noopener"
+          >project repository</a
+        >.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about this policy or the application's data handling can be
+        raised at
+        <a
+          href="https://github.com/awoimbee/benthic/issues"
+          target="_blank"
+          rel="noopener"
+          >github.com/awoimbee/benthic/issues</a
+        >.
+      </p>
+
+      <footer>
+        benthic is free and open-source software, licensed under
+        GPL-2.0-or-later.
+        <a href="./">Back to the app</a>
+      </footer>
+    </main>
+  </body>
+</html>

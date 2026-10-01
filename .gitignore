@@ -19,5 +19,5 @@
 exports/
 
 # Generated libdivecomputer wasm shim (scripts/build-web-divecomputer.sh)
-/public/divecomputer/benthic-dc.js
+/public/divecomputer/benthic-dc.mjs
 /public/divecomputer/benthic-dc.wasm

@@ -1,7 +1,7 @@
 //! The web (wasm) dive-computer backend.
 //!
 //! Bridges to the Emscripten shim through `globalThis.benthicWeb`, which is
-//! installed on demand by `public/divecomputer/api.js`. Everything crosses the
+//! installed on demand by `public/divecomputer/api.mjs`. Everything crosses the
 //! boundary as JSON, so the Rust side reuses `benthic_core`'s shared mapping.
 #![cfg(target_arch = "wasm32")]
 
@@ -55,7 +55,7 @@ fn api() -> Result<JsValue, String> {
     }
 }
 
-/// Loads `public/divecomputer/api.js` on demand.
+/// Loads `public/divecomputer/api.mjs` on demand.
 pub async fn ensure_loaded() -> Result<(), String> {
     if api().is_ok() {
         return Ok(());

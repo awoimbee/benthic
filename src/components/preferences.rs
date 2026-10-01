@@ -39,6 +39,27 @@ pub fn PreferencesDialog() -> Element {
         None => "No automatic backup yet".to_string(),
     };
 
+    // The policy page is a static web asset; it does not exist in the desktop
+    // bundle, so only link to it on the web.
+    #[cfg(target_arch = "wasm32")]
+    let privacy = Some(rsx! {
+        div { class: "pref-group",
+            div { class: "field-label", "About" }
+            div { class: "muted",
+                "benthic is local-first: your log stays on this device unless you configure sync."
+            }
+            a {
+                class: "link",
+                href: "privacy.html",
+                target: "_blank",
+                rel: "noopener",
+                "Privacy policy ↗"
+            }
+        }
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    let privacy: Option<Element> = None;
+
     rsx! {
         div {
             class: "modal-backdrop",
@@ -144,6 +165,7 @@ pub fn PreferencesDialog() -> Element {
                         }
                     }
                 }
+                {privacy}
                 div { class: "detail-actions",
                     button {
                         class: "btn primary",
