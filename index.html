@@ -94,6 +94,17 @@
   </head>
   <body>
     <div id="main"></div>
+    <!-- Privacy policy link. It lives in the static shell (not the wasm app)
+         so it is present on the home page without JavaScript, which is what
+         Google requires to approve the OAuth consent screen. -->
+    <a
+      href="privacy.html"
+      target="_blank"
+      rel="noopener"
+      aria-label="Privacy policy"
+      style="position: fixed; right: 0.6rem; bottom: 0.5rem; z-index: 25; font: 0.75rem system-ui, sans-serif; color: #7f97ad; background: rgba(11, 22, 34, 0.85); border: 1px solid #1e3347; border-radius: 6px; padding: 0.15rem 0.5rem; text-decoration: none;"
+      >Privacy policy</a
+    >
     <noscript>
       <h1>benthic — a modern, local-first dive log</h1>
       <p>

@@ -36,6 +36,22 @@ pub fn Toolbar() -> Element {
     #[cfg(not(any(feature = "divecomputer", target_arch = "wasm32")))]
     let download_button: Option<Element> = None;
 
+    // The policy page is a static web asset; it does not exist in the desktop
+    // bundle, so only link to it on the web.
+    #[cfg(target_arch = "wasm32")]
+    let privacy_button = Some(rsx! {
+        a {
+            class: "btn",
+            href: "privacy.html",
+            target: "_blank",
+            rel: "noopener",
+            title: "Privacy policy",
+            "Privacy"
+        }
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    let privacy_button: Option<Element> = None;
+
     rsx! {
         header { class: "toolbar",
             span { class: "brand", "benthic" }
@@ -162,6 +178,7 @@ pub fn Toolbar() -> Element {
                     onclick: move |_| show_sync.set(true),
                     "Sync"
                 }
+                {privacy_button}
                 span { class: "status", "{status}" }
             }
         }
