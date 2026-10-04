@@ -1,4 +1,5 @@
 mod compare;
+mod confirm;
 #[cfg(feature = "divecomputer")]
 mod device_download;
 #[cfg(target_arch = "wasm32")]
@@ -20,6 +21,7 @@ mod trips_dialog;
 mod welcome;
 
 pub use compare::CompareDialog;
+pub use confirm::ConfirmDialog;
 #[cfg(feature = "divecomputer")]
 pub use device_download::DeviceDownloadDialog;
 #[cfg(target_arch = "wasm32")]

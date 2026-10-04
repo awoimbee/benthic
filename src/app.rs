@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
-    CompareDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog, PreferencesDialog,
-    SelectionBar, SyncDialog, Toolbar, TripsDialog, WelcomeDialog,
+    CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog,
+    PreferencesDialog, SelectionBar, SyncDialog, Toolbar, TripsDialog, WelcomeDialog,
 };
 use crate::state::AppState;
 
@@ -45,6 +45,7 @@ pub fn App() -> Element {
     // have neither Web Serial nor Web Bluetooth (e.g. iOS).
     let download_available = use_signal(|| true);
     let show_compare = use_signal(|| false);
+    let mut confirm_delete_selected = use_signal(|| false);
     let mut mobile_detail = use_signal(|| false);
     let presets = use_signal(|| {
         crate::storage::load_presets()
@@ -74,6 +75,7 @@ pub fn App() -> Element {
         show_download,
         download_available,
         show_compare,
+        confirm_delete_selected,
         mobile_detail,
     };
     use_context_provider(|| state);
@@ -190,6 +192,7 @@ pub fn App() -> Element {
     let on_keydown = move |evt: KeyboardEvent| {
         // Escape closes the open dialog, whichever it is.
         if evt.key() == Key::Escape {
+            let mut confirm_delete_selected = confirm_delete_selected;
             let mut show_prefs = show_prefs;
             let mut show_trips = show_trips;
             let mut show_map = show_map;
@@ -198,7 +201,9 @@ pub fn App() -> Element {
             let mut show_download = show_download;
             let mut show_compare = show_compare;
             let mut closed = true;
-            if (show_prefs)() {
+            if (confirm_delete_selected)() {
+                confirm_delete_selected.set(false);
+            } else if (show_prefs)() {
                 show_prefs.set(false);
             } else if (show_trips)() {
                 show_trips.set(false);
@@ -307,6 +312,19 @@ pub fn App() -> Element {
             }
             if (show_compare)() {
                 CompareDialog {}
+            }
+            if (confirm_delete_selected)() {
+                ConfirmDialog {
+                    title: tr.confirm_delete_dives_title.to_string(),
+                    body: crate::i18n::t1(tr.confirm_delete_dives_body, (selection)().len()),
+                    confirm_label: tr.delete.to_string(),
+                    cancel_label: tr.cancel.to_string(),
+                    on_confirm: move |_| {
+                        crate::actions::delete_selected(state);
+                        confirm_delete_selected.set(false);
+                    },
+                    on_cancel: move |_| confirm_delete_selected.set(false),
+                }
             }
             if (show_sync)() {
                 SyncDialog {}

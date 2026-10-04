@@ -208,7 +208,10 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                         MenuItem {
                             label: t.delete_selected.to_string(),
                             danger: true,
-                            onclick: move |_| actions::delete_selected(state),
+                            onclick: move |_| {
+                                let mut confirm = state.confirm_delete_selected;
+                                confirm.set(true);
+                            },
                         }
                         MenuItem {
                             label: t.clear_selection.to_string(),

@@ -46,6 +46,8 @@ pub struct AppState {
     pub download_available: Signal<bool>,
     /// Whether the two-dive comparison is open.
     pub show_compare: Signal<bool>,
+    /// Whether the bulk-delete confirmation is open.
+    pub confirm_delete_selected: Signal<bool>,
     /// Narrow screens only: whether the detail screen is showing rather than
     /// the dive list. Ignored on wide screens, where both panes are visible.
     pub mobile_detail: Signal<bool>,
