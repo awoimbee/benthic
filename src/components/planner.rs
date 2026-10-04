@@ -397,7 +397,7 @@ pub fn PlannerDialog() -> Element {
                                     }
                                     button {
                                         class: "icon-btn point-remove",
-                                        title: "Remove this waypoint",
+                                        title: "{tr.remove_waypoint}",
                                         disabled: form_list.len() <= 1,
                                         onclick: move |_| { forms.write().remove(index); },
                                         "\u{00d7}"
@@ -405,7 +405,7 @@ pub fn PlannerDialog() -> Element {
                                 }
                                 if is_open {
                                     div { class: "plan-point-body",
-                                        label { class: "field-label", "Depth ({prefs.depth_unit()})"
+                                        label { class: "field-label", {i18n::t1(tr.field_depth, prefs.depth_unit())}
                                             input {
                                                 class: "field",
                                                 r#type: "number",
@@ -414,7 +414,7 @@ pub fn PlannerDialog() -> Element {
                                                 oninput: move |evt| forms.write()[index].depth = evt.value().parse().unwrap_or(0.0),
                                             }
                                         }
-                                        label { class: "field-label", "Duration (min)"
+                                        label { class: "field-label", "{tr.duration_min}"
                                             input {
                                                 class: "field",
                                                 r#type: "number",
@@ -423,7 +423,7 @@ pub fn PlannerDialog() -> Element {
                                                 oninput: move |evt| forms.write()[index].minutes = evt.value().parse().unwrap_or(0.0),
                                             }
                                         }
-                                        label { class: "field-label", "Run time"
+                                        label { class: "field-label", "{tr.run_time}"
                                             div { class: "readout", "{run}" }
                                         }
                                         label { class: "field-label", "O2 %"
@@ -453,13 +453,13 @@ pub fn PlannerDialog() -> Element {
                                                 class: "field",
                                                 value: "{form.mode_index}",
                                                 onchange: move |evt| forms.write()[index].mode_index = evt.value().parse().unwrap_or(0),
-                                                option { value: "0", "Open circuit (OC)" }
-                                                option { value: "1", "Rebreather (CCR)" }
-                                                option { value: "2", "Semi-closed (pSCR)" }
+                                                option { value: "0", "{tr.oc_label}" }
+                                                option { value: "1", "{tr.ccr_label}" }
+                                                option { value: "2", "{tr.pscr_label}" }
                                             }
                                         }
                                         if form.mode_index == 1 {
-                                            label { class: "field-label", "Setpoint"
+                                            label { class: "field-label", "{tr.setpoint}"
                                                 input {
                                                     class: "field",
                                                     r#type: "number",
@@ -470,7 +470,7 @@ pub fn PlannerDialog() -> Element {
                                             }
                                         }
                                         if form.mode_index == 2 {
-                                            label { class: "field-label", "Dump ratio"
+                                            label { class: "field-label", "{tr.dump_ratio}"
                                                 input {
                                                     class: "field",
                                                     r#type: "number",
@@ -480,7 +480,7 @@ pub fn PlannerDialog() -> Element {
                                                 }
                                             }
                                         }
-                                        label { class: "field-label", "Used gas"
+                                        label { class: "field-label", "{tr.used_gas}"
                                             div { class: "readout", "{used:.0} L" }
                                         }
                                     }

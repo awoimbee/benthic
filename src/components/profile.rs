@@ -202,7 +202,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     if pressure_on {
         if let Some(Series { min, max, .. }) = &pressure {
             right_axes.push((
-                "Pressure",
+                tr.pressure,
                 format!("color: {COLOR_PRESSURE};"),
                 value_axis(*min, *max, COLOR_PRESSURE, |v| {
                     prefs.pressure(Pressure::new(v))
@@ -242,7 +242,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     if heart_on {
         if let Some(Series { min, max, .. }) = &heart {
             right_axes.push((
-                "Heart",
+                tr.heart,
                 format!("color: {COLOR_HEART};"),
                 value_axis(*min, *max, COLOR_HEART, |v| format!("{v} bpm")),
             ));
@@ -251,7 +251,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     if cns_on {
         if let Some(Series { min, max, .. }) = &cns {
             right_axes.push((
-                "CNS",
+                tr.cns,
                 format!("color: {COLOR_CNS};"),
                 value_axis(*min, *max, COLOR_CNS, |v| format!("{v}%")),
             ));
@@ -259,7 +259,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     }
     if deco_on && !ceiling.is_empty() {
         right_axes.push((
-            "Ceiling",
+            tr.axis_ceiling,
             format!("color: {COLOR_CEILING};"),
             depth_ticks.clone(),
         ));
@@ -327,10 +327,10 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         readout.push(format!("{heart} bpm"));
     }
     if let Some(cns) = sample.cns {
-        readout.push(format!("CNS {cns}%"));
+        readout.push(format!("{} {cns}%", tr.cns));
     }
     if let Some(ceiling) = sample.stop_depth.filter(|d| d.mm > 0) {
-        readout.push(format!("Ceiling {}", prefs.depth(ceiling)));
+        readout.push(format!("{} {}", tr.axis_ceiling, prefs.depth(ceiling)));
     }
     let readout = readout.join("  ·  ");
 
@@ -338,7 +338,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         div { class: "profile",
             div { class: "profile-plot",
                 div { class: "axis-rail axis-left",
-                    span { class: "axis-name", style: "{depth_name_style}", "Depth" }
+                    span { class: "axis-name", style: "{depth_name_style}", "{tr.axis_depth}" }
                     for (_, style, label) in depth_ticks.iter() {
                         span { key: "depth-{label}", class: "axis-label", style: "{style}", "{label}" }
                     }
@@ -543,13 +543,13 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: "Cylinder pressure during the dive", onclick: move |_| show_pressure.set(!pressure_on) }
-                Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: "Water temperature during the dive", onclick: move |_| show_temp.set(!temp_on) }
-                Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: "No-decompression limit: how much longer you can stay at this depth without requiring a stop", onclick: move |_| show_ndl.set(!ndl_on) }
-                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !available.tts, title: "Time to surface: estimated ascent time including any decompression stops", onclick: move |_| show_tts.set(!tts_on) }
-                Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: "Heart rate in beats per minute", onclick: move |_| show_heart.set(!heart_on) }
-                Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: "Central nervous system oxygen toxicity, as a share of the NOAA limit", onclick: move |_| show_cns.set(!cns_on) }
-                Toggle { label: tr.deco, color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: "Decompression ceiling: the shallowest depth you may ascend to", onclick: move |_| show_deco.set(!deco_on) }
+                Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: tr.tip_pressure, onclick: move |_| show_pressure.set(!pressure_on) }
+                Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: tr.tip_temperature, onclick: move |_| show_temp.set(!temp_on) }
+                Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: tr.tip_ndl_toggle, onclick: move |_| show_ndl.set(!ndl_on) }
+                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !available.tts, title: tr.tip_tts, onclick: move |_| show_tts.set(!tts_on) }
+                Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: tr.tip_heart, onclick: move |_| show_heart.set(!heart_on) }
+                Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: tr.tip_cns, onclick: move |_| show_cns.set(!cns_on) }
+                Toggle { label: tr.deco, color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: tr.tip_deco_toggle, onclick: move |_| show_deco.set(!deco_on) }
                 if zoom_value > 1.01 {
                     button {
                         class: "btn",

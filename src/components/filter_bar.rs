@@ -98,7 +98,7 @@ pub fn FilterBar() -> Element {
             }
             div {
                 class: if is_open { "filter-fields open" } else { "filter-fields" },
-            span { class: "filter-label", "Filter" }
+            span { class: "filter-label", "{t.filters}" }
             select {
                 class: "field",
                 value: "{current.min_rating}",
