@@ -315,6 +315,9 @@ pub fn PlannerDialog() -> Element {
 
     rsx! {
         section { class: "planner-screen",
+            role: "dialog",
+            aria_modal: "true",
+            aria_label: "{tr.dive_planner}",
             div { class: "planner-inner",
                 header { class: "detail-head",
                     div { class: "detail-title-row",

@@ -226,6 +226,29 @@ body {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  /* It is a <button> for keyboard/AT, but must look like plain row content. */
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trip-toggle {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .dive-title {
@@ -1080,6 +1103,29 @@ textarea.field {
     flex-wrap: wrap;
   }
 }
+/* A single, consistent focus ring for keyboard users, applied after the
+   `outline: none` rules above so it always wins. */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.menu-item:focus-visible,
+.menu-trigger:focus-visible,
+.trip-toggle:focus-visible,
+.dive-main:focus-visible,
+.dc-tab:focus-visible,
+.star:focus-visible,
+.filter-toggle:focus-visible,
+.field:focus-visible,
+.search:focus-visible,
+.palette-input:focus-visible,
+.trip-rename:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Content that is available to screen readers and crawlers but not shown. */
 .sr-only {
   position: absolute;

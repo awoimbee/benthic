@@ -43,6 +43,9 @@ pub fn WelcomeDialog() -> Element {
     rsx! {
         div { class: "modal-backdrop welcome-backdrop",
             div { class: "modal welcome",
+                role: "dialog",
+                aria_modal: "true",
+                aria_label: "{t.welcome_title}",
                 h2 { "{t.welcome_title}" }
                 p { class: "welcome-lead", "{t.welcome_lead}" }
                 ul { class: "welcome-points",

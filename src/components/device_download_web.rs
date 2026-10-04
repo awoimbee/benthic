@@ -140,7 +140,11 @@ pub fn DeviceDownloadWebDialog() -> Element {
 
     rsx! {
         div { class: "modal-backdrop", onclick: move |_| show.set(false),
-            div { class: "modal wide", onclick: move |evt| evt.stop_propagation(),
+            div { class: "modal wide",
+                role: "dialog",
+                aria_modal: "true",
+                aria_label: "{tr.dc_title}",
+                onclick: move |evt| evt.stop_propagation(),
                 h2 { "{tr.dc_title}" }
                 p { class: "muted", "{tr.dc_intro}" }
                 if !any_supported {

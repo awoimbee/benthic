@@ -523,6 +523,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                 button {
                                     key: "{star}",
                                     class: "{class}",
+                                    aria_label: i18n::t1(tr.rate_stars, star),
                                     onclick: move |_| form.write().rating = star,
                                     "★"
                                 }

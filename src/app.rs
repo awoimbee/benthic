@@ -188,6 +188,39 @@ pub fn App() -> Element {
 
     // Global undo/redo shortcuts.
     let on_keydown = move |evt: KeyboardEvent| {
+        // Escape closes the open dialog, whichever it is.
+        if evt.key() == Key::Escape {
+            let mut show_prefs = show_prefs;
+            let mut show_trips = show_trips;
+            let mut show_map = show_map;
+            let mut show_planner = show_planner;
+            let mut show_sync = show_sync;
+            let mut show_download = show_download;
+            let mut show_compare = show_compare;
+            let mut closed = true;
+            if (show_prefs)() {
+                show_prefs.set(false);
+            } else if (show_trips)() {
+                show_trips.set(false);
+            } else if (show_map)() {
+                show_map.set(false);
+            } else if (show_planner)() {
+                show_planner.set(false);
+            } else if (show_sync)() {
+                show_sync.set(false);
+            } else if (show_compare)() {
+                show_compare.set(false);
+            } else if (show_download)() {
+                show_download.set(false);
+            } else {
+                closed = false;
+            }
+            if closed {
+                evt.prevent_default();
+            }
+            return;
+        }
+
         let modifiers = evt.modifiers();
         let ctrl = modifiers.contains(Modifiers::CONTROL) || modifiers.contains(Modifiers::META);
         if !ctrl {

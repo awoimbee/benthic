@@ -62,6 +62,9 @@ pub fn TripsDialog() -> Element {
             onclick: move |_| show_trips.set(false),
             div {
                 class: "modal wide",
+                role: "dialog",
+                aria_modal: "true",
+                aria_label: "{tr.manage_trips}",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "{tr.manage_trips}" }
                 if empty {

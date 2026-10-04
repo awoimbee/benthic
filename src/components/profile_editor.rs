@@ -70,6 +70,9 @@ pub fn ProfileEditorDialog(
 
     rsx! {
         section { class: "planner-screen profile-editor",
+            role: "dialog",
+            aria_modal: "true",
+            aria_label: "{tr.profile_title}",
             div { class: "planner-inner",
                 header { class: "detail-head",
                     div { class: "detail-title-row",

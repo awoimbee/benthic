@@ -67,6 +67,9 @@ pub fn PreferencesDialog() -> Element {
             onclick: move |_| show_prefs.set(false),
             div {
                 class: "modal",
+                role: "dialog",
+                aria_modal: "true",
+                aria_label: "{t.preferences}",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "{t.preferences}" }
                 div { class: "pref-group",

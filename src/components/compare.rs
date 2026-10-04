@@ -30,6 +30,8 @@ pub fn CompareDialog() -> Element {
                 onclick: move |_| show_compare.set(false),
                 div {
                     class: "modal",
+                    role: "dialog",
+                    aria_modal: "true",
                     onclick: move |evt| evt.stop_propagation(),
                     h2 { "{tr.compare_dives}" }
                     p { class: "muted", "{tr.compare_hint}" }
@@ -88,6 +90,8 @@ pub fn CompareDialog() -> Element {
             onclick: move |_| show_compare.set(false),
             div {
                 class: "modal wide",
+                role: "dialog",
+                aria_modal: "true",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "{tr.compare_dives}" }
                 div { class: "profile",

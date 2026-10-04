@@ -181,7 +181,11 @@ pub fn LocationPickerDialog(
 
     rsx! {
         div { class: "modal-backdrop", onclick: move |_| on_close.call(()),
-            div { class: "modal map-modal", onclick: move |evt| evt.stop_propagation(),
+            div { class: "modal map-modal",
+                role: "dialog",
+                aria_modal: "true",
+                aria_label: "{tr.pick_title}",
+                onclick: move |evt| evt.stop_propagation(),
                 div { class: "map-modal-head",
                     h2 { "{tr.pick_title}" }
                     span { class: "muted", "{tr.pick_hint}" }
@@ -270,6 +274,9 @@ pub fn MapDialog() -> Element {
             onclick: move |_| show_map.set(false),
             div {
                 class: "modal map-modal",
+                role: "dialog",
+                aria_modal: "true",
+                aria_label: "{tr.map_title}",
                 onclick: move |evt| evt.stop_propagation(),
                 div { class: "map-modal-head",
                     h2 { "{tr.map_title}" }

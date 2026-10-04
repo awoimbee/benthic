@@ -240,7 +240,11 @@ pub fn DeviceDownloadDialog() -> Element {
 
     rsx! {
         div { class: "modal-backdrop", onclick: move |_| show.set(false),
-            div { class: "modal wide", onclick: move |evt| evt.stop_propagation(),
+            div { class: "modal wide",
+                role: "dialog",
+                aria_modal: "true",
+                aria_label: "Download from a dive computer",
+                onclick: move |evt| evt.stop_propagation(),
                 h2 { "Download from a dive computer" }
                 p { class: "muted",
                     "Choose a model, scan the bus, then download the dives that are not in the log yet. Nothing is imported twice."

@@ -11,6 +11,7 @@ struct Row {
     is_trip: bool,
     collapsed: bool,
     checked: bool,
+    is_selected: bool,
     dive_id: Option<u32>,
     trip_id: Option<u32>,
     number: String,
@@ -69,6 +70,7 @@ pub fn DiveList() -> Element {
                         is_trip: true,
                         collapsed: collapsed.contains(&trip_id),
                         checked: false,
+                        is_selected: false,
                         dive_id: None,
                         trip_id: Some(trip_id),
                         number: String::new(),
@@ -104,6 +106,7 @@ pub fn DiveList() -> Element {
             is_trip: false,
             collapsed: false,
             checked: checked_ids.contains(&dive.id),
+            is_selected: current == Some(dive.id),
             dive_id: Some(dive.id),
             trip_id: None,
             number: if dive.number != 0 {
@@ -140,14 +143,11 @@ pub fn DiveList() -> Element {
                         key: "{row.key}",
                         class: "{row.class}",
                         onclick: move |_| {
+                            // Dive rows select on a click anywhere; trip rows use
+                            // their explicit toggle button.
                             if let Some(id) = row.dive_id {
                                 selected.set(Some(id));
                                 mobile_detail.set(true);
-                            } else if let Some(trip_id) = row.trip_id {
-                                let mut set = collapsed_trips.write();
-                                if !set.remove(&trip_id) {
-                                    set.insert(trip_id);
-                                }
                             }
                         },
                         if row.is_trip {
@@ -174,11 +174,24 @@ pub fn DiveList() -> Element {
                                         },
                                     }
                                 } else {
-                                    span { class: "trip-caret",
-                                        if row.collapsed { "\u{25B8}" } else { "\u{25BE}" }
+                                    button {
+                                        class: "trip-toggle",
+                                        r#type: "button",
+                                        aria_expanded: if row.collapsed { "false" } else { "true" },
+                                        onclick: move |_| {
+                                            if let Some(trip_id) = row.trip_id {
+                                                let mut set = collapsed_trips.write();
+                                                if !set.remove(&trip_id) {
+                                                    set.insert(trip_id);
+                                                }
+                                            }
+                                        },
+                                        span { class: "trip-caret",
+                                            if row.collapsed { "\u{25B8}" } else { "\u{25BE}" }
+                                        }
+                                        span { class: "trip-title", "{row.title}" }
+                                        span { class: "trip-subtitle", "{row.subtitle}" }
                                     }
-                                    span { class: "trip-title", "{row.title}" }
-                                    span { class: "trip-subtitle", "{row.subtitle}" }
                                     div { class: "trip-actions",
                                         button {
                                             class: "icon-btn",
@@ -210,6 +223,7 @@ pub fn DiveList() -> Element {
                             input {
                                 r#type: "checkbox",
                                 class: "row-check",
+                                aria_label: "{row.title}",
                                 checked: row.checked,
                                 onclick: move |evt| evt.stop_propagation(),
                                 onchange: move |_| {
@@ -224,7 +238,16 @@ pub fn DiveList() -> Element {
                                 },
                             }
                             span { class: "dive-number", "{row.number}" }
-                            div { class: "dive-main",
+                            button {
+                                class: "dive-main",
+                                r#type: "button",
+                                aria_current: if row.is_selected { "true" } else { "false" },
+                                onclick: move |_| {
+                                    if let Some(id) = row.dive_id {
+                                        selected.set(Some(id));
+                                        mobile_detail.set(true);
+                                    }
+                                },
                                 span { class: "dive-title", "{row.title}" }
                                 span { class: "dive-subtitle", "{row.subtitle}" }
                             }
