@@ -239,23 +239,19 @@ pub fn PlannerDialog() -> Element {
             let waypoint = index + 1;
             let mut issues = Vec::new();
             if form.depth < 0.0 {
-                issues.push(format!("Waypoint {waypoint}: depth cannot be negative."));
+                issues.push(i18n::t1(tr.warn_neg_depth, waypoint));
             }
             if form.minutes < 0.0 {
-                issues.push(format!("Waypoint {waypoint}: duration cannot be negative."));
+                issues.push(i18n::t1(tr.warn_neg_duration, waypoint));
             }
             if !(1.0..=100.0).contains(&form.o2) {
-                issues.push(format!(
-                    "Waypoint {waypoint}: O2 must be between 1 and 100%."
-                ));
+                issues.push(i18n::t1(tr.warn_o2_range, waypoint));
             }
             if !(0.0..=100.0).contains(&form.he) {
-                issues.push(format!(
-                    "Waypoint {waypoint}: helium must be between 0 and 100%."
-                ));
+                issues.push(i18n::t1(tr.warn_he_range, waypoint));
             }
             if form.o2 + form.he > 100.0 {
-                issues.push(format!("Waypoint {waypoint}: O2 + helium exceeds 100%."));
+                issues.push(i18n::t1(tr.warn_o2_he_sum, waypoint));
             }
             issues
         })
@@ -366,7 +362,7 @@ pub fn PlannerDialog() -> Element {
                             set.clear();
                             set.insert(0);
                         },
-                        "Reset"
+                        "{tr.reset}"
                     }
                 }
                 div { class: "plan-points",
@@ -582,7 +578,7 @@ pub fn PlannerDialog() -> Element {
                     }
                 }
                 if over_mod {
-                    p { class: "warn", "Warning: a waypoint exceeds the bottom gas MOD at a 1.4 bar pO2 limit." }
+                    p { class: "warn", "{tr.warn_over_mod}" }
                 }
                 for warning in plan_warnings.iter() {
                     p { class: "warn", "{warning}" }

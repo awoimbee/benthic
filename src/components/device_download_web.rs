@@ -9,12 +9,14 @@ use benthic_core::Dive;
 use crate::actions;
 use crate::divecomputer;
 use crate::divecomputer_web::{self, WebModel};
+use crate::i18n;
 use crate::state::AppState;
 
 /// A dialog to download dives from a web-connected dive computer.
 #[component]
 pub fn DeviceDownloadWebDialog() -> Element {
     let state = use_context::<AppState>();
+    let tr = i18n::strings((state.prefs)().language);
     let mut show = state.show_download;
 
     let mut serial_ok = use_signal(|| false);
@@ -34,12 +36,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
         serial_ok.set(serial);
         bluetooth_ok.set(bluetooth);
         if !serial && !bluetooth {
-            message.set(Some(
-                "No dive-computer transport is available in this browser. iPhone and \
-                 iPad (Safari) provide neither Web Serial nor Web Bluetooth; Chrome, \
-                 Edge and Opera on desktop provide both."
-                    .to_string(),
-            ));
+            message.set(Some(tr.dc_no_transport_web.to_string()));
             return;
         }
         if !serial {
@@ -47,28 +44,26 @@ pub fn DeviceDownloadWebDialog() -> Element {
         }
         match divecomputer_web::descriptors().await {
             Ok(list) => models.set(list),
-            Err(error) => message.set(Some(format!("Could not load the device list: {error}"))),
+            Err(error) => message.set(Some(i18n::t1(tr.dc_could_not_load, error))),
         }
     });
 
     let on_connect = move |_| {
         if (selected)().is_none() {
-            message.set(Some("Choose a dive computer model first".to_string()));
+            message.set(Some(tr.dc_choose_model.to_string()));
             return;
         }
         let transport_now = (transport)();
         busy.set(true);
-        message.set(Some("Waiting for you to pick a device…".to_string()));
+        message.set(Some(tr.dc_waiting.to_string()));
         spawn(async move {
             match divecomputer_web::connect(transport_now).await {
                 Ok(true) => {
                     connected.set(true);
-                    message.set(Some(
-                        "Device selected. Put it in transfer mode, then download.".to_string(),
-                    ));
+                    message.set(Some(tr.dc_selected.to_string()));
                 }
-                Ok(false) => message.set(Some("No device selected.".to_string())),
-                Err(error) => message.set(Some(format!("Could not connect: {error}"))),
+                Ok(false) => message.set(Some(tr.dc_no_device.to_string())),
+                Err(error) => message.set(Some(i18n::t1(tr.dc_could_not_connect, error))),
             }
             busy.set(false);
         });
@@ -80,7 +75,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
         };
         let transport_now = (transport)();
         busy.set(true);
-        message.set(Some("Downloading…".to_string()));
+        message.set(Some(tr.dc_downloading.to_string()));
         spawn(async move {
             let link = if transport_now == divecomputer_web::TRANSPORT_BLE {
                 "bluetooth"
@@ -95,7 +90,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
             {
                 Ok(result) => {
                     if let Some(error) = result.error {
-                        message.set(Some(format!("Download failed: {error}")));
+                        message.set(Some(i18n::t1(tr.dc_download_failed, error)));
                     } else {
                         let latest = divecomputer::from_hex(&result.fingerprint);
                         if !latest.is_empty() {
@@ -105,16 +100,12 @@ pub fn DeviceDownloadWebDialog() -> Element {
                             result.dives.iter().map(|raw| raw.to_dive()).collect();
                         let count = dives.len();
                         let (added, skipped) = actions::merge_downloaded(state, dives);
-                        state.set_status(format!(
-                            "Downloaded {added} new dive(s) from the dive computer"
-                        ));
-                        message.set(Some(format!(
-                            "Read {count} dive(s); added {added}, skipped {skipped} already in the log"
-                        )));
+                        state.set_status(i18n::t1(state.strings().downloading_dc, added));
+                        message.set(Some(i18n::t3(tr.dc_read_summary, count, added, skipped)));
                         connected.set(false);
                     }
                 }
-                Err(error) => message.set(Some(format!("Download failed: {error}"))),
+                Err(error) => message.set(Some(i18n::t1(tr.dc_download_failed, error))),
             }
             busy.set(false);
         });
@@ -150,15 +141,13 @@ pub fn DeviceDownloadWebDialog() -> Element {
     rsx! {
         div { class: "modal-backdrop", onclick: move |_| show.set(false),
             div { class: "modal wide", onclick: move |evt| evt.stop_propagation(),
-                h2 { "Download from a dive computer" }
-                p { class: "muted",
-                    "Choose a model and connect over USB (Web Serial) or Bluetooth. Nothing is imported twice."
-                }
+                h2 { "{tr.dc_title}" }
+                p { class: "muted", "{tr.dc_intro}" }
                 if !any_supported {
-                    p { class: "warn", "Neither Web Serial nor Web Bluetooth is available here." }
+                    p { class: "warn", "{tr.dc_no_transport}" }
                 } else {
                     if (serial_ok)() && (bluetooth_ok)() {
-                        label { class: "field-label", "Connection"
+                        label { class: "field-label", "{tr.dc_connection}"
                             select {
                                 class: "field",
                                 onchange: move |evt| {
@@ -172,25 +161,25 @@ pub fn DeviceDownloadWebDialog() -> Element {
                                 option {
                                     value: "serial",
                                     selected: transport_now == divecomputer_web::TRANSPORT_SERIAL,
-                                    "USB (Web Serial)"
+                                    "{tr.dc_usb_serial}"
                                 }
                                 option {
                                     value: "bluetooth",
                                     selected: transport_now == divecomputer_web::TRANSPORT_BLE,
-                                    "Bluetooth"
+                                    "{tr.dc_bluetooth}"
                                 }
                             }
                         }
                     } else if (bluetooth_ok)() {
-                        p { class: "muted", "Using Bluetooth." }
+                        p { class: "muted", "{tr.dc_using_bluetooth}" }
                     } else {
-                        p { class: "muted", "Using USB (Web Serial)." }
+                        p { class: "muted", "{tr.dc_using_serial}" }
                     }
-                    label { class: "field-label", "Model"
+                    label { class: "field-label", "{tr.dc_model}"
                         input {
                             class: "field",
                             r#type: "search",
-                            placeholder: "Search models…",
+                            placeholder: "{tr.dc_search_models}",
                             value: "{search}",
                             oninput: move |evt| search.set(evt.value()),
                         }
@@ -205,18 +194,18 @@ pub fn DeviceDownloadWebDialog() -> Element {
                         class: "btn",
                         disabled: (busy)() || (selected)().is_none(),
                         onclick: on_connect,
-                        if (connected)() { "Connected" } else { "Connect…" }
+                        if (connected)() { "{tr.dc_connected}" } else { "{tr.dc_connect}" }
                     }
                     button {
                         class: "btn primary",
                         disabled: (busy)() || !(connected)() || (selected)().is_none(),
                         onclick: on_download,
-                        if (busy)() { "Downloading…" } else { "Download" }
+                        if (busy)() { "{tr.dc_downloading}" } else { "{tr.dc_download}" }
                     }
                     button {
                         class: "btn",
                         onclick: move |_| show.set(false),
-                        "Close"
+                        "{tr.close}"
                     }
                 }
             }

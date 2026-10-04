@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use benthic_core::sync::{self as core_sync, SyncPlan};
 
+use crate::i18n;
 use crate::state::AppState;
 use crate::sync::backend::{self, AuthKind};
 use crate::sync::SyncConfig;
@@ -30,8 +31,9 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
         Mode::ForcePush => SyncPlan::Push,
         Mode::ForcePull => SyncPlan::Pull,
     };
+    let t = state.strings();
     match plan {
-        SyncPlan::UpToDate => Ok(Outcome::Done("Already up to date.".to_string())),
+        SyncPlan::UpToDate => Ok(Outcome::Done(t.sync_up_to_date.to_string())),
         SyncPlan::Push => {
             let revision = remote.as_ref().map(|r| r.revision.clone());
             let pushed = crate::sync::push(&mut config, &local, revision.as_deref()).await?;
@@ -39,10 +41,10 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
             bookmark.local_fingerprint = Some(core_sync::fingerprint(&local));
             bookmark.last_sync_secs = crate::platform::now_secs();
             crate::sync::save_state(&bookmark);
-            Ok(Outcome::Done("Uploaded the local log.".to_string()))
+            Ok(Outcome::Done(t.sync_uploaded.to_string()))
         }
         SyncPlan::Pull => {
-            let remote = remote.ok_or_else(|| "The remote is empty.".to_string())?;
+            let remote = remote.ok_or_else(|| t.sync_remote_empty.to_string())?;
             let parsed =
                 benthic_core::io::parse_auto(&remote.content).map_err(|error| error.to_string())?;
             let count = parsed.dives.len();
@@ -62,8 +64,8 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
             bookmark.local_fingerprint = Some(core_sync::fingerprint(&remote.content));
             bookmark.last_sync_secs = crate::platform::now_secs();
             crate::sync::save_state(&bookmark);
-            state.set_status(format!("Downloaded {count} dives from the remote"));
-            Ok(Outcome::Done("Downloaded the remote log.".to_string()))
+            state.set_status(i18n::t1(t.downloaded_remote, count));
+            Ok(Outcome::Done(t.sync_downloaded.to_string()))
         }
         SyncPlan::Conflict => Ok(Outcome::Conflict),
     }
@@ -73,6 +75,7 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
 #[component]
 pub fn SyncDialog() -> Element {
     let state = use_context::<AppState>();
+    let tr = state.strings();
     let mut show_sync = state.show_sync;
     let mut config = use_signal(crate::sync::load_config);
     let mut status = use_signal(|| None::<String>);
@@ -103,7 +106,7 @@ pub fn SyncDialog() -> Element {
         let mut snapshot = (config)();
         busy.set(true);
         conflict.set(false);
-        status.set(Some("Syncing…".to_string()));
+        status.set(Some(tr.sync_syncing.to_string()));
         spawn(async move {
             // OAuth backends sign in interactively before the first request.
             let needs_sign_in = {
@@ -123,10 +126,7 @@ pub fn SyncDialog() -> Element {
                 Ok(Outcome::Done(message)) => status.set(Some(message)),
                 Ok(Outcome::Conflict) => {
                     conflict.set(true);
-                    status.set(Some(
-                        "Both the local and the remote logs changed. Choose which to keep."
-                            .to_string(),
-                    ));
+                    status.set(Some(tr.sync_conflict.to_string()));
                 }
                 Err(error) => status.set(Some(error)),
             }
@@ -137,13 +137,13 @@ pub fn SyncDialog() -> Element {
     let do_sign_in = move |_| {
         let mut snapshot = (config)();
         busy.set(true);
-        status.set(Some("Signing in…".to_string()));
+        status.set(Some(tr.sync_signing_in.to_string()));
         spawn(async move {
             match crate::sync::sign_in(&mut snapshot).await {
                 Ok(()) => {
                     config.set(snapshot.clone());
                     crate::sync::save_config(&snapshot);
-                    status.set(Some("Signed in.".to_string()));
+                    status.set(Some(tr.sync_signed_in_status.to_string()));
                 }
                 Err(error) => status.set(Some(error)),
             }
@@ -157,19 +157,17 @@ pub fn SyncDialog() -> Element {
             crate::sync::sign_out(&mut snapshot).await;
             config.set(snapshot.clone());
             crate::sync::save_config(&snapshot);
-            status.set(Some("Signed out.".to_string()));
+            status.set(Some(tr.sync_signed_out.to_string()));
         });
     };
 
     rsx! {
         div { class: "modal-backdrop", onclick: move |_| show_sync.set(false),
             div { class: "modal wide", onclick: move |evt| evt.stop_propagation(),
-                h2 { "Sync" }
-                p { class: "muted",
-                    "Mirror the log to a remote service. Nothing is overwritten silently: benthic asks when both sides changed."
-                }
+                h2 { "{tr.sync_title}" }
+                p { class: "muted", "{tr.sync_intro}" }
                 div { class: "edit-form",
-                    label { class: "field-label", "Service"
+                    label { class: "field-label", "{tr.sync_service}"
                         select {
                             class: "field",
                             onchange: move |evt| config.write().provider = evt.value(),
@@ -196,12 +194,12 @@ pub fn SyncDialog() -> Element {
                     if oauth {
                         if signed_in {
                             div { class: "sync-account",
-                                span { class: "muted", "Signed in to {backend.name()}." }
+                                span { class: "muted", {i18n::t1(tr.sync_signed_in, backend.name())} }
                                 button {
                                     class: "btn",
                                     disabled: (busy)(),
                                     onclick: do_sign_out,
-                                    "Sign out"
+                                    "{tr.sync_sign_out}"
                                 }
                             }
                         } else {
@@ -216,7 +214,7 @@ pub fn SyncDialog() -> Element {
                 }
                 if !advanced.is_empty() {
                     details { class: "sync-advanced",
-                        summary { "Advanced" }
+                        summary { "{tr.sync_advanced}" }
                         div { class: "edit-form",
                             for field in advanced {
                                 label { class: "field-label", "{field.label}"
@@ -241,26 +239,26 @@ pub fn SyncDialog() -> Element {
                             class: "btn primary",
                             disabled: (busy)(),
                             onclick: move |_| launch(Mode::ForcePush),
-                            "Keep local (upload)"
+                            "{tr.sync_keep_local}"
                         }
                         button {
                             class: "btn",
                             disabled: (busy)(),
                             onclick: move |_| launch(Mode::ForcePull),
-                            "Keep remote (download)"
+                            "{tr.sync_keep_remote}"
                         }
                     } else {
                         button {
                             class: "btn primary",
                             disabled: (busy)() || !cfg.is_configured(),
                             onclick: move |_| launch(Mode::Auto),
-                            "Sync now"
+                            "{tr.sync_now}"
                         }
                     }
                     button {
                         class: "btn",
                         onclick: move |_| show_sync.set(false),
-                        "Close"
+                        "{tr.close}"
                     }
                 }
             }
