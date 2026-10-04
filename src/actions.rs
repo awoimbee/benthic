@@ -6,6 +6,7 @@
 use benthic_core::{Command, Dive, DivePlan, DiveTrip};
 use dioxus::prelude::WritableExt;
 
+use crate::i18n;
 use crate::state::AppState;
 
 /// Days between consecutive dives before automatic grouping breaks a trip.
@@ -29,7 +30,7 @@ pub fn new_dive(state: AppState) {
     });
     let mut selected = state.selected;
     selected.set(Some(dive.id));
-    state.set_status("Added a new dive");
+    state.set_status(state.strings().added_dive);
 }
 
 /// Duplicate a dive, assigning it a fresh id and number.
@@ -57,7 +58,7 @@ pub fn duplicate_dive(state: AppState, id: u32) {
     });
     let mut selected = state.selected;
     selected.set(Some(copy.id));
-    state.set_status("Duplicated dive");
+    state.set_status(state.strings().duplicated_dive);
 }
 
 /// Delete a dive and select a neighbour.
@@ -81,7 +82,7 @@ pub fn delete_dive(state: AppState, id: u32) {
     state.dispatch(Command::DeleteDive { dive, index });
     let mut selected = state.selected;
     selected.set(neighbor);
-    state.set_status("Deleted dive");
+    state.set_status(state.strings().deleted_dive);
 }
 
 /// Delete every ticked dive as a single undo step.
@@ -101,7 +102,7 @@ pub fn delete_selected(state: AppState) {
     if selected().is_some_and(|id| ids.contains(&id)) {
         selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
     }
-    state.set_status(format!("Deleted {} dives", ids.len()));
+    state.set_status(i18n::t1(state.strings().deleted_dives, ids.len()));
 }
 
 /// Create a trip from the ticked dives and assign them to it.
@@ -145,7 +146,7 @@ pub fn create_trip_from_selection(state: AppState) {
     state.dispatch_all("Create trip", commands);
     let mut selection = state.selection;
     selection.write().clear();
-    state.set_status(format!("Created a trip with {count} dives"));
+    state.set_status(i18n::t1(state.strings().created_trip, count));
 }
 
 /// Rename a trip (no-op when unchanged).
@@ -160,7 +161,7 @@ pub fn rename_trip(state: AppState, id: u32, name: &str) {
         return;
     }
     state.dispatch(Command::UpdateTrip { before, after });
-    state.set_status("Renamed trip");
+    state.set_status(state.strings().renamed_trip);
 }
 
 /// Delete a trip, unassigning its dives as one undo step.
@@ -171,7 +172,7 @@ pub fn delete_trip(state: AppState, id: u32) {
         return;
     }
     state.dispatch_all("Delete trip", commands);
-    state.set_status("Deleted trip");
+    state.set_status(state.strings().deleted_trip);
 }
 
 /// Merge dive sites that share a name (and are close, or lack coordinates).
@@ -180,7 +181,7 @@ pub fn merge_duplicate_sites(state: AppState) {
     let mut after = before.clone();
     let removed = after.merge_duplicate_sites(SITE_DEDUP_RADIUS_M);
     if removed == 0 {
-        state.set_status("No duplicate dive sites found");
+        state.set_status(state.strings().no_duplicate_sites);
         return;
     }
     state.dispatch(Command::Snapshot {
@@ -188,13 +189,13 @@ pub fn merge_duplicate_sites(state: AppState) {
         before: Box::new(before),
         after: Box::new(after),
     });
-    state.set_status(format!("Merged {removed} duplicate dive sites"));
+    state.set_status(i18n::t1(state.strings().merged_sites, removed));
 }
 
 /// Restore the most recent automatic backup over the current log.
 pub fn restore_backup(state: AppState) {
     let Some(text) = crate::storage::load_backup() else {
-        state.set_status("No automatic backup available");
+        state.set_status(state.strings().no_backup);
         return;
     };
     match benthic_core::io::parse_auto(&text) {
@@ -205,9 +206,9 @@ pub fn restore_backup(state: AppState) {
                 before: Box::new(before),
                 after: Box::new(parsed),
             });
-            state.set_status("Restored the last automatic backup");
+            state.set_status(state.strings().restored_backup);
         }
-        Err(e) => state.set_status(format!("Backup could not be read: {e}")),
+        Err(e) => state.set_status(i18n::t1(state.strings().backup_unreadable, e)),
     }
 }
 
@@ -217,7 +218,7 @@ pub fn export_ssrf(state: AppState) {
     let text = benthic_core::io::ssrf::write_string(&log);
     match crate::platform::save_file("benthic.ssrf", &text) {
         Ok(message) => state.set_status(message),
-        Err(e) => state.set_status(format!("Export failed: {e}")),
+        Err(e) => state.set_status(i18n::t1(state.strings().export_failed, e)),
     }
 }
 
@@ -259,7 +260,7 @@ pub fn save_plan(state: AppState, plan: DivePlan) {
     });
     let mut selected = state.selected;
     selected.set(Some(dive.id));
-    state.set_status("Saved plan as a dive");
+    state.set_status(state.strings().saved_plan);
 }
 
 /// Merge the `remove` trip into the `keep` trip as one undo step.
@@ -274,21 +275,22 @@ pub fn merge_trips(state: AppState, keep: u32, remove: u32) {
         before: Box::new(before),
         after: Box::new(after),
     });
-    state.set_status("Merged trips");
+    state.set_status(state.strings().merged_trips);
 }
 
 /// Toggle automatic trip grouping on/off, regrouping or ungrouping as needed.
 pub fn toggle_autogroup(state: AppState) {
     let mut after = (state.log)();
     let before = after.clone();
+    let t = state.strings();
     let (label, message) = if after.autogroup {
         after.autogroup = false;
         after.clear_auto_trips();
-        ("Ungroup trips", "Automatic trip grouping off".to_string())
+        (t.autogroup_off, t.autogroup_disabled.to_string())
     } else {
         after.autogroup = true;
         let created = after.autogroup_trips(AUTOGROUP_MAX_GAP_DAYS);
-        ("Auto-group trips", format!("Created {created} trips"))
+        (t.autogroup_on, i18n::t1(t.autogroup_created, created))
     };
     state.dispatch(Command::Snapshot {
         label: label.into(),

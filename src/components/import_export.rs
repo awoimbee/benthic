@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::actions;
+use crate::i18n;
 use crate::state::AppState;
 
 /// Open (replace the log from a file), import (merge a file into the log) and
@@ -8,6 +9,7 @@ use crate::state::AppState;
 #[component]
 pub fn ImportExport() -> Element {
     let state = use_context::<AppState>();
+    let t = i18n::strings((state.prefs)().language);
 
     let on_import = move |evt: Event<FormData>| {
         let state = state;
@@ -28,13 +30,11 @@ pub fn ImportExport() -> Element {
                             let first = (state.log)().dives_recent_first().first().map(|d| d.id);
                             selected.set(first);
                         }
-                        status.set(format!(
-                            "Imported {dives} dives and {sites} sites from {name}"
-                        ));
+                        status.set(i18n::t3(t.imported, dives, sites, name));
                     }
-                    Err(e) => status.set(format!("Import failed: {e}")),
+                    Err(e) => status.set(i18n::t1(t.import_failed, e)),
                 },
-                Err(e) => status.set(format!("Could not read {name}: {e}")),
+                Err(e) => status.set(i18n::t2(t.could_not_read, name, e)),
             }
         }
     };
@@ -55,13 +55,11 @@ pub fn ImportExport() -> Element {
                     Ok(incoming) => {
                         let (dives, sites) = actions::open_log(state, incoming);
                         selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
-                        status.set(format!(
-                            "Opened {dives} dives and {sites} sites from {name} (undo to restore the previous log)"
-                        ));
+                        status.set(i18n::t3(t.opened_file, dives, sites, name));
                     }
-                    Err(e) => status.set(format!("Open failed: {e}")),
+                    Err(e) => status.set(i18n::t1(t.open_failed, e)),
                 },
-                Err(e) => status.set(format!("Could not read {name}: {e}")),
+                Err(e) => status.set(i18n::t2(t.could_not_read, name, e)),
             }
         }
     };
@@ -70,8 +68,10 @@ pub fn ImportExport() -> Element {
 
     rsx! {
         label { class: "btn",
-            title: "Replace the current log with a file (undoable)",
-            "Open"
+            title: "{t.open_title}",
+            // Keep the toolbar menu open while the file dialog is up.
+            onclick: move |evt| evt.stop_propagation(),
+            "{t.open}"
             input {
                 r#type: "file",
                 accept: ".ssrf,.xml,.json,.gpx,.csv,.tsv",
@@ -80,7 +80,8 @@ pub fn ImportExport() -> Element {
             }
         }
         label { class: "btn",
-            "Import"
+            onclick: move |evt| evt.stop_propagation(),
+            "{t.import}"
             input {
                 r#type: "file",
                 accept: ".ssrf,.xml,.json,.gpx,.csv,.tsv",
@@ -88,6 +89,13 @@ pub fn ImportExport() -> Element {
                 onchange: on_import,
             }
         }
-        button { class: "btn", onclick: on_export, "Export" }
+        button {
+            class: "btn",
+            onclick: move |evt| {
+                evt.stop_propagation();
+                on_export(evt);
+            },
+            "{t.export}"
+        }
     }
 }

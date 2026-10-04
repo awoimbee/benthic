@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::actions;
+use crate::i18n;
 use crate::state::AppState;
 
 /// One row in the dive list; either a trip header or a dive.
@@ -27,6 +28,7 @@ pub fn DiveList() -> Element {
     let log = (state.log)();
     let filter = (state.filter)();
     let prefs = (state.prefs)();
+    let t = i18n::strings(prefs.language);
     let current = (state.selected)();
     let checked_ids = (state.selection)();
     let mut renaming_trip = use_signal(|| None::<u32>);
@@ -57,7 +59,7 @@ pub fn DiveList() -> Element {
                         .filter(|d| d.trip_id == Some(trip_id))
                         .count();
                     let title = if trip.location.is_empty() {
-                        format!("Trip #{trip_id}")
+                        i18n::t1(t.trip_fallback, trip_id)
                     } else {
                         trip.location.clone()
                     };
@@ -71,7 +73,7 @@ pub fn DiveList() -> Element {
                         trip_id: Some(trip_id),
                         number: String::new(),
                         title,
-                        subtitle: format!("{count} dives"),
+                        subtitle: i18n::t1(t.n_dives, count),
                         trailing: String::new(),
                     });
                 }
@@ -122,17 +124,14 @@ pub fn DiveList() -> Element {
     let total = log.dives.len();
     let shown = filtered.len();
     let empty = rows.is_empty();
+    let dives_shown = i18n::t2(t.dives_shown, shown, total);
 
     rsx! {
         aside { class: "dive-list",
-            div { class: "pane-title", "Dives {shown}/{total}" }
+            div { class: "pane-title", "{dives_shown}" }
             if empty {
                 div { class: "empty-hint",
-                    if total == 0 {
-                        "No dives yet. Use Import to load a Subsurface log, or add a new dive."
-                    } else {
-                        "No dives match your search."
-                    }
+                    if total == 0 { "{t.empty_no_dives}" } else { "{t.empty_no_match}" }
                 }
             }
             ul {
@@ -183,7 +182,7 @@ pub fn DiveList() -> Element {
                                     div { class: "trip-actions",
                                         button {
                                             class: "icon-btn",
-                                            title: "Rename trip",
+                                            title: "{t.rename_trip}",
                                             onclick: move |evt| {
                                                 evt.stop_propagation();
                                                 let name = (state.log)()
@@ -197,7 +196,7 @@ pub fn DiveList() -> Element {
                                         }
                                         button {
                                             class: "icon-btn",
-                                            title: "Delete trip (dives are kept)",
+                                            title: "{t.delete_trip}",
                                             onclick: move |evt| {
                                                 evt.stop_propagation();
                                                 actions::delete_trip(state, trip_id);

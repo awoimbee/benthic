@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
-    CommandPalette, CompareDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog,
-    PreferencesDialog, SyncDialog, Toolbar, TripsDialog,
+    CompareDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog, PreferencesDialog,
+    SelectionBar, SyncDialog, Toolbar, TripsDialog, WelcomeDialog,
 };
 use crate::state::AppState;
 
@@ -28,15 +28,22 @@ pub fn App() -> Element {
     let prefs = use_signal(|| {
         crate::storage::load_prefs()
             .and_then(|text| serde_json::from_str::<Preferences>(&text).ok())
-            .unwrap_or_default()
+            // No saved preference yet: start in the browser's language when we
+            // can guess it, otherwise English.
+            .unwrap_or_else(|| Preferences {
+                language: crate::platform::preferred_language().unwrap_or_default(),
+                ..Default::default()
+            })
     });
     let show_prefs = use_signal(|| false);
-    let show_palette = use_signal(|| false);
     let show_trips = use_signal(|| false);
     let show_map = use_signal(|| false);
     let show_planner = use_signal(|| false);
     let show_sync = use_signal(|| false);
     let show_download = use_signal(|| false);
+    // Assume available, then hide the Download action on web platforms that
+    // have neither Web Serial nor Web Bluetooth (e.g. iOS).
+    let download_available = use_signal(|| true);
     let show_compare = use_signal(|| false);
     let mut mobile_detail = use_signal(|| false);
     let presets = use_signal(|| {
@@ -47,6 +54,9 @@ pub fn App() -> Element {
     // Autosave is gated until the initial load has completed, so we never
     // overwrite a stored log with the empty in-memory log on startup.
     let loaded = use_signal(|| false);
+    // Set when a local write fails, so the UI never claims data is safe when
+    // it isn't (quota exhausted, private mode, ...).
+    let mut storage_error = use_signal(|| None::<String>);
     let state = AppState {
         log,
         selected,
@@ -57,12 +67,12 @@ pub fn App() -> Element {
         presets,
         prefs,
         show_prefs,
-        show_palette,
         show_trips,
         show_map,
         show_planner,
         show_sync,
         show_download,
+        download_available,
         show_compare,
         mobile_detail,
     };
@@ -70,27 +80,45 @@ pub fn App() -> Element {
 
     // Preferences and filter presets are small and load synchronously.
     use_effect(move || {
+        let mut storage_error = storage_error;
         let snapshot = prefs();
         if let Ok(text) = serde_json::to_string(&snapshot) {
-            let _ = crate::storage::save_prefs(&text);
+            if let Err(error) = crate::storage::save_prefs(&text) {
+                storage_error.set(Some(error));
+            }
         }
     });
     use_effect(move || {
+        let mut storage_error = storage_error;
         let snapshot = presets();
         if let Ok(text) = serde_json::to_string(&snapshot) {
-            let _ = crate::storage::save_presets(&text);
+            if let Err(error) = crate::storage::save_presets(&text) {
+                storage_error.set(Some(error));
+            }
         }
     });
     // Keep the page in sync with the chosen theme (the web build also classes
     // <html> so the background behind the app matches).
     use_effect(move || {
-        crate::platform::set_theme(prefs().theme == benthic_core::Theme::Light);
+        let snapshot = prefs();
+        crate::platform::set_theme(snapshot.theme == benthic_core::Theme::Light);
+        crate::platform::set_language(snapshot.language.code());
     });
     // On narrow screens the detail screen replaces the list. With nothing
     // selected there is no detail to show, so return to the list.
     use_effect(move || {
         if (selected)().is_none() {
             mobile_detail.set(false);
+        }
+    });
+
+    // Detect dive-computer transport support on the web so the Download button
+    // is only offered where it can actually work.
+    #[cfg(target_arch = "wasm32")]
+    use_future(move || async move {
+        let mut download_available = download_available;
+        if !crate::platform::web_transport_available() {
+            download_available.set(false);
         }
     });
 
@@ -144,9 +172,17 @@ pub fn App() -> Element {
         if !(loaded)() {
             return;
         }
+        let mut storage_error = storage_error;
         let snapshot = log();
         if let Ok(text) = benthic_core::io::json::to_string(&snapshot) {
-            let _ = crate::storage::save(&text);
+            match crate::storage::save(&text) {
+                Ok(()) => {
+                    if storage_error().is_some() {
+                        storage_error.set(None);
+                    }
+                }
+                Err(error) => storage_error.set(Some(error)),
+            }
         }
     });
 
@@ -158,11 +194,6 @@ pub fn App() -> Element {
             return;
         }
         match evt.key() {
-            Key::Character(ref c) if c.as_str() == "k" => {
-                let mut palette = state.show_palette;
-                palette.set(!(state.show_palette)());
-                evt.prevent_default();
-            }
             Key::Character(ref c) if c.as_str() == "z" => {
                 if modifiers.contains(Modifiers::SHIFT) {
                     state.redo();
@@ -180,11 +211,15 @@ pub fn App() -> Element {
     };
 
     let theme_light = (prefs)().theme == benthic_core::Theme::Light;
-    let panes_class = if (mobile_detail)() {
-        "panes mobile-detail"
-    } else {
-        "panes"
-    };
+    let tr = crate::i18n::strings((prefs)().language);
+    let mut panes_class = String::from("panes");
+    if (mobile_detail)() {
+        panes_class.push_str(" mobile-detail");
+    }
+    // The mobile bulk-action bar overlays the panes, so reserve space for it.
+    if !(state.selection)().is_empty() {
+        panes_class.push_str(" selection-active");
+    }
 
     #[cfg(feature = "divecomputer")]
     let device_download = (show_download)().then(|| rsx! { DeviceDownloadDialog {} });
@@ -211,15 +246,26 @@ pub fn App() -> Element {
             onkeydown: on_keydown,
             Toolbar {}
             FilterBar {}
+            if let Some(error) = (storage_error)() {
+                div { class: "storage-warning",
+                    span { {crate::i18n::t1(tr.welcome_storage_error, error)} }
+                    button {
+                        class: "btn",
+                        onclick: move |_| storage_error.set(None),
+                        "{tr.dismiss}"
+                    }
+                }
+            }
             div { class: "{panes_class}",
                 DiveList {}
                 DiveDetail {}
             }
+            SelectionBar {}
+            if (loaded)() && (log)().dives.is_empty() && !(prefs)().seen_welcome {
+                WelcomeDialog {}
+            }
             if (show_prefs)() {
                 PreferencesDialog {}
-            }
-            if (show_palette)() {
-                CommandPalette {}
             }
             if (show_trips)() {
                 TripsDialog {}

@@ -11,7 +11,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>{app_title}</title>
 
     <!-- Primary SEO -->
@@ -52,9 +58,11 @@
     />
 
     <!-- Presentation -->
-    <meta name="theme-color" content="#0b1622" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1622" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef2f6" />
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="manifest" href="manifest.webmanifest" />
 
     <!-- Google Identity Services helper for "Sign in with Google" -->
     <script src="google-auth.js"></script>
@@ -105,6 +113,18 @@
       style="position: fixed; right: 0.6rem; bottom: 0.5rem; z-index: 25; font: 0.75rem system-ui, sans-serif; color: #7f97ad; background: rgba(11, 22, 34, 0.85); border: 1px solid #1e3347; border-radius: 6px; padding: 0.15rem 0.5rem; text-decoration: none;"
       >Privacy policy</a
     >
+    <script>
+      // Install the offline cache only on a real deployment. Skipping
+      // localhost keeps `dx serve` hot-reloading without a stale shell.
+      if (
+        "serviceWorker" in navigator &&
+        !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+      ) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("sw.js").catch(() => {});
+        });
+      }
+    </script>
     <noscript>
       <h1>benthic — a modern, local-first dive log</h1>
       <p>

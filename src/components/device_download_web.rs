@@ -35,7 +35,8 @@ pub fn DeviceDownloadWebDialog() -> Element {
         bluetooth_ok.set(bluetooth);
         if !serial && !bluetooth {
             message.set(Some(
-                "This browser has no Web Serial or Web Bluetooth support. Chrome, \
+                "No dive-computer transport is available in this browser. iPhone and \
+                 iPad (Safari) provide neither Web Serial nor Web Bluetooth; Chrome, \
                  Edge and Opera on desktop provide both."
                     .to_string(),
             ));

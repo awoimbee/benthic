@@ -14,6 +14,7 @@
 use dioxus::prelude::*;
 use serde::Serialize;
 
+use crate::i18n;
 use crate::state::AppState;
 
 const MAP_CSS: Asset = asset!("/assets/map/leaflet.bundle.css");
@@ -87,6 +88,11 @@ pub fn MapView(
     #[props(default)] max_zoom: u8,
     #[props(default)] height: Option<String>,
     #[props(default)] on_select: Option<EventHandler<u32>>,
+    /// When true, tapping the map reports the tapped coordinates instead of
+    /// (or as well as) opening a marker.
+    #[props(default)]
+    pick: bool,
+    #[props(default)] on_pick: Option<EventHandler<(f64, f64)>>,
 ) -> Element {
     let dom_id = use_hook(|| format!("benthic-map-{}", next_instance()));
     let mount_id = dom_id.clone();
@@ -105,6 +111,7 @@ pub fn MapView(
                 "id": mount_id.clone(),
                 "sites": sites,
                 "max_zoom": max_zoom,
+                "pick": pick,
             });
             let mut eval = document::eval(MAP_SCRIPT);
             if eval.send(payload).is_err() {
@@ -116,14 +123,25 @@ pub fn MapView(
                     let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) else {
                         continue;
                     };
-                    if value.get("type").and_then(|t| t.as_str()) != Some("select") {
-                        continue;
-                    }
-                    if let (Some(handler), Some(site)) = (
-                        on_select,
-                        value.get("site").and_then(|s| s.as_u64()).map(|s| s as u32),
-                    ) {
-                        handler.call(site);
+                    match value.get("type").and_then(|t| t.as_str()) {
+                        Some("select") => {
+                            if let (Some(handler), Some(site)) = (
+                                on_select,
+                                value.get("site").and_then(|s| s.as_u64()).map(|s| s as u32),
+                            ) {
+                                handler.call(site);
+                            }
+                        }
+                        Some("pick") => {
+                            if let Some(handler) = on_pick {
+                                let lat = value.get("lat").and_then(|v| v.as_f64());
+                                let lon = value.get("lon").and_then(|v| v.as_f64());
+                                if let (Some(lat), Some(lon)) = (lat, lon) {
+                                    handler.call((lat, lon));
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             });
@@ -138,10 +156,65 @@ pub fn MapView(
     }
 }
 
+/// A modal map used to pick one coordinate for a dive site.
+#[component]
+pub fn LocationPickerDialog(
+    on_choose: EventHandler<(f64, f64)>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let state = use_context::<AppState>();
+    let tr = i18n::strings((state.prefs)().language);
+    let mut picked = use_signal(|| None::<(f64, f64)>);
+    let sites: Vec<MapSite> = picked()
+        .map(|(lat, lon)| {
+            vec![MapSite {
+                site_id: 0,
+                name: tr.selected_location.to_string(),
+                lat,
+                lon,
+                dive_id: None,
+                dives: 0,
+                country: None,
+            }]
+        })
+        .unwrap_or_default();
+
+    rsx! {
+        div { class: "modal-backdrop", onclick: move |_| on_close.call(()),
+            div { class: "modal map-modal", onclick: move |evt| evt.stop_propagation(),
+                div { class: "map-modal-head",
+                    h2 { "{tr.pick_title}" }
+                    span { class: "muted", "{tr.pick_hint}" }
+                }
+                MapView {
+                    sites: sites.clone(),
+                    max_zoom: 16,
+                    height: "340px".to_string(),
+                    pick: true,
+                    on_pick: move |(lat, lon)| picked.set(Some((lat, lon))),
+                }
+                div { class: "detail-actions",
+                    button {
+                        class: "btn primary",
+                        disabled: picked().is_none(),
+                        onclick: move |_| {
+                            if let Some((lat, lon)) = picked() {
+                                on_choose.call((lat, lon));
+                            }
+                        },
+                        "{tr.use_this_location}"
+                    }
+                    button { class: "btn", onclick: move |_| on_close.call(()), "{tr.cancel}" }
+                }
+            }
+        }
+    }
+}
+
 struct SiteRow {
     id: u32,
     name: String,
-    dives: usize,
+    dives_label: String,
     dive_id: Option<u32>,
     country: Option<String>,
 }
@@ -155,18 +228,20 @@ pub fn MapDialog() -> Element {
     let mut mobile_detail = state.mobile_detail;
 
     let log = (state.log)();
+    let tr = i18n::strings((state.prefs)().language);
     let sites = MapSite::all(&log);
     let geolocated = sites.len();
     let total = log.sites.len();
 
     let mut open_dive = move |dive_id: Option<u32>| {
+        let t = state.strings();
         if let Some(id) = dive_id {
             selected.set(Some(id));
             mobile_detail.set(true);
             show_map.set(false);
-            state.set_status("Opened dive from map");
+            state.set_status(t.opened_from_map);
         } else {
-            state.set_status("No dives at this site yet");
+            state.set_status(t.no_dives_at_site);
         }
     };
 
@@ -175,7 +250,15 @@ pub fn MapDialog() -> Element {
         .map(|s| SiteRow {
             id: s.site_id,
             name: s.name.clone(),
-            dives: s.dives,
+            dives_label: format!(
+                "{} {}",
+                s.dives,
+                if s.dives == 1 {
+                    tr.dive_singular
+                } else {
+                    tr.dive_plural
+                }
+            ),
             dive_id: s.dive_id,
             country: s.country.clone(),
         })
@@ -189,15 +272,13 @@ pub fn MapDialog() -> Element {
                 class: "modal map-modal",
                 onclick: move |evt| evt.stop_propagation(),
                 div { class: "map-modal-head",
-                    h2 { "Dive sites" }
-                    span { class: "muted", "{geolocated} of {total} sites on the map" }
+                    h2 { "{tr.map_title}" }
+                    span { class: "muted", {i18n::t2(tr.map_sites_on_map, geolocated, total)} }
                 }
                 div { class: "map-modal-body",
                     div { class: "map-site-list",
                         if rows.is_empty() {
-                            div { class: "muted",
-                                "No dive sites with coordinates yet. Add a GPS position to a site to see it here."
-                            }
+                            div { class: "muted", "{tr.map_empty}" }
                         }
                         for row in rows {
                             button {
@@ -210,7 +291,7 @@ pub fn MapDialog() -> Element {
                                     if let Some(country) = row.country.clone() {
                                         "{country} · "
                                     }
-                                    "{row.dives} dive{plural(row.dives)}"
+                                    "{row.dives_label}"
                                 }
                             }
                         }
@@ -231,19 +312,11 @@ pub fn MapDialog() -> Element {
                     button {
                         class: "btn",
                         onclick: move |_| show_map.set(false),
-                        "Close"
+                        "{tr.close}"
                     }
                 }
             }
         }
-    }
-}
-
-fn plural(count: usize) -> &'static str {
-    if count == 1 {
-        ""
-    } else {
-        "s"
     }
 }
 
@@ -348,6 +421,14 @@ if (!ready || !container) {
     },
   });
   map.addControl(new LayerToggle());
+
+  if (payload.pick) {
+    map.on("click", (event) => {
+      dioxus.send(
+        JSON.stringify({ type: "pick", lat: event.latlng.lat, lon: event.latlng.lng }),
+      );
+    });
+  }
 
   const group =
     typeof L.markerClusterGroup === "function"

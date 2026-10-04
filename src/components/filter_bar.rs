@@ -2,12 +2,14 @@ use dioxus::prelude::*;
 
 use benthic_core::{DiveFilter, FilterPreset};
 
+use crate::i18n;
 use crate::state::AppState;
 
 /// A bar of structured filters (rating, tags, depth) and saved presets.
 #[component]
 pub fn FilterBar() -> Element {
     let state = use_context::<AppState>();
+    let t = i18n::strings((state.prefs)().language);
     let mut filter = state.filter;
     let mut presets_sig = state.presets;
     // Tags are edited as text and applied on change, to avoid re-formatting
@@ -26,9 +28,9 @@ pub fn FilterBar() -> Element {
     let ratings: Vec<(u8, String)> = (0..=5u8)
         .map(|r| {
             let label = if r == 0 {
-                "Any rating".to_string()
+                t.any_rating.to_string()
             } else {
-                format!("{r}+ stars")
+                i18n::t1(t.stars_plus, r)
             };
             (r, label)
         })
@@ -49,7 +51,7 @@ pub fn FilterBar() -> Element {
             }
         }
         presets_sig.set(list);
-        state.set_status("Saved filter preset");
+        state.set_status(t.saved_preset);
     };
 
     let on_delete_preset = move |_| {
@@ -65,16 +67,34 @@ pub fn FilterBar() -> Element {
         preset_name.set(String::new());
     };
 
-    // On narrow screens the fields collapse behind a toggle.
+    // Filters start collapsed on every screen size; the toggle shows how many
+    // are active so a hidden filter is never a surprise.
     let mut open = use_signal(|| false);
     let is_open = (open)();
+    let active_count = [
+        !current.tags.is_empty(),
+        current.min_rating > 0,
+        current.min_depth.is_some(),
+        current.max_depth.is_some(),
+    ]
+    .iter()
+    .filter(|active| **active)
+    .count();
+    let toggle_label = if active_count > 0 {
+        i18n::t1(t.filters_count, active_count)
+    } else {
+        t.filters.to_string()
+    };
+    let min_depth_hint = i18n::t1(t.min_depth, prefs.depth_unit());
+    let max_depth_hint = i18n::t1(t.max_depth, prefs.depth_unit());
 
     rsx! {
         div { class: "filter-bar",
             button {
                 class: "btn filter-toggle",
+                aria_expanded: if is_open { "true" } else { "false" },
                 onclick: move |_| open.set(!is_open),
-                if is_open { "Filters ▾" } else { "Filters ▸" }
+                if is_open { "{toggle_label} ▾" } else { "{toggle_label} ▸" }
             }
             div {
                 class: if is_open { "filter-fields open" } else { "filter-fields" },
@@ -91,7 +111,7 @@ pub fn FilterBar() -> Element {
             }
             input {
                 class: "field",
-                placeholder: "Tags (comma separated)",
+                placeholder: "{t.tags_placeholder}",
                 value: "{tags_text}",
                 onchange: move |evt| {
                     let text = evt.value();
@@ -106,7 +126,7 @@ pub fn FilterBar() -> Element {
             input {
                 class: "field narrow",
                 r#type: "number",
-                placeholder: "Min {prefs.depth_unit()}",
+                placeholder: "{min_depth_hint}",
                 value: current.min_depth.map(|d| format!("{:.0}", prefs.depth_value(d))).unwrap_or_default(),
                 oninput: move |evt| {
                     filter.write().min_depth = evt.value().parse::<f64>().ok().map(|v| prefs.depth_from_value(v));
@@ -115,7 +135,7 @@ pub fn FilterBar() -> Element {
             input {
                 class: "field narrow",
                 r#type: "number",
-                placeholder: "Max {prefs.depth_unit()}",
+                placeholder: "{max_depth_hint}",
                 value: current.max_depth.map(|d| format!("{:.0}", prefs.depth_value(d))).unwrap_or_default(),
                 oninput: move |evt| {
                     filter.write().max_depth = evt.value().parse::<f64>().ok().map(|v| prefs.depth_from_value(v));
@@ -128,13 +148,13 @@ pub fn FilterBar() -> Element {
                         tags_text_signal.set(String::new());
                         filter.set(DiveFilter::default());
                     },
-                    "Clear filters"
+                    "{t.clear_filters}"
                 }
             }
 
             span { class: "filter-sep" }
 
-            span { class: "filter-label", "Presets" }
+            span { class: "filter-label", "{t.presets}" }
             select {
                 class: "field",
                 value: "{selected.map(|i| i.to_string()).unwrap_or_default()}",
@@ -153,23 +173,23 @@ pub fn FilterBar() -> Element {
                         }
                     }
                 },
-                option { value: "", "Load preset…" }
+                option { value: "", "{t.load_preset}" }
                 for (index, preset) in presets.iter().enumerate() {
                     option { key: "{index}", value: "{index}", "{preset.name}" }
                 }
             }
             input {
                 class: "field",
-                placeholder: "Preset name",
+                placeholder: "{t.preset_name}",
                 value: "{preset_name()}",
                 oninput: move |evt| preset_name.set(evt.value()),
             }
-            button { class: "btn", onclick: on_save_preset, "Save" }
+            button { class: "btn", onclick: on_save_preset, "{t.save}" }
             button {
                 class: "btn",
                 disabled: selected.is_none(),
                 onclick: on_delete_preset,
-                "Delete"
+                "{t.delete}"
             }
             }
         }

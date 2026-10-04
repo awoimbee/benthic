@@ -50,8 +50,14 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
                 let mut selected = state.selected;
                 selected.set(Some(first));
             }
-            let mut log = state.log;
-            log.set(parsed);
+            // Go through the command stack so "Keep remote" is undoable like
+            // every other change, instead of silently replacing the log.
+            let before = (state.log)();
+            state.dispatch(benthic_core::Command::Snapshot {
+                label: "Sync: download remote".into(),
+                before: Box::new(before),
+                after: Box::new(parsed),
+            });
             bookmark.remote_revision = Some(remote.revision);
             bookmark.local_fingerprint = Some(core_sync::fingerprint(&remote.content));
             bookmark.last_sync_secs = crate::platform::now_secs();

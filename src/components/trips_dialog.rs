@@ -1,12 +1,13 @@
 use dioxus::prelude::*;
 
 use crate::actions;
+use crate::i18n;
 use crate::state::AppState;
 
 struct TripRow {
     id: u32,
     name: String,
-    count: usize,
+    dives: String,
     date: String,
     others: Vec<(u32, String)>,
 }
@@ -18,6 +19,7 @@ pub fn TripsDialog() -> Element {
     let mut show_trips = state.show_trips;
     let log = (state.log)();
     let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
 
     let trips: Vec<TripRow> = log
         .trips
@@ -35,7 +37,7 @@ pub fn TripsDialog() -> Element {
                 .filter(|other| other.id != trip.id)
                 .map(|other| {
                     let name = if other.location.is_empty() {
-                        format!("Trip #{}", other.id)
+                        i18n::t1(tr.trip_fallback, other.id)
                     } else {
                         other.location.clone()
                     };
@@ -45,7 +47,7 @@ pub fn TripsDialog() -> Element {
             TripRow {
                 id: trip.id,
                 name: trip.location.clone(),
-                count,
+                dives: i18n::t1(tr.n_dives, count),
                 date,
                 others,
             }
@@ -61,19 +63,19 @@ pub fn TripsDialog() -> Element {
             div {
                 class: "modal wide",
                 onclick: move |evt| evt.stop_propagation(),
-                h2 { "Trips" }
+                h2 { "{tr.manage_trips}" }
                 if empty {
-                    div { class: "muted", "No trips yet. Select dives and choose 'New trip' to create one." }
+                    div { class: "muted", "{tr.trips_empty}" }
                 }
                 for trip in trips {
                     div { key: "{trip.id}", class: "trip-edit-row",
                         input {
                             class: "field",
-                            placeholder: "Trip name",
+                            placeholder: "{tr.trip_name_placeholder}",
                             value: "{trip.name}",
                             onchange: move |evt| actions::rename_trip(state, trip.id, &evt.value()),
                         }
-                        span { class: "muted trip-edit-meta", "{trip.count} dives {trip.date}" }
+                        span { class: "muted trip-edit-meta", "{trip.dives} {trip.date}" }
                         select {
                             class: "field",
                             value: "",
@@ -82,14 +84,14 @@ pub fn TripsDialog() -> Element {
                                     actions::merge_trips(state, target, trip.id);
                                 }
                             },
-                            option { value: "", "Merge into…" }
+                            option { value: "", "{tr.merge_into}" }
                             for (id, name) in trip.others.iter() {
                                 option { key: "{id}", value: "{id}", "{name}" }
                             }
                         }
                         button {
                             class: "icon-btn",
-                            title: "Delete trip (dives are kept)",
+                            title: "{tr.delete_trip}",
                             onclick: move |_| actions::delete_trip(state, trip.id),
                             "✕"
                         }
@@ -99,7 +101,7 @@ pub fn TripsDialog() -> Element {
                     button {
                         class: "btn primary",
                         onclick: move |_| show_trips.set(false),
-                        "Done"
+                        "{tr.done}"
                     }
                 }
             }

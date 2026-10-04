@@ -63,11 +63,19 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
+  /* Keep mobile text legible and avoid iOS inflating it in landscape. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Don't flash a grey box over controls when they are tapped. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 #main,
 .app {
   height: 100vh;
+  /* The dynamic viewport tracks mobile browser chrome, so the app is never
+     clipped by (or hidden behind) the address bar. */
+  height: 100dvh;
 }
 
 .app {
@@ -75,6 +83,21 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
+}
+
+/* Remove the ~300 ms tap delay and double-tap-to-zoom on interactive chrome,
+   while leaving the profile chart (which needs pan-y) untouched. */
+.btn,
+.icon-btn,
+.dc-tab,
+.dive-row,
+.trip-row,
+.star,
+.check,
+.device-model,
+.device-entry,
+.map-site-row {
+  touch-action: manipulation;
 }
 
 /* ---- Toolbar ---- */
@@ -886,66 +909,6 @@ textarea.field {
   color: var(--danger);
 }
 
-/* ---- Command palette ---- */
-.palette {
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  width: min(560px, 92vw);
-  max-height: 70vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-}
-
-.palette-input {
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-  padding: 0.8rem 1rem;
-  font-size: 1rem;
-}
-
-.palette-input:focus {
-  outline: none;
-}
-
-.palette-list {
-  list-style: none;
-  margin: 0;
-  padding: 0.25rem;
-  overflow-y: auto;
-}
-
-.palette-item {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.palette-item:hover {
-  background: var(--accent-dim);
-}
-
-.palette-label {
-  font-size: 0.9rem;
-}
-
-.palette-hint {
-  color: var(--muted);
-  font-size: 0.72rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 55%;
-}
-
 .map-link {
   display: inline-block;
   margin-bottom: 1rem;
@@ -988,17 +951,29 @@ textarea.field {
   accent-color: var(--accent);
 }
 
-/* Responsive header: on wide screens the grouped wrappers are transparent and
-   the collapse buttons are hidden; the media query below flips that. */
-.menu-toggle,
-.filter-toggle,
-.back-btn {
+/* The back button and the folded menu are narrow-screen affordances; the
+   desktop menu bar takes over on wide screens. Filters start collapsed on
+   every screen size. */
+.back-btn,
+.menu-toggle {
   display: none;
 }
 
-.toolbar-actions,
+.filter-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
 .filter-fields {
-  display: contents;
+  display: none;
+}
+
+.filter-fields.open {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 @media (max-width: 720px) {
@@ -1015,57 +990,33 @@ textarea.field {
   .toolbar-count {
     display: none;
   }
+  /* The spacer is a wide-screen device; on a phone the search should own the
+     free space instead. */
+  .toolbar .spacer {
+    display: none;
+  }
   .search {
     flex: 1;
     min-width: 0;
   }
-  .menu-toggle {
-    display: inline-flex;
-  }
-  .toolbar-actions {
+  .menu-label {
     display: none;
   }
-  .toolbar-actions.open {
-    position: absolute;
-    top: 100%;
-    right: 0.5rem;
-    left: 0.5rem;
-    z-index: 30;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.4rem;
-    padding: 0.5rem;
-    background: var(--bg-alt);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  .status-wide {
+    display: none;
   }
-  .toolbar-actions .btn {
-    justify-content: flex-start;
+  .menu-toggle {
+    display: inline-flex;
+    gap: 0.35rem;
   }
-  .toolbar-actions .status {
-    max-width: none;
-    white-space: normal;
+  .toolbar-menus {
+    display: none;
   }
 
   /* Filters collapse behind a toggle to save vertical space. */
   .filter-bar {
     gap: 0.4rem;
     padding: 0.4rem 0.6rem;
-  }
-  .filter-toggle {
-    display: inline-flex;
-  }
-  .filter-fields {
-    display: none;
-  }
-  .filter-fields.open {
-    display: flex;
-    flex-basis: 100%;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
   }
   .filter-bar .field {
     flex: 1;
@@ -1373,5 +1324,624 @@ textarea.field {
 
   .map-site-list {
     max-height: 30vh;
+  }
+}
+
+/* =====================================================================
+   Touch & mobile ergonomics
+   ---------------------------------------------------------------------
+   A phone is a first-class target: comfortable 44px targets, 16px inputs
+   (which stop iOS Safari zooming on focus), a scrollable toolbar menu,
+   modals that fit the dynamic viewport, and safe-area insets so nothing
+   hides behind a notch or the home indicator.
+   ===================================================================== */
+
+/* Coarse pointers (phones, tablets) get chunky, forgiving targets. */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 44px;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .dc-tab {
+    min-height: 40px;
+    padding: 0.45rem 0.8rem;
+  }
+
+  .row-check {
+    width: 20px;
+    height: 20px;
+  }
+
+  .check {
+    min-height: 44px;
+    padding: 0.1rem 0;
+  }
+
+  .scrub {
+    height: 32px;
+  }
+
+  .scrub::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  .star {
+    min-width: 40px;
+    font-size: 1.6rem;
+    padding: 0.1rem;
+  }
+}
+
+/* There is no hover on touch: use a pressed state so taps feel responsive. */
+@media (hover: none) {
+  .btn:active,
+  .icon-btn:active,
+  .dc-tab:active {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .dive-row:active,
+  .trip-row:active,
+  .device-model:active,
+  .device-entry:active,
+  .map-site-row:active:not(:disabled) {
+    background: var(--accent-dim);
+  }
+}
+
+/* A transparent layer behind the collapsed toolbar menu, so tapping anywhere
+   else dismisses it (mobile only; the toggle is hidden on wide screens). */
+.menu-backdrop {
+  display: none;
+}
+
+/* The thumb-reachable bulk-action bar is a mobile-only affordance; wide
+   screens keep those actions in the toolbar. */
+.selection-bar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+    background: transparent;
+  }
+
+  /* 16px form text prevents the iOS focus-zoom. */
+  .field,
+  .search,
+  .trip-rename,
+  textarea.field {
+    font-size: 16px;
+  }
+
+  .dive-list,
+  .detail {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dive-row {
+    min-height: 56px;
+    padding: 0.7rem 0.85rem;
+  }
+
+  .trip-row {
+    min-height: 52px;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .toolbar {
+    padding-top: max(0.45rem, env(safe-area-inset-top));
+    padding-left: max(0.6rem, env(safe-area-inset-left));
+    padding-right: max(0.6rem, env(safe-area-inset-right));
+  }
+
+  .filter-bar {
+    padding-left: max(0.6rem, env(safe-area-inset-left));
+    padding-right: max(0.6rem, env(safe-area-inset-right));
+  }
+
+  .dive-list {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .detail {
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+  }
+
+  /* The folded sheet can be taller than the viewport: scroll it and keep the
+     last item clear of the home indicator. */
+  .toolbar-sheet {
+    max-height: calc(100dvh - 4.5rem);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Modals fit the viewport instead of overflowing a small screen. */
+  .modal {
+    width: calc(100vw - 1rem);
+    min-width: 0;
+    max-width: none;
+    max-height: calc(100dvh - 1rem);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  /* Wide equipment tables scroll sideways rather than being squashed. */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-scroll .data-table {
+    min-width: 420px;
+  }
+
+  /* Bulk actions as a sticky bottom bar, reachable by thumb. */
+  .selection-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 35;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+    background: var(--bg-alt);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .selection-bar .btn {
+    flex: 0 0 auto;
+  }
+
+  .selection-bar .selected-count {
+    flex: 1 1 auto;
+  }
+
+  /* Leave room under the scrolling panes for the fixed bulk-action bar. */
+  .panes.selection-active .dive-list,
+  .panes.selection-active .detail {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* =====================================================================
+   Welcome, help and data-entry affordances
+   ===================================================================== */
+
+/* ---- First-run welcome ---- */
+.welcome {
+  width: min(480px, 94vw);
+}
+
+.welcome-lead {
+  margin-top: 0;
+  font-size: 0.95rem;
+}
+
+.welcome-points {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.welcome-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* ---- Persistence warning ---- */
+.storage-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: rgba(240, 113, 120, 0.14);
+  border-bottom: 1px solid var(--danger);
+  font-size: 0.85rem;
+}
+
+/* ---- Site GPS + tag suggestions ---- */
+.gps-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.gps-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.tag-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.tag-add {
+  cursor: pointer;
+  border: 1px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+
+.tag-add:hover {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+/* ---- Tappable help (?), because title tooltips never show on touch ---- */
+.label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.fact-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.info-tip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.info-tip:hover,
+.info-tip.open {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.info-pop {
+  position: absolute;
+  z-index: 60;
+  top: 130%;
+  left: 0;
+  width: max-content;
+  max-width: min(280px, 70vw);
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  /* Undo the tiny uppercase label styling inherited from `.field-label`. */
+  text-transform: none;
+  letter-spacing: normal;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* ---- Planner waypoints as collapsible cards ---- */
+.planner-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.plan-point {
+  display: block;
+  padding: 0.4rem 0.5rem;
+}
+
+.plan-point-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.plan-point-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plan-point-caret {
+  width: 0.8rem;
+  color: var(--accent);
+}
+
+.plan-point-summary {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.plan-point-mode {
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.plan-point-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.plan-point-body .readout {
+  padding: 0.4rem 0.1rem;
+  font-size: 0.9rem;
+}
+
+.point-remove {
+  align-self: center;
+}
+
+@media (max-width: 720px) {
+  /* Stack the GPS field above its two buttons so nothing gets crushed. */
+  .gps-row {
+    flex-wrap: wrap;
+  }
+
+  .gps-row .field {
+    flex-basis: 100%;
+  }
+
+  .plan-point-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- Manual profile editor ---- */
+.profile-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.profile-point {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.profile-point .field-label {
+  flex: 1 1 130px;
+  min-width: 0;
+}
+
+.profile-point .plan-point-index {
+  align-self: center;
+}
+
+.profile-point .point-remove {
+  align-self: center;
+}
+
+@media (max-width: 720px) {
+  .profile-point .field-label {
+    flex: 1 1 calc(50% - 2rem);
+  }
+}
+
+
+/* =====================================================================
+   Categorized menu bar
+   ---------------------------------------------------------------------
+   Wide screens show one dropdown per category (Dives / Tools / Files /
+   Settings); phones fold them into a single sheet with headings.
+   ===================================================================== */
+
+/* The status line sits in the bar on wide screens and in the sheet on phones. */
+.status-wide {
+  display: inline;
+}
+
+/* A backdrop exists only while a menu is open; a click anywhere closes it. */
+.menu-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  background: transparent;
+}
+
+.toolbar-menus {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.menu {
+  position: relative;
+}
+
+.menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.menu-trigger:hover,
+.menu-trigger.open {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-height: min(80vh, 640px);
+  overflow-y: auto;
+  padding: 0.4rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
+}
+
+/* Hidden on wide screens; the phone sheet is shown by the media query below. */
+.toolbar-sheet {
+  display: none;
+}
+
+.menu-heading {
+  padding: 0.35rem 0.6rem 0.15rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.menu-heading:not(:first-child) {
+  margin-top: 0.3rem;
+  border-top: 1px solid var(--border);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-item.active {
+  color: var(--accent);
+}
+
+.menu-status {
+  margin-top: 0.25rem;
+  padding: 0.45rem 0.6rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: normal;
+}
+
+/* The file pickers arrive as `.btn` labels; blend them into the menus. */
+.menu-panel .btn,
+.toolbar-sheet .btn {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 0.9rem;
+}
+
+.menu-panel .btn:hover,
+.toolbar-sheet .btn:hover {
+  background: var(--accent-dim);
+  border-color: transparent;
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .toolbar-sheet {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0.5rem;
+    right: 0.5rem;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    padding: 0.4rem;
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
   }
 }

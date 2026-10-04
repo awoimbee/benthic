@@ -4,6 +4,8 @@ use dioxus::prelude::*;
 
 use benthic_core::{Command, DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
+use crate::i18n::{self, Strings};
+
 /// Signals shared across the app. `Signal` is `Copy`, so this whole struct is
 /// cheap to pass around and to provide as context.
 #[derive(Clone, Copy)]
@@ -26,8 +28,6 @@ pub struct AppState {
     pub prefs: Signal<Preferences>,
     /// Whether the preferences dialog is open.
     pub show_prefs: Signal<bool>,
-    /// Whether the command palette is open.
-    pub show_palette: Signal<bool>,
     /// Whether the trips manager is open.
     pub show_trips: Signal<bool>,
     /// Whether the dive-site map is open.
@@ -39,6 +39,11 @@ pub struct AppState {
     /// Whether the dive-computer download dialog is open.
     #[cfg_attr(not(feature = "divecomputer"), allow(dead_code))]
     pub show_download: Signal<bool>,
+    /// Whether this platform can talk to a dive computer at all (Web
+    /// Serial/Bluetooth detected, or a native build). Drives whether the
+    /// Download button is offered.
+    #[allow(dead_code)]
+    pub download_available: Signal<bool>,
     /// Whether the two-dive comparison is open.
     pub show_compare: Signal<bool>,
     /// Narrow screens only: whether the detail screen is showing rather than
@@ -124,5 +129,10 @@ impl AppState {
     pub fn set_status(&self, message: impl Into<String>) {
         let mut status = self.status;
         status.set(message.into());
+    }
+
+    /// The translation table for the active language.
+    pub fn strings(&self) -> &'static Strings {
+        i18n::strings((self.prefs)().language)
     }
 }

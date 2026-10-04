@@ -11,6 +11,7 @@ mod components;
 mod divecomputer;
 mod divecomputer_web;
 mod format;
+mod i18n;
 mod platform;
 mod state;
 mod storage;

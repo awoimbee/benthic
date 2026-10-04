@@ -1,0 +1,20 @@
+{
+  "name": "benthic — dive log",
+  "short_name": "benthic",
+  "description": "A modern, local-first dive log: import Subsurface logs, plan dives, browse profiles, and keep your data on your own device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1622",
+  "theme_color": "#0b1622",
+  "categories": ["sports", "utilities"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

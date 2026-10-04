@@ -58,7 +58,6 @@ Guiding principles:
 - [x] Preferences: date and time formats
 - [x] Preferences: dark and light themes
 - [x] Preferences: default salinity and default cylinder
-- [x] Command palette (`Ctrl/Cmd+K`)
 - [x] Manual load/save via import/export; autosave means there are no unsaved changes
 - [x] Data safety: hourly automatic backup, crash recovery, undoable deletes
 
@@ -128,7 +127,9 @@ list below).
       (OneDrive, FTP, ...) additive
 - [ ] PWA: offline install, update prompts, file-handling API for `.ssrf`
 - [ ] Mobile targets (Dioxus iOS/Android)
-- [ ] Internationalization (gettext/fluent) and translations
+- [x] Internationalization with a typed string table and a French translation
+      (a light in-house layer: one `Strings` table per language, persisted in
+      preferences and applied to the `<html lang>` attribute)
 - [ ] Theming (light/dark/high-contrast) and accessibility (a11y) audit
 - [ ] Import/export through the File System Access API on supported browsers
 - [ ] Performance: virtualized lists, streaming parse for very large logs

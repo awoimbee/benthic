@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use benthic_core::units::{format_duration, Depth, Duration, Pressure, Temperature};
 use benthic_core::{Dive, DiveComputer, Preferences};
 
+use crate::i18n;
 use crate::state::AppState;
 
 const COLOR_DEPTH: &str = "var(--trace-depth)";
@@ -24,6 +25,7 @@ const COLOR_CEILING: &str = "var(--trace-ceiling)";
 pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let state = use_context::<AppState>();
     let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
 
     // Which metrics this dive actually carries, so toggles can be disabled
     // when there is nothing to show. Computed before the hooks (which must run
@@ -49,11 +51,11 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let mut plot_left = use_signal(|| 0.0f64);
 
     let Some(active) = active_opt else {
-        return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
+        return rsx! { div { class: "profile empty-hint", "{tr.no_profile}" } };
     };
 
     if active.samples.len() < 2 {
-        return rsx! { div { class: "profile empty-hint", "No profile data for this dive." } };
+        return rsx! { div { class: "profile empty-hint", "{tr.no_profile}" } };
     }
 
     // A common frame so multiple computers can be compared directly.
@@ -541,13 +543,13 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                Toggle { label: "Pressure", color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: "Cylinder pressure during the dive", onclick: move |_| show_pressure.set(!pressure_on) }
-                Toggle { label: "Temperature", color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: "Water temperature during the dive", onclick: move |_| show_temp.set(!temp_on) }
-                Toggle { label: "NDL", color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: "No-decompression limit: how much longer you can stay at this depth without requiring a stop", onclick: move |_| show_ndl.set(!ndl_on) }
-                Toggle { label: "TTS", color: COLOR_TTS, on: tts_on, disabled: !available.tts, title: "Time to surface: estimated ascent time including any decompression stops", onclick: move |_| show_tts.set(!tts_on) }
-                Toggle { label: "Heart", color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: "Heart rate in beats per minute", onclick: move |_| show_heart.set(!heart_on) }
-                Toggle { label: "CNS", color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: "Central nervous system oxygen toxicity, as a share of the NOAA limit", onclick: move |_| show_cns.set(!cns_on) }
-                Toggle { label: "Deco", color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: "Decompression ceiling: the shallowest depth you may ascend to", onclick: move |_| show_deco.set(!deco_on) }
+                Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: "Cylinder pressure during the dive", onclick: move |_| show_pressure.set(!pressure_on) }
+                Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: "Water temperature during the dive", onclick: move |_| show_temp.set(!temp_on) }
+                Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: "No-decompression limit: how much longer you can stay at this depth without requiring a stop", onclick: move |_| show_ndl.set(!ndl_on) }
+                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !available.tts, title: "Time to surface: estimated ascent time including any decompression stops", onclick: move |_| show_tts.set(!tts_on) }
+                Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: "Heart rate in beats per minute", onclick: move |_| show_heart.set(!heart_on) }
+                Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: "Central nervous system oxygen toxicity, as a share of the NOAA limit", onclick: move |_| show_cns.set(!cns_on) }
+                Toggle { label: tr.deco, color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: "Decompression ceiling: the shallowest depth you may ascend to", onclick: move |_| show_deco.set(!deco_on) }
                 if zoom_value > 1.01 {
                     button {
                         class: "btn",
@@ -556,7 +558,7 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             zoom.set(1.0);
                             pan.set(0.5);
                         },
-                        "Reset zoom"
+                        "{tr.reset_zoom}"
                     }
                 }
                 input {

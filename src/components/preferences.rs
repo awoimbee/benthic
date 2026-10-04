@@ -1,8 +1,9 @@
 use dioxus::prelude::*;
 
-use benthic_core::{DateFormat, Salinity, Theme, TimeFormat, UnitSystem};
+use benthic_core::{DateFormat, Language, Salinity, Theme, TimeFormat, UnitSystem};
 
 use crate::actions;
+use crate::i18n;
 use crate::state::AppState;
 
 /// A modal for display preferences and data recovery.
@@ -11,8 +12,10 @@ pub fn PreferencesDialog() -> Element {
     let state = use_context::<AppState>();
     let mut prefs = state.prefs;
     let mut show_prefs = state.show_prefs;
+    let t = i18n::strings(prefs().language);
     let current = (state.prefs)().units;
     let current_theme = (state.prefs)().theme;
+    let current_language = (state.prefs)().language;
     let current_date = (state.prefs)().date_format;
     let current_time = (state.prefs)().time_format;
     let date_index = DateFormat::ALL
@@ -35,8 +38,8 @@ pub fn PreferencesDialog() -> Element {
     let backup_age = crate::storage::backup_age_secs();
     let has_backup = backup_age.is_some();
     let backup_label = match backup_age {
-        Some(age) => format!("Automatic backup: {}", human_age(age)),
-        None => "No automatic backup yet".to_string(),
+        Some(age) => i18n::t1(t.backup_age, human_age(age)),
+        None => t.no_backup_yet.to_string(),
     };
 
     // The policy page is a static web asset; it does not exist in the desktop
@@ -44,16 +47,14 @@ pub fn PreferencesDialog() -> Element {
     #[cfg(target_arch = "wasm32")]
     let privacy = Some(rsx! {
         div { class: "pref-group",
-            div { class: "field-label", "About" }
-            div { class: "muted",
-                "benthic is local-first: your log stays on this device unless you configure sync."
-            }
+            div { class: "field-label", "{t.about}" }
+            div { class: "muted", "{t.about_text}" }
             a {
                 class: "link",
                 href: "privacy.html",
                 target: "_blank",
                 rel: "noopener",
-                "Privacy policy ↗"
+                "{t.privacy_policy}"
             }
         }
     });
@@ -67,9 +68,25 @@ pub fn PreferencesDialog() -> Element {
             div {
                 class: "modal",
                 onclick: move |evt| evt.stop_propagation(),
-                h2 { "Preferences" }
+                h2 { "{t.preferences}" }
                 div { class: "pref-group",
-                    div { class: "field-label", "Theme" }
+                    div { class: "field-label", "{t.language}" }
+                    for language in Language::ALL {
+                        label {
+                            key: "{language.code()}",
+                            class: "radio",
+                            input {
+                                r#type: "radio",
+                                name: "language",
+                                checked: current_language == language,
+                                onchange: move |_| prefs.write().language = language,
+                            }
+                            span { "{language.label()}" }
+                        }
+                    }
+                }
+                div { class: "pref-group",
+                    div { class: "field-label", "{t.theme}" }
                     for theme in Theme::ALL {
                         label {
                             key: "{theme.label()}",
@@ -80,12 +97,12 @@ pub fn PreferencesDialog() -> Element {
                                 checked: current_theme == theme,
                                 onchange: move |_| prefs.write().theme = theme,
                             }
-                            span { "{theme.label()}" }
+                            span { "{theme_label(t, theme)}" }
                         }
                     }
                 }
                 div { class: "pref-group",
-                    div { class: "field-label", "Units" }
+                    div { class: "field-label", "{t.units}" }
                     for units in UnitSystem::ALL {
                         label {
                             key: "{units.label()}",
@@ -96,12 +113,12 @@ pub fn PreferencesDialog() -> Element {
                                 checked: current == units,
                                 onchange: move |_| prefs.write().units = units,
                             }
-                            span { "{units.label()} — {units_description(units)}" }
+                            span { "{unit_label(t, units)} — {units_description(units)}" }
                         }
                     }
                 }
                 div { class: "pref-group",
-                    div { class: "field-label", "Date format" }
+                    div { class: "field-label", "{t.date_format}" }
                     select {
                         class: "field",
                         value: "{date_index}",
@@ -113,7 +130,7 @@ pub fn PreferencesDialog() -> Element {
                             option { key: "{index}", value: "{index}", "{format.label()}" }
                         }
                     }
-                    div { class: "field-label", "Time format" }
+                    div { class: "field-label", "{t.time_format}" }
                     select {
                         class: "field",
                         value: "{time_index}",
@@ -127,7 +144,7 @@ pub fn PreferencesDialog() -> Element {
                     }
                 }
                 div { class: "pref-group",
-                    div { class: "field-label", "Default salinity" }
+                    div { class: "field-label", "{t.default_salinity}" }
                     select {
                         class: "field",
                         value: "{salinity_index}",
@@ -139,7 +156,7 @@ pub fn PreferencesDialog() -> Element {
                             option { key: "{index}", value: "{index}", "{salinity.label()}" }
                         }
                     }
-                    div { class: "field-label", "Default cylinder for new rows" }
+                    div { class: "field-label", "{t.default_cylinder}" }
                     select {
                         class: "field",
                         value: "{cylinder_value}",
@@ -147,21 +164,21 @@ pub fn PreferencesDialog() -> Element {
                             let value = evt.value();
                             prefs.write().default_cylinder = if value.is_empty() { None } else { value.parse().ok() };
                         },
-                        option { value: "", "None" }
+                        option { value: "", "{t.none}" }
                         for (index, preset) in benthic_core::CYLINDER_PRESETS.iter().enumerate() {
                             option { key: "{index}", value: "{index}", "{preset.name}" }
                         }
                     }
                 }
                 div { class: "pref-group",
-                    div { class: "field-label", "Data" }
+                    div { class: "field-label", "{t.data}" }
                     div { class: "muted", "{backup_label}" }
                     div { class: "detail-actions",
                         button {
                             class: "btn",
                             disabled: !has_backup,
                             onclick: move |_| actions::restore_backup(state),
-                            "Restore last backup"
+                            "{t.restore_backup}"
                         }
                     }
                 }
@@ -170,11 +187,25 @@ pub fn PreferencesDialog() -> Element {
                     button {
                         class: "btn primary",
                         onclick: move |_| show_prefs.set(false),
-                        "Done"
+                        "{t.done}"
                     }
                 }
             }
         }
+    }
+}
+
+fn theme_label(t: &'static i18n::Strings, theme: Theme) -> &'static str {
+    match theme {
+        Theme::Dark => t.theme_dark,
+        Theme::Light => t.theme_light,
+    }
+}
+
+fn unit_label(t: &'static i18n::Strings, units: UnitSystem) -> &'static str {
+    match units {
+        UnitSystem::Metric => t.unit_metric,
+        UnitSystem::Imperial => t.unit_imperial,
     }
 }
 

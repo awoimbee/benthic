@@ -1,23 +1,27 @@
 use dioxus::prelude::*;
 
 use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
-use benthic_core::units::{format_duration, Weight};
+use benthic_core::units::{format_duration, Timestamp, Weight};
 use benthic_core::{Command, Cylinder, CylinderUse, Dive, DiveSite, Location, WeightSystem};
 
 use crate::actions;
-use crate::components::{DiveProfile, MapSite, MapView};
+use crate::components::{
+    profile_bounds, DiveProfile, LocationPickerDialog, MapSite, MapView, ProfileEditorDialog,
+};
+use crate::i18n;
 use crate::state::AppState;
 
 #[component]
 pub fn DiveDetail() -> Element {
     let state = use_context::<AppState>();
+    let tr = i18n::strings((state.prefs)().language);
     let selected = (state.selected)();
     let log = (state.log)();
 
     let Some(dive) = selected.and_then(|id| log.dive_by_id(id).cloned()) else {
         return rsx! {
             section { class: "detail",
-                div { class: "empty-hint", "Select a dive to see its details." }
+                div { class: "empty-hint", "{tr.select_dive}" }
             }
         };
     };
@@ -30,6 +34,7 @@ pub fn DiveDetail() -> Element {
 /// typing does not clone the (potentially huge) sample arrays.
 #[derive(Clone, PartialEq)]
 struct DiveForm {
+    when: Timestamp,
     number: i32,
     buddy: String,
     divemaster: String,
@@ -47,6 +52,7 @@ struct DiveForm {
 impl DiveForm {
     fn from_dive(dive: &Dive, site: Option<&DiveSite>) -> Self {
         Self {
+            when: dive.when,
             number: dive.number,
             buddy: dive.buddy.clone(),
             divemaster: dive.diveguide.clone(),
@@ -72,10 +78,15 @@ fn DiveDetailInner(dive: Dive) -> Element {
     let mut mobile_detail = state.mobile_detail;
     let log = (state.log)();
     let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
     let site = dive.site_id.and_then(|id| log.site_by_uuid(id)).cloned();
 
     let mut editing = use_signal(|| false);
     let mut form = use_signal(|| DiveForm::from_dive(&dive, site.as_ref()));
+    // Samples edited in the profile editor, applied only when the dive is saved.
+    let mut edited_samples = use_signal(|| None::<Vec<benthic_core::Sample>>);
+    let mut show_profile = use_signal(|| false);
+    let mut show_picker = use_signal(|| false);
     let confirm_delete = use_signal(|| false);
     let mut active_dc = use_signal(|| 0usize);
 
@@ -92,8 +103,10 @@ fn DiveDetailInner(dive: Dive) -> Element {
         move |_| {
             let form = form;
             let mut editing = editing;
+            let mut edited_samples = edited_samples;
             let f = form();
             let mut after = dive.clone();
+            after.when = f.when;
             after.number = f.number;
             after.buddy = f.buddy;
             after.diveguide = f.divemaster;
@@ -104,6 +117,22 @@ fn DiveDetailInner(dive: Dive) -> Element {
             after.trip_id = f.trip_id;
             after.cylinders = f.cylinders;
             after.weights = f.weights;
+
+            // A profile edited in the profile editor replaces the samples;
+            // max depth and bottom time are derived from it.
+            if let Some(samples) = (edited_samples)() {
+                let (max_depth, duration) = profile_bounds(&samples);
+                after.max_depth = max_depth;
+                after.duration = duration;
+                if let Some(computer) = after.computers.first_mut() {
+                    computer.samples = samples;
+                    computer.max_depth = max_depth;
+                    computer.duration = duration;
+                    if computer.model.is_empty() {
+                        computer.model = "Manually entered".to_string();
+                    }
+                }
+            }
 
             let mut commands: Vec<Command> = Vec::new();
             let name = f.site_name.trim().to_string();
@@ -140,7 +169,8 @@ fn DiveDetailInner(dive: Dive) -> Element {
             });
             state.dispatch_all("Edit dive", commands);
             editing.set(false);
-            state.set_status("Saved dive");
+            edited_samples.set(None);
+            state.set_status(tr.saved_dive);
         }
     };
 
@@ -150,8 +180,10 @@ fn DiveDetailInner(dive: Dive) -> Element {
         move |_| {
             let mut form = form;
             let mut editing = editing;
+            let mut edited_samples = edited_samples;
             form.set(DiveForm::from_dive(&dive, site.as_ref()));
             editing.set(false);
+            edited_samples.set(None);
         }
     };
 
@@ -237,6 +269,100 @@ fn DiveDetailInner(dive: Dive) -> Element {
     // --- edit-form values -------------------------------------------------
 
     let f = (form)();
+    let when_value = benthic_core::datetime_local(f.when);
+    // The profile can be edited by hand only when it is not a dive-computer
+    // recording; imported traces are left untouched.
+    let profile_editable = dive
+        .primary_computer()
+        .map(|dc| dc.samples.is_empty() || dc.model == "Manually entered")
+        .unwrap_or(true);
+    let profile_samples: Option<Vec<benthic_core::Sample>> = (edited_samples)();
+    let (profile_max, profile_time) = match &profile_samples {
+        Some(samples) => profile_bounds(samples),
+        None => (
+            dive.max_depth()
+                .or_else(|| dive.primary_computer().and_then(|dc| dc.max_depth)),
+            dive.duration().or_else(|| {
+                dive.primary_computer()
+                    .and_then(|dc| dc.duration_or_last_sample())
+            }),
+        ),
+    };
+    let profile_summary = i18n::t2(
+        tr.profile_summary,
+        profile_max
+            .map(|depth| prefs.depth(depth))
+            .unwrap_or_else(|| "—".to_string()),
+        profile_time
+            .map(format_duration)
+            .unwrap_or_else(|| "—".to_string()),
+    );
+    // Preview the edited profile in the chart before the form is saved.
+    let preview_dive = match &profile_samples {
+        Some(samples) => Dive {
+            max_depth: profile_max,
+            duration: profile_time,
+            computers: vec![benthic_core::DiveComputer {
+                model: dive
+                    .primary_computer()
+                    .map(|dc| dc.model.clone())
+                    .unwrap_or_default(),
+                samples: samples.clone(),
+                max_depth: profile_max,
+                duration: profile_time,
+                ..Default::default()
+            }],
+            ..dive.clone()
+        },
+        None => dive.clone(),
+    };
+    let preview_dc = if profile_samples.is_some() {
+        0
+    } else {
+        (active_dc)()
+    };
+    let buddy_options = unique_values(log.dives.iter().map(|d| d.buddy.as_str()));
+    let divemaster_options = unique_values(log.dives.iter().map(|d| d.diveguide.as_str()));
+    let suit_options = unique_values(log.dives.iter().map(|d| d.suit.as_str()));
+    let tag_options: Vec<String> = {
+        let mut tags: Vec<String> = log
+            .dives
+            .iter()
+            .flat_map(|d| d.tags.iter().cloned())
+            .filter(|t| !t.trim().is_empty())
+            .collect();
+        tags.sort();
+        tags.dedup();
+        tags
+    };
+    // The most recent earlier dive, for the one-tap copy shortcut.
+    let previous_dive = log
+        .dives
+        .iter()
+        .filter(|d| d.id != dive.id && d.when <= dive.when)
+        .max_by_key(|d| d.when)
+        .cloned();
+
+    #[cfg(target_arch = "wasm32")]
+    let location_button = Some(rsx! {
+        button {
+            class: "btn",
+            r#type: "button",
+            title: "{tr.use_my_location_title}",
+            onclick: move |_| {
+                let mut form = form;
+                spawn(async move {
+                    if let Some((lat, lon)) = crate::platform::current_location().await {
+                        form.write().site_gps = format!("{lat:.6}, {lon:.6}");
+                    }
+                });
+            },
+            "{tr.use_my_location}"
+        }
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    let location_button: Option<Element> = None;
+
     let stars: Vec<(u8, &'static str)> = (1..=5u8)
         .map(|s| (s, if f.rating >= s { "star active" } else { "star" }))
         .collect();
@@ -245,7 +371,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .iter()
         .map(|t| {
             let label = if t.location.is_empty() {
-                format!("Trip #{}", t.id)
+                i18n::t1(tr.trip_fallback, t.id)
             } else {
                 t.location.clone()
             };
@@ -267,22 +393,22 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 div { class: "detail-title-row",
                     button {
                         class: "btn back-btn",
-                        title: "Back to the dive list",
+                        title: "{tr.back_to_list}",
                         onclick: move |_| mobile_detail.set(false),
-                        "‹ Dives"
+                        "‹ {tr.cat_dives}"
                     }
                     h1 { "{title}" }
                     div { class: "detail-actions",
                         if is_editing {
-                            button { class: "btn primary", onclick: on_save, "Save" }
-                            button { class: "btn", onclick: on_cancel, "Cancel" }
+                            button { class: "btn primary", onclick: on_save, "{tr.save}" }
+                            button { class: "btn", onclick: on_cancel, "{tr.cancel}" }
                         } else {
-                            button { class: "btn", onclick: move |_| editing.set(true), "Edit" }
-                            button { class: "btn", onclick: on_duplicate, "Duplicate" }
+                            button { class: "btn", onclick: move |_| editing.set(true), "{tr.edit}" }
+                            button { class: "btn", onclick: on_duplicate, "{tr.duplicate}" }
                             button {
                                 class: if is_confirming { "btn danger" } else { "btn" },
                                 onclick: on_delete,
-                                if is_confirming { "Confirm delete" } else { "Delete" }
+                                if is_confirming { "{tr.confirm_delete}" } else { "{tr.delete}" }
                             }
                         }
                     }
@@ -297,17 +423,93 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             key: "{index}",
                             class: if (active_dc)() == index { "dc-tab active" } else { "dc-tab" },
                             onclick: move |_| active_dc.set(index),
-                            if computer.model.is_empty() { "Computer {index + 1}" } else { "{computer.model}" }
+                            if computer.model.is_empty() {
+                                {i18n::t1(tr.computer_n, index + 1)}
+                            } else {
+                                "{computer.model}"
+                            }
                         }
                     }
                 }
             }
 
-            DiveProfile { dive: dive.clone(), dc_index: (active_dc)() }
+            DiveProfile { dive: preview_dive, dc_index: preview_dc }
 
             if is_editing {
                 div { class: "edit-form",
-                    label { class: "field-label", "Number"
+                    // Native autocomplete for the fields divers retype every
+                    // trip. The datalists are invisible; they feed the inputs
+                    // below on desktop and mobile alike.
+                    datalist { id: "buddy-list",
+                        for value in buddy_options.clone() {
+                            option { value: "{value}" }
+                        }
+                    }
+                    datalist { id: "divemaster-list",
+                        for value in divemaster_options.clone() {
+                            option { value: "{value}" }
+                        }
+                    }
+                    datalist { id: "suit-list",
+                        for value in suit_options.clone() {
+                            option { value: "{value}" }
+                        }
+                    }
+                    datalist { id: "tag-list",
+                        for value in tag_options.clone() {
+                            option { value: "{value}" }
+                        }
+                    }
+                    if let Some(previous) = previous_dive.clone() {
+                        div { class: "field-label full",
+                            button {
+                                class: "btn",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    let mut w = form.write();
+                                    if !previous.buddy.is_empty() {
+                                        w.buddy.clone_from(&previous.buddy);
+                                    }
+                                    if !previous.diveguide.is_empty() {
+                                        w.divemaster.clone_from(&previous.diveguide);
+                                    }
+                                    if !previous.suit.is_empty() {
+                                        w.suit.clone_from(&previous.suit);
+                                    }
+                                },
+                                "{tr.copy_previous}"
+                            }
+                        }
+                    }
+                    label { class: "field-label", "{tr.field_date_time}"
+                        input {
+                            class: "field",
+                            r#type: "datetime-local",
+                            value: "{when_value}",
+                            oninput: move |evt| {
+                                if let Some(when) = benthic_core::parse_datetime_local(&evt.value()) {
+                                    form.write().when = when;
+                                }
+                            },
+                        }
+                    }
+                    div { class: "field-label full",
+                        span { class: "label-row", "{tr.profile}" }
+                        div { class: "muted", "{profile_summary}" }
+                        div { class: "detail-actions",
+                            if profile_editable {
+                                button {
+                                    class: "btn",
+                                    r#type: "button",
+                                    onclick: move |_| show_profile.set(true),
+                                    "{tr.edit_profile}"
+                                }
+                            } else {
+                                span { class: "muted", "{tr.profile_from_computer}" }
+                            }
+                        }
+                    }
+                    label { class: "field-label", "{tr.field_number}"
                         input {
                             class: "field",
                             r#type: "number",
@@ -315,7 +517,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             oninput: move |evt| form.write().number = evt.value().parse().unwrap_or(0),
                         }
                     }
-                    label { class: "field-label", "Rating"
+                    label { class: "field-label", "{tr.field_rating}"
                         div { class: "stars",
                             for (star, class) in stars {
                                 button {
@@ -327,28 +529,31 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             }
                         }
                     }
-                    label { class: "field-label", "Buddy"
+                    label { class: "field-label", "{tr.field_buddy}"
                         input {
                             class: "field",
+                            list: "buddy-list",
                             value: "{f.buddy}",
                             oninput: move |evt| form.write().buddy = evt.value(),
                         }
                     }
-                    label { class: "field-label", "Dive master"
+                    label { class: "field-label", "{tr.field_dive_master}"
                         input {
                             class: "field",
+                            list: "divemaster-list",
                             value: "{f.divemaster}",
                             oninput: move |evt| form.write().divemaster = evt.value(),
                         }
                     }
-                    label { class: "field-label", "Suit"
+                    label { class: "field-label", "{tr.field_suit}"
                         input {
                             class: "field",
+                            list: "suit-list",
                             value: "{f.suit}",
                             oninput: move |evt| form.write().suit = evt.value(),
                         }
                     }
-                    label { class: "field-label", "Trip"
+                    label { class: "field-label", "{tr.field_trip}"
                         select {
                             class: "field",
                             value: "{current_trip}",
@@ -356,7 +561,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                 let value = evt.value();
                                 form.write().trip_id = if value.is_empty() { None } else { value.parse().ok() };
                             },
-                            option { value: "", selected: f.trip_id.is_none(), "No trip" }
+                            option { value: "", selected: f.trip_id.is_none(), "{tr.no_trip}" }
                             for (id, label) in trips {
                                 option {
                                     key: "{id}",
@@ -367,29 +572,64 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             }
                         }
                     }
-                    label { class: "field-label", "Site name"
+                    label { class: "field-label", "{tr.field_site_name}"
                         input {
                             class: "field",
                             value: "{f.site_name}",
                             oninput: move |evt| form.write().site_name = evt.value(),
                         }
                     }
-                    label { class: "field-label", "Site GPS (lat, lon)"
-                        input {
-                            class: "field",
-                            placeholder: "28.572100, 34.536700",
-                            value: "{f.site_gps}",
-                            oninput: move |evt| form.write().site_gps = evt.value(),
+                    label { class: "field-label", "{tr.field_site_gps}"
+                        div { class: "gps-row",
+                            input {
+                                class: "field",
+                                inputmode: "decimal",
+                                placeholder: "28.572100, 34.536700",
+                                value: "{f.site_gps}",
+                                oninput: move |evt| form.write().site_gps = evt.value(),
+                            }
+                            {location_button}
+                            button {
+                                class: "btn",
+                                r#type: "button",
+                                title: "{tr.choose_on_map}",
+                                onclick: move |_| show_picker.set(true),
+                                "{tr.map}"
+                            }
                         }
                     }
-                    label { class: "field-label full", "Tags (comma separated)"
+                    label { class: "field-label full", "{tr.field_tags}"
                         input {
                             class: "field",
+                            list: "tag-list",
                             value: "{f.tags}",
                             oninput: move |evt| form.write().tags = evt.value(),
                         }
+                        if !tag_options.is_empty() {
+                            div { class: "tag-suggest",
+                                {tag_options.iter().take(20).map(|tag| {
+                                    let tag = tag.clone();
+                                    rsx! {
+                                        button {
+                                            key: "{tag}",
+                                            class: "tag tag-add",
+                                            r#type: "button",
+                                            onclick: move |_| {
+                                                let mut w = form.write();
+                                                let mut tags = parse_tags(&w.tags);
+                                                if !tags.contains(&tag) {
+                                                    tags.push(tag.clone());
+                                                    w.tags = tags.join(", ");
+                                                }
+                                            },
+                                            "{tag}"
+                                        }
+                                    }
+                                })}
+                            }
+                        }
                     }
-                    label { class: "field-label full", "Notes"
+                    label { class: "field-label full", "{tr.field_notes}"
                         textarea {
                             class: "field",
                             rows: "6",
@@ -398,7 +638,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                         }
                     }
 
-                    div { class: "field-label full", "Cylinders"
+                    div { class: "field-label full", "{tr.cyl_cylinder}"
                         div { class: "equip-list",
                             for (i, cyl) in f.cylinders.iter().enumerate() {
                                 div { key: "{i}", class: "equip-row cylinder-row",
@@ -411,7 +651,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                                 apply_preset(&mut w.cylinders[i], preset);
                                             }
                                         },
-                                        option { value: "", selected: preset_value(cyl).is_empty(), "Custom" }
+                                        option { value: "", selected: preset_value(cyl).is_empty(), "{tr.custom}" }
                                         for preset in CYLINDER_PRESETS {
                                             option {
                                                 key: "{preset.name}",
@@ -421,7 +661,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                             }
                                         }
                                     }
-                                    label { class: "mini", "O2 %"
+                                    label { class: "mini", "{tr.cyl_o2}"
                                         input {
                                             class: "field",
                                             value: format!("{:.1}", cyl.gas.o2_percent()),
@@ -431,7 +671,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                             },
                                         }
                                     }
-                                    label { class: "mini", "He %"
+                                    label { class: "mini", "{tr.cyl_he}"
                                         input {
                                             class: "field",
                                             value: format!("{:.1}", cyl.gas.he_percent()),
@@ -441,7 +681,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                             },
                                         }
                                     }
-                                    label { class: "mini", "Start {prefs.pressure_unit()}"
+                                    label { class: "mini", "{tr.cyl_start} {prefs.pressure_unit()}"
                                         input {
                                             class: "field",
                                             value: cyl.start_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
@@ -450,7 +690,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                             },
                                         }
                                     }
-                                    label { class: "mini", "End {prefs.pressure_unit()}"
+                                    label { class: "mini", "{tr.cyl_end} {prefs.pressure_unit()}"
                                         input {
                                             class: "field",
                                             value: cyl.end_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
@@ -459,7 +699,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                             },
                                         }
                                     }
-                                    label { class: "mini", "Use"
+                                    label { class: "mini", "{tr.cyl_use}"
                                         select {
                                             class: "field",
                                             value: "{cyl.use_.index()}",
@@ -479,7 +719,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                     }
                                     button {
                                         class: "icon-btn",
-                                        title: "Remove cylinder",
+                                        title: "{tr.cyl_remove}",
                                         onclick: move |_| { form.write().cylinders.remove(i); },
                                         "✕"
                                     }
@@ -498,11 +738,11 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                 };
                                 form.write().cylinders.push(cylinder);
                             },
-                            "+ Add cylinder"
+                            "{tr.cyl_add}"
                         }
                     }
 
-                    div { class: "field-label full", "Weights"
+                    div { class: "field-label full", "{tr.weight_weight}"
                         div { class: "equip-list",
                             for (i, ws) in f.weights.iter().enumerate() {
                                 div { key: "{i}", class: "equip-row weight-row",
@@ -515,7 +755,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                             },
                                         }
                                     }
-                                    label { class: "mini wide", "Description"
+                                    label { class: "mini wide", "{tr.weight_description}"
                                         input {
                                             class: "field",
                                             value: "{ws.description}",
@@ -524,7 +764,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                     }
                                     button {
                                         class: "icon-btn",
-                                        title: "Remove weight",
+                                        title: "{tr.weight_remove}",
                                         onclick: move |_| { form.write().weights.remove(i); },
                                         "✕"
                                     }
@@ -534,23 +774,23 @@ fn DiveDetailInner(dive: Dive) -> Element {
                         button {
                             class: "btn",
                             onclick: move |_| form.write().weights.push(WeightSystem::new(Weight::from_kg(0.0), "belt")),
-                            "+ Add weight"
+                            "{tr.weight_add}"
                         }
                     }
                 }
             } else {
                 div { class: "facts",
-                    Fact { label: "Duration", value: duration }
-                    Fact { label: "Max depth", value: max_depth }
-                    Fact { label: "Avg depth", value: avg_depth }
-                    Fact { label: "RMV", value: rmv }
-                    Fact { label: "Water temp", value: water_temp }
-                    Fact { label: "Air temp", value: air_temp }
-                    Fact { label: "Computer", value: computer }
-                    Fact { label: "Buddy", value: dive.buddy.clone() }
-                    Fact { label: "Dive master", value: dive.diveguide.clone() }
-                    Fact { label: "Suit", value: dive.suit.clone() }
-                    Fact { label: "Salinity", value: salinity }
+                    Fact { label: tr.fact_duration, value: duration }
+                    Fact { label: tr.fact_max_depth, value: max_depth }
+                    Fact { label: tr.fact_avg_depth, value: avg_depth }
+                    Fact { label: tr.fact_rmv, value: rmv }
+                    Fact { label: tr.fact_water_temp, value: water_temp }
+                    Fact { label: tr.fact_air_temp, value: air_temp }
+                    Fact { label: tr.fact_computer, value: computer }
+                    Fact { label: tr.fact_buddy, value: dive.buddy.clone() }
+                    Fact { label: tr.fact_dive_master, value: dive.diveguide.clone() }
+                    Fact { label: tr.fact_suit, value: dive.suit.clone() }
+                    Fact { label: tr.fact_salinity, value: salinity }
                 }
 
                 if let Some(location) = site.as_ref().and_then(|s| s.location).filter(|l| l.is_valid()) {
@@ -576,7 +816,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             target: "_blank",
                             rel: "noopener",
                             href: "https://www.openstreetmap.org/?mlat={location.lat}&mlon={location.lon}#map=15/{location.lat}/{location.lon}",
-                            "Open in OpenStreetMap ↗"
+                            "{tr.open_osm}"
                         }
                     }
                 }
@@ -590,27 +830,31 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 }
 
                 if !cylinders.is_empty() {
-                    div { class: "section-title", "Gas & equipment" }
-                    table { class: "data-table",
-                        thead { tr { th { "Cylinder" } th { "Gas" } th { "MOD" } th { "Start" } th { "End" } } }
-                        tbody {
-                            for row in cylinders {
-                                tr {
-                                    td { "{row.description}" }
-                                    td { "{row.gas}" }
-                                    td { "{row.mod_depth}" }
-                                    td { "{row.start}" }
-                                    td { "{row.end}" }
+                    div { class: "section-title", "{tr.section_gas}" }
+                    div { class: "table-scroll",
+                        table { class: "data-table",
+                            thead { tr { th { "{tr.cyl_cylinder}" } th { "{tr.cyl_gas}" } th { "{tr.cyl_mod}" } th { "{tr.cyl_start}" } th { "{tr.cyl_end}" } } }
+                            tbody {
+                                for row in cylinders {
+                                    tr {
+                                        td { "{row.description}" }
+                                        td { "{row.gas}" }
+                                        td { "{row.mod_depth}" }
+                                        td { "{row.start}" }
+                                        td { "{row.end}" }
+                                    }
                                 }
                             }
                         }
                     }
                     if !weights.is_empty() {
-                        table { class: "data-table",
-                            thead { tr { th { "Weight" } th { "Description" } } }
-                            tbody {
-                                for row in weights {
-                                    tr { td { "{row.weight}" } td { "{row.description}" } }
+                        div { class: "table-scroll",
+                            table { class: "data-table",
+                                thead { tr { th { "{tr.weight_weight}" } th { "{tr.weight_description}" } } }
+                                tbody {
+                                    for row in weights {
+                                        tr { td { "{row.weight}" } td { "{row.description}" } }
+                                    }
                                 }
                             }
                         }
@@ -618,8 +862,31 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 }
 
                 if !dive.notes.is_empty() {
-                    div { class: "section-title", "Notes" }
+                    div { class: "section-title", "{tr.section_notes}" }
                     p { class: "notes", "{dive.notes}" }
+                }
+            }
+
+            if (show_picker)() {
+                LocationPickerDialog {
+                    on_choose: move |(lat, lon)| {
+                        form.write().site_gps = format!("{lat:.6}, {lon:.6}");
+                        show_picker.set(false);
+                    },
+                    on_close: move |_| show_picker.set(false),
+                }
+            }
+
+            if (show_profile)() {
+                ProfileEditorDialog {
+                    initial: (edited_samples)()
+                        .or_else(|| dive.primary_computer().map(|dc| dc.samples.clone()))
+                        .unwrap_or_default(),
+                    on_save: move |samples| {
+                        edited_samples.set(Some(samples));
+                        show_profile.set(false);
+                    },
+                    on_close: move |_| show_profile.set(false),
                 }
             }
         }
@@ -720,6 +987,18 @@ fn parse_tags(text: &str) -> Vec<String> {
     tags.sort();
     tags.dedup();
     tags
+}
+
+/// Distinct, non-empty values in sorted order, for autocomplete lists.
+fn unique_values<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = values
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Parse "lat, lon" or "lat lon" into a valid [`Location`].

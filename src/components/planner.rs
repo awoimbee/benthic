@@ -9,7 +9,8 @@ use benthic_core::units::{format_duration, Depth, Duration};
 use benthic_core::{DecoModel, Dive, DiveComputer, DivePlan, Preferences};
 
 use crate::actions;
-use crate::components::DiveProfile;
+use crate::components::{DiveProfile, InfoTip};
+use crate::i18n;
 use crate::state::AppState;
 
 /// One editable waypoint row: a segment ending at `depth` after `minutes`.
@@ -94,6 +95,7 @@ pub fn PlannerDialog() -> Element {
     let state = use_context::<AppState>();
     let mut show_planner = state.show_planner;
     let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
     let salinity = prefs.default_salinity.value();
 
     let mut forms = use_signal(|| {
@@ -113,6 +115,13 @@ pub fn PlannerDialog() -> Element {
     let mut rmv = use_signal(|| 20.0f64);
     let mut ndl = use_signal(|| None::<Duration>);
     let mut ndl_key = use_signal(|| None::<NdlKey>);
+    // Which waypoint cards are open. Only the descent starts open, so a phone
+    // shows the whole plan at a glance instead of a wall of fields.
+    let mut expanded = use_signal(|| {
+        let mut set = std::collections::HashSet::new();
+        set.insert(0usize);
+        set
+    });
 
     // Recompute the NDL only when its inputs change, not on every edit.
     use_effect(move || {
@@ -221,7 +230,41 @@ pub fn PlannerDialog() -> Element {
         false,
     );
     let over_mod = max_depth.mm > mod_mm;
-    let gas_label: &'static str = if rebreather { "Diluent" } else { "Gas" };
+    // Surface bad gas/depth/time entries instead of silently computing with
+    // them. These mirror the bounds a diver would expect.
+    let plan_warnings: Vec<String> = form_list
+        .iter()
+        .enumerate()
+        .flat_map(|(index, form)| {
+            let waypoint = index + 1;
+            let mut issues = Vec::new();
+            if form.depth < 0.0 {
+                issues.push(format!("Waypoint {waypoint}: depth cannot be negative."));
+            }
+            if form.minutes < 0.0 {
+                issues.push(format!("Waypoint {waypoint}: duration cannot be negative."));
+            }
+            if !(1.0..=100.0).contains(&form.o2) {
+                issues.push(format!(
+                    "Waypoint {waypoint}: O2 must be between 1 and 100%."
+                ));
+            }
+            if !(0.0..=100.0).contains(&form.he) {
+                issues.push(format!(
+                    "Waypoint {waypoint}: helium must be between 0 and 100%."
+                ));
+            }
+            if form.o2 + form.he > 100.0 {
+                issues.push(format!("Waypoint {waypoint}: O2 + helium exceeds 100%."));
+            }
+            issues
+        })
+        .collect();
+    let gas_label: &'static str = if rebreather {
+        tr.gas_diluent
+    } else {
+        tr.gas_gas
+    };
     let ambient = ambient_mbar(max_depth.mm, SURFACE_PRESSURE_MBAR, salinity) / 1000.0;
     let gas_needs = plan.gas_needs_liters((rmv)(), SURFACE_PRESSURE_MBAR / 1000.0, salinity);
     let gas_bar_12l = gas_needs / 12.0;
@@ -281,17 +324,17 @@ pub fn PlannerDialog() -> Element {
                     div { class: "detail-title-row",
                         button {
                             class: "btn back-btn",
-                            title: "Back",
+                            title: "{tr.back}",
                             onclick: move |_| show_planner.set(false),
-                            "\u{2039} Back"
+                            "\u{2039} {tr.back}"
                         }
-                        h1 { "Dive planner" }
+                        h1 { "{tr.dive_planner}" }
                         div { class: "detail-actions",
-                            button { class: "btn primary", onclick: on_save, "Save as dive" }
+                            button { class: "btn primary", onclick: on_save, "{tr.planner_save_dive}" }
                             button {
                                 class: "btn",
                                 onclick: move |_| show_planner.set(false),
-                                "Close"
+                                "{tr.close}"
                             }
                         }
                     }
@@ -300,90 +343,150 @@ pub fn PlannerDialog() -> Element {
 
                 DiveProfile { dive: graph_dive, dc_index: 0 }
 
-                div { class: "section-title", "Profile" }
-                div { class: "plan-points",
-                    for (index, form) in form_list.iter().enumerate() {
-                        div { key: "{index}", class: "plan-point",
-                            span { class: "plan-point-index", "{index + 1}" }
-                            label { class: "field-label", "Depth ({prefs.depth_unit()})"
-                                input {
-                                    class: "field",
-                                    r#type: "number",
-                                    value: "{form.depth}",
-                                    oninput: move |evt| forms.write()[index].depth = evt.value().parse().unwrap_or(0.0),
-                                }
-                            }
-                            label { class: "field-label", "Duration (min)"
-                                input {
-                                    class: "field",
-                                    r#type: "number",
-                                    value: "{form.minutes}",
-                                    oninput: move |evt| forms.write()[index].minutes = evt.value().parse().unwrap_or(0.0),
-                                }
-                            }
-                            label { class: "field-label", "Run time"
-                                div { class: "readout", "{format_duration(Duration::new((run_seconds[index] * 60.0).round() as i32))}" }
-                            }
-                            label { class: "field-label", "O2 %"
-                                input {
-                                    class: "field",
-                                    r#type: "number",
-                                    value: "{form.o2}",
-                                    oninput: move |evt| forms.write()[index].o2 = evt.value().parse().unwrap_or(21.0),
-                                }
-                            }
-                            label { class: "field-label", "He %"
-                                input {
-                                    class: "field",
-                                    r#type: "number",
-                                    value: "{form.he}",
-                                    oninput: move |evt| forms.write()[index].he = evt.value().parse().unwrap_or(0.0),
-                                }
-                            }
-                            label { class: "field-label", "Dive mode"
-                                select {
-                                    class: "field",
-                                    value: "{form.mode_index}",
-                                    onchange: move |evt| forms.write()[index].mode_index = evt.value().parse().unwrap_or(0),
-                                    option { value: "0", "OC" }
-                                    option { value: "1", "CCR" }
-                                    option { value: "2", "pSCR" }
-                                }
-                            }
-                            if form.mode_index == 1 {
-                                label { class: "field-label", "Setpoint"
-                                    input {
-                                        class: "field",
-                                        r#type: "number",
-                                        step: "0.1",
-                                        value: "{form.setpoint}",
-                                        oninput: move |evt| forms.write()[index].setpoint = evt.value().parse().unwrap_or(1.3),
-                                    }
-                                }
-                            }
-                            if form.mode_index == 2 {
-                                label { class: "field-label", "Dump ratio"
-                                    input {
-                                        class: "field",
-                                        r#type: "number",
-                                        step: "10",
-                                        value: "{form.dump_ratio}",
-                                        oninput: move |evt| forms.write()[index].dump_ratio = evt.value().parse().unwrap_or(100.0),
-                                    }
-                                }
-                            }
-                            label { class: "field-label", "Used gas"
-                                div { class: "readout", "{used_liters[index]:.0} L" }
-                            }
-                            button {
-                                class: "btn point-remove",
-                                title: "Remove this waypoint",
-                                disabled: form_list.len() <= 1,
-                                onclick: move |_| { forms.write().remove(index); },
-                                "\u{00d7}"
-                            }
+                div { class: "section-title", "{tr.profile}" }
+                div { class: "planner-presets",
+                    for (label, depth_value, minutes) in recreational_presets(&prefs) {
+                        button {
+                            key: "{label}",
+                            class: "btn",
+                            onclick: move |_| {
+                                forms.set(recreational_preset(depth_value, minutes));
+                                let mut set = expanded.write();
+                                set.clear();
+                                set.insert(0);
+                            },
+                            "{label}"
                         }
                     }
+                    button {
+                        class: "btn",
+                        onclick: move |_| {
+                            forms.set(default_forms());
+                            let mut set = expanded.write();
+                            set.clear();
+                            set.insert(0);
+                        },
+                        "Reset"
+                    }
+                }
+                div { class: "plan-points",
+                    {form_list.iter().enumerate().map(|(index, form)| {
+                        let is_open = (expanded)().contains(&index);
+                        let form = form.clone();
+                        let run = format_duration(Duration::new((run_seconds[index] * 60.0).round() as i32));
+                        let used = used_liters[index];
+                        rsx! {
+                            div { key: "{index}", class: "plan-point",
+                                div { class: "plan-point-head",
+                                    button {
+                                        class: "plan-point-toggle",
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let mut set = expanded.write();
+                                            if !set.remove(&index) {
+                                                set.insert(index);
+                                            }
+                                        },
+                                        span { class: "plan-point-caret", if is_open { "\u{25be}" } else { "\u{25b8}" } }
+                                        span { class: "plan-point-index", "{index + 1}" }
+                                        span { class: "plan-point-summary",
+                                            "{form.depth:.0} {prefs.depth_unit()} \u{b7} {form.minutes:.0} min \u{b7} {run}"
+                                        }
+                                        span { class: "plan-point-mode", "{mode_label(form.mode_index)}" }
+                                    }
+                                    button {
+                                        class: "icon-btn point-remove",
+                                        title: "Remove this waypoint",
+                                        disabled: form_list.len() <= 1,
+                                        onclick: move |_| { forms.write().remove(index); },
+                                        "\u{00d7}"
+                                    }
+                                }
+                                if is_open {
+                                    div { class: "plan-point-body",
+                                        label { class: "field-label", "Depth ({prefs.depth_unit()})"
+                                            input {
+                                                class: "field",
+                                                r#type: "number",
+                                                inputmode: "decimal",
+                                                value: "{form.depth}",
+                                                oninput: move |evt| forms.write()[index].depth = evt.value().parse().unwrap_or(0.0),
+                                            }
+                                        }
+                                        label { class: "field-label", "Duration (min)"
+                                            input {
+                                                class: "field",
+                                                r#type: "number",
+                                                inputmode: "numeric",
+                                                value: "{form.minutes}",
+                                                oninput: move |evt| forms.write()[index].minutes = evt.value().parse().unwrap_or(0.0),
+                                            }
+                                        }
+                                        label { class: "field-label", "Run time"
+                                            div { class: "readout", "{run}" }
+                                        }
+                                        label { class: "field-label", "O2 %"
+                                            input {
+                                                class: "field",
+                                                r#type: "number",
+                                                inputmode: "decimal",
+                                                value: "{form.o2}",
+                                                oninput: move |evt| forms.write()[index].o2 = evt.value().parse().unwrap_or(21.0),
+                                            }
+                                        }
+                                        label { class: "field-label", "He %"
+                                            input {
+                                                class: "field",
+                                                r#type: "number",
+                                                inputmode: "decimal",
+                                                value: "{form.he}",
+                                                oninput: move |evt| forms.write()[index].he = evt.value().parse().unwrap_or(0.0),
+                                            }
+                                        }
+                                        label { class: "field-label",
+                                            span { class: "label-row",
+                                                "{tr.dive_mode}"
+                                                InfoTip { text: "OC: open circuit, breathing from a cylinder. CCR: closed-circuit rebreather. pSCR: passive semi-closed rebreather." }
+                                            }
+                                            select {
+                                                class: "field",
+                                                value: "{form.mode_index}",
+                                                onchange: move |evt| forms.write()[index].mode_index = evt.value().parse().unwrap_or(0),
+                                                option { value: "0", "Open circuit (OC)" }
+                                                option { value: "1", "Rebreather (CCR)" }
+                                                option { value: "2", "Semi-closed (pSCR)" }
+                                            }
+                                        }
+                                        if form.mode_index == 1 {
+                                            label { class: "field-label", "Setpoint"
+                                                input {
+                                                    class: "field",
+                                                    r#type: "number",
+                                                    step: "0.1",
+                                                    value: "{form.setpoint}",
+                                                    oninput: move |evt| forms.write()[index].setpoint = evt.value().parse().unwrap_or(1.3),
+                                                }
+                                            }
+                                        }
+                                        if form.mode_index == 2 {
+                                            label { class: "field-label", "Dump ratio"
+                                                input {
+                                                    class: "field",
+                                                    r#type: "number",
+                                                    step: "10",
+                                                    value: "{form.dump_ratio}",
+                                                    oninput: move |evt| forms.write()[index].dump_ratio = evt.value().parse().unwrap_or(100.0),
+                                                }
+                                            }
+                                        }
+                                        label { class: "field-label", "Used gas"
+                                            div { class: "readout", "{used:.0} L" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    })}
                 }
                 button {
                     class: "btn",
@@ -399,12 +502,16 @@ pub fn PlannerDialog() -> Element {
                             .unwrap_or_default();
                         list.push(next);
                     },
-                    "+ Add waypoint"
+                    "{tr.add_waypoint}"
                 }
 
-                div { class: "section-title", "Settings" }
+                div { class: "section-title", "{tr.settings}" }
                 div { class: "edit-form",
-                    label { class: "field-label", "Deco model"
+                    label { class: "field-label",
+                        span { class: "label-row",
+                            "{tr.deco_model}"
+                            InfoTip { text: "The algorithm behind the schedule. Bühlmann uses gradient factors; VPM-B uses a conservatism level." }
+                        }
                         select {
                             class: "field",
                             value: "{deco_model_value}",
@@ -414,7 +521,11 @@ pub fn PlannerDialog() -> Element {
                         }
                     }
                     if deco_model_value == 1 {
-                        label { class: "field-label", "Conservatism"
+                        label { class: "field-label",
+                            span { class: "label-row",
+                                "{tr.conservatism}"
+                                InfoTip { text: "Higher levels add more safety margin to the VPM-B schedule (0 to 4)." }
+                            }
                             select {
                                 class: "field",
                                 value: "{vpmb_conservatism_value}",
@@ -425,7 +536,11 @@ pub fn PlannerDialog() -> Element {
                             }
                         }
                     } else {
-                        label { class: "field-label", "GF low"
+                        label { class: "field-label",
+                            span { class: "label-row",
+                                "{tr.gf_low}"
+                                InfoTip { text: "Gradient factor at the deepest stop. Lower values are more conservative (typical 0.30)." }
+                            }
                             input {
                                 class: "field",
                                 r#type: "number",
@@ -436,7 +551,11 @@ pub fn PlannerDialog() -> Element {
                                 oninput: move |evt| gf_low.set(evt.value().parse::<f64>().unwrap_or(0.3).clamp(0.1, 1.0)),
                             }
                         }
-                        label { class: "field-label", "GF high"
+                        label { class: "field-label",
+                            span { class: "label-row",
+                                "{tr.gf_high}"
+                                InfoTip { text: "Gradient factor at the surface. Lower values are more conservative (typical 0.70)." }
+                            }
                             input {
                                 class: "field",
                                 r#type: "number",
@@ -448,10 +567,15 @@ pub fn PlannerDialog() -> Element {
                             }
                         }
                     }
-                    label { class: "field-label", "RMV (L/min)"
+                    label { class: "field-label",
+                        span { class: "label-row",
+                            "{tr.rmv}"
+                            InfoTip { text: "Respiratory minute volume: the surface litres of gas you breathe per minute. Used to estimate gas needs. A common planning value is 20 L/min." }
+                        }
                         input {
                             class: "field",
                             r#type: "number",
+                            inputmode: "decimal",
                             value: "{rmv}",
                             oninput: move |evt| rmv.set(evt.value().parse().unwrap_or(20.0)),
                         }
@@ -460,29 +584,52 @@ pub fn PlannerDialog() -> Element {
                 if over_mod {
                     p { class: "warn", "Warning: a waypoint exceeds the bottom gas MOD at a 1.4 bar pO2 limit." }
                 }
+                for warning in plan_warnings.iter() {
+                    p { class: "warn", "{warning}" }
+                }
 
-                div { class: "section-title", "Summary" }
+                div { class: "section-title", "{tr.summary}" }
                 div { class: "facts planner-results",
                     Result { label: gas_label, value: bottom_gas.name() }
-                    Result { label: "Ambient", value: format!("{ambient:.2} bar") }
-                    Result { label: "MOD (1.4)", value: prefs.depth(Depth::new(mod_mm)) }
-                    Result { label: "END", value: prefs.depth(Depth::new(end_mm)) }
-                    Result { label: "NDL", value: ndl_text }
-                    Result { label: "Runtime", value: format_duration(plan.total_time()) }
-                    Result { label: "Bottom time", value: format_duration(plan.bottom_time()) }
-                    Result { label: "Deco time", value: format_duration(plan.deco_time()) }
+                    Result { label: tr.ambient, value: format!("{ambient:.2} bar") }
+                    Result {
+                        label: tr.mod_depth,
+                        value: prefs.depth(Depth::new(mod_mm)),
+                        help: Some("Maximum operating depth: the deepest you can go on this gas while keeping oxygen partial pressure at or below 1.4 bar."),
+                    }
+                    Result {
+                        label: tr.end,
+                        value: prefs.depth(Depth::new(end_mm)),
+                        help: Some("Equivalent narcotic depth: the depth that would feel equally narcotic on air."),
+                    }
+                    Result {
+                        label: tr.ndl,
+                        value: ndl_text,
+                        help: Some("No-decompression limit: how long you can stay at the deepest point without incurring a mandatory stop."),
+                    }
+                    Result { label: tr.runtime, value: format_duration(plan.total_time()) }
+                    Result { label: tr.bottom_time, value: format_duration(plan.bottom_time()) }
+                    Result { label: tr.deco_time, value: format_duration(plan.deco_time()) }
                     if !rebreather {
-                        Result { label: "Gas needed", value: format!("{gas_needs:.0} L") }
+                        Result {
+                            label: tr.gas_needed,
+                            value: format!("{gas_needs:.0} L"),
+                            help: Some("Surface litres of breathing gas the plan consumes, based on the RMV above."),
+                        }
                         Result { label: "\u{2248} 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
                     }
-                    Result { label: "OC bailout", value: format!("{bailout:.0} L") }
+                    Result {
+                        label: tr.oc_bailout,
+                        value: format!("{bailout:.0} L"),
+                        help: Some("Open-circuit gas required to get a rebreather diver safely to the surface, based on the RMV above."),
+                    }
                     Result { label: "\u{2248} 12 L bailout", value: format!("{bailout_bar_12l:.0} bar") }
                 }
 
                 if has_stops {
-                    div { class: "section-title", "Decompression schedule" }
+                    div { class: "section-title", "{tr.deco_schedule}" }
                     table { class: "data-table",
-                        thead { tr { th { "Stop" } th { "Time" } } }
+                        thead { tr { th { "{tr.stop}" } th { "{tr.time}" } } }
                         tbody {
                             for (stop_depth, stop_time) in stops {
                                 tr { td { "{stop_depth}" } td { "{stop_time}" } }
@@ -490,7 +637,7 @@ pub fn PlannerDialog() -> Element {
                         }
                     }
                 } else {
-                    p { class: "muted", "No decompression stops required." }
+                    p { class: "muted", "{tr.no_stops}" }
                 }
             }
         }
@@ -498,11 +645,70 @@ pub fn PlannerDialog() -> Element {
 }
 
 #[component]
-fn Result(label: &'static str, value: String) -> Element {
+fn Result(
+    label: &'static str,
+    value: String,
+    #[props(default)] help: Option<&'static str>,
+) -> Element {
     rsx! {
         div { class: "fact",
-            span { class: "fact-label", "{label}" }
+            span { class: "fact-label",
+                "{label}"
+                if let Some(help) = help {
+                    InfoTip { text: help }
+                }
+            }
             span { class: "fact-value", "{value}" }
         }
+    }
+}
+
+/// Quick-start waypoint pairs, labelled in the active units: (label, depth
+/// value in the active unit, bottom minutes).
+fn recreational_presets(prefs: &Preferences) -> Vec<(String, f64, f64)> {
+    [(18.0, 40.0), (30.0, 20.0), (40.0, 15.0)]
+        .into_iter()
+        .map(|(metres, minutes)| {
+            let depth = Depth::from_meters(metres);
+            (
+                format!("{} / {minutes:.0} min", prefs.depth(depth)),
+                prefs.depth_value(depth),
+                minutes,
+            )
+        })
+        .collect()
+}
+
+fn recreational_preset(depth_value: f64, minutes: f64) -> Vec<PointForm> {
+    vec![
+        PointForm {
+            depth: depth_value,
+            minutes: 1.5,
+            ..Default::default()
+        },
+        PointForm {
+            depth: depth_value,
+            minutes,
+            ..Default::default()
+        },
+    ]
+}
+
+fn default_forms() -> Vec<PointForm> {
+    vec![
+        PointForm {
+            depth: 30.0,
+            minutes: 1.5,
+            ..Default::default()
+        },
+        PointForm::default(),
+    ]
+}
+
+fn mode_label(index: usize) -> &'static str {
+    match index {
+        1 => "CCR",
+        2 => "pSCR",
+        _ => "OC",
     }
 }

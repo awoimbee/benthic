@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use benthic_core::units::format_duration;
 use benthic_core::Dive;
 
+use crate::i18n;
 use crate::state::AppState;
 
 /// A modal that overlays two selected dives' profiles and compares their key
@@ -14,6 +15,7 @@ pub fn CompareDialog() -> Element {
     let mut show_compare = state.show_compare;
     let log = (state.log)();
     let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
 
     let selected: Vec<u32> = (state.selection)().iter().copied().take(2).collect();
     let dives: Vec<Dive> = selected
@@ -29,10 +31,10 @@ pub fn CompareDialog() -> Element {
                 div {
                     class: "modal",
                     onclick: move |evt| evt.stop_propagation(),
-                    h2 { "Compare dives" }
-                    p { class: "muted", "Select exactly two dives in the list to compare them." }
+                    h2 { "{tr.compare_dives}" }
+                    p { class: "muted", "{tr.compare_hint}" }
                     div { class: "detail-actions",
-                        button { class: "btn primary", onclick: move |_| show_compare.set(false), "Close" }
+                        button { class: "btn primary", onclick: move |_| show_compare.set(false), "{tr.close}" }
                     }
                 }
             }
@@ -59,21 +61,25 @@ pub fn CompareDialog() -> Element {
     let title_b = crate::format::dive_title(b, &log);
 
     let rows: Vec<(&'static str, String, String)> = vec![
-        ("Duration", duration_text(a), duration_text(b)),
+        (tr.row_duration, duration_text(a), duration_text(b)),
         (
-            "Max depth",
+            tr.row_max_depth,
             depth_text(a.max_depth(), &prefs),
             depth_text(b.max_depth(), &prefs),
         ),
         (
-            "Avg depth",
+            tr.row_avg_depth,
             depth_text(a.average_depth(), &prefs),
             depth_text(b.average_depth(), &prefs),
         ),
-        ("RMV", rmv_text(a), rmv_text(b)),
-        ("Water temp", temp_text(a, &prefs), temp_text(b, &prefs)),
-        ("Gas", gas_text(a), gas_text(b)),
-        ("Tags", a.tags.join(", "), b.tags.join(", ")),
+        (tr.row_rmv, rmv_text(a), rmv_text(b)),
+        (
+            tr.row_water_temp,
+            temp_text(a, &prefs),
+            temp_text(b, &prefs),
+        ),
+        (tr.row_gas, gas_text(a), gas_text(b)),
+        (tr.row_tags, a.tags.join(", "), b.tags.join(", ")),
     ];
 
     rsx! {
@@ -83,7 +89,7 @@ pub fn CompareDialog() -> Element {
             div {
                 class: "modal wide",
                 onclick: move |evt| evt.stop_propagation(),
-                h2 { "Compare dives" }
+                h2 { "{tr.compare_dives}" }
                 div { class: "profile",
                     svg {
                         class: "profile-svg",
@@ -119,7 +125,7 @@ pub fn CompareDialog() -> Element {
                     }
                 }
                 div { class: "detail-actions",
-                    button { class: "btn primary", onclick: move |_| show_compare.set(false), "Close" }
+                    button { class: "btn primary", onclick: move |_| show_compare.set(false), "{tr.close}" }
                 }
             }
         }

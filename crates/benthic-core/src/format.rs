@@ -33,6 +33,35 @@ impl UnitSystem {
     }
 }
 
+/// The language the interface is displayed in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+    #[default]
+    English,
+    French,
+}
+
+impl Language {
+    pub const ALL: [Language; 2] = [Language::English, Language::French];
+
+    /// The language's own name, so the picker is readable in any locale.
+    pub fn label(self) -> &'static str {
+        match self {
+            Language::English => "English",
+            Language::French => "Français",
+        }
+    }
+
+    /// BCP-47 tag, used for the web `lang` attribute.
+    pub fn code(self) -> &'static str {
+        match self {
+            Language::English => "en",
+            Language::French => "fr",
+        }
+    }
+}
+
 /// The colour theme for the interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -149,6 +178,8 @@ pub struct Preferences {
     #[serde(default)]
     pub theme: Theme,
     #[serde(default)]
+    pub language: Language,
+    #[serde(default)]
     pub units: UnitSystem,
     #[serde(default)]
     pub date_format: DateFormat,
@@ -160,6 +191,10 @@ pub struct Preferences {
     /// cylinders, or `None` for a plain default cylinder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_cylinder: Option<usize>,
+    /// Set once the first-run welcome has been dismissed, so it never shows
+    /// again on this device.
+    #[serde(default)]
+    pub seen_welcome: bool,
 }
 
 impl Preferences {
@@ -325,6 +360,45 @@ fn odt(timestamp: crate::units::Timestamp) -> time::OffsetDateTime {
     time::OffsetDateTime::from_unix_timestamp(timestamp).unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
 }
 
+/// Format a timestamp for a native date/time input, in UTC.
+///
+/// The string is the `YYYY-MM-DDTHH:MM` form an `<input type="datetime-local">`
+/// expects. Times are kept in UTC to match [`Preferences::timestamp`], which
+/// renders the same wall clock.
+pub fn datetime_local(timestamp: crate::units::Timestamp) -> String {
+    let dt = odt(timestamp);
+    let date = dt.date();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}",
+        date.year(),
+        u8::from(date.month()),
+        date.day(),
+        dt.hour(),
+        dt.minute()
+    )
+}
+
+/// Parse the value of a native date/time input back into a UTC timestamp.
+/// Returns `None` when the value is incomplete or out of range.
+pub fn parse_datetime_local(value: &str) -> Option<crate::units::Timestamp> {
+    let value = value.trim();
+    let (date, clock) = value.split_once('T')?;
+    let mut date_parts = date.split('-');
+    let year: i32 = date_parts.next()?.parse().ok()?;
+    let month = time::Month::try_from(date_parts.next()?.parse::<u8>().ok()?).ok()?;
+    let day: u8 = date_parts.next()?.parse().ok()?;
+    let mut clock_parts = clock.split(':');
+    let hour: u8 = clock_parts.next()?.parse().ok()?;
+    let minute: u8 = clock_parts.next()?.parse().ok()?;
+    let date = time::Date::from_calendar_date(year, month, day).ok()?;
+    let clock = time::Time::from_hms(hour, minute, 0).ok()?;
+    Some(
+        time::PrimitiveDateTime::new(date, clock)
+            .assume_utc()
+            .unix_timestamp(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,6 +465,23 @@ mod tests {
 
         // Midnight renders as 12:00 AM in 12-hour time.
         assert_eq!(prefs.time(1_715_544_900 - 20 * 3600 - 15 * 60), "12:00 AM");
+    }
+
+    #[test]
+    fn datetime_local_round_trips() {
+        let timestamp = 1_715_544_900;
+        let value = datetime_local(timestamp);
+        assert_eq!(value, "2024-05-12T20:15");
+        assert_eq!(parse_datetime_local(&value), Some(timestamp));
+        assert_eq!(parse_datetime_local("not a date"), None);
+        assert_eq!(parse_datetime_local("2024-13-40T99:99"), None);
+    }
+
+    #[test]
+    fn language_defaults_to_english() {
+        assert_eq!(Preferences::default().language, Language::English);
+        assert_eq!(Language::French.code(), "fr");
+        assert_eq!(Language::ALL.len(), 2);
     }
 
     #[test]
