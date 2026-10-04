@@ -93,7 +93,10 @@ pub fn delete_selected(state: AppState) {
     }
     let log = (state.log)();
     let commands = benthic_core::history::delete_dives(&log, &ids);
-    state.dispatch_all(format!("Delete {} dives", ids.len()), commands);
+    state.dispatch_all(
+        i18n::t1(state.strings().undo_delete_dives, ids.len()),
+        commands,
+    );
 
     let mut selection = state.selection;
     selection.write().clear();
@@ -143,7 +146,7 @@ pub fn create_trip_from_selection(state: AppState) {
     }
 
     let count = commands.len() - 1;
-    state.dispatch_all("Create trip", commands);
+    state.dispatch_all(state.strings().undo_create_trip, commands);
     let mut selection = state.selection;
     selection.write().clear();
     state.set_status(i18n::t1(state.strings().created_trip, count));
@@ -171,7 +174,7 @@ pub fn delete_trip(state: AppState, id: u32) {
     if commands.is_empty() {
         return;
     }
-    state.dispatch_all("Delete trip", commands);
+    state.dispatch_all(state.strings().undo_delete_trip, commands);
     state.set_status(state.strings().deleted_trip);
 }
 
@@ -185,7 +188,7 @@ pub fn merge_duplicate_sites(state: AppState) {
         return;
     }
     state.dispatch(Command::Snapshot {
-        label: "Merge duplicate sites".into(),
+        label: state.strings().undo_merge_sites.into(),
         before: Box::new(before),
         after: Box::new(after),
     });
@@ -202,7 +205,7 @@ pub fn restore_backup(state: AppState) {
         Ok(parsed) => {
             let before = (state.log)();
             state.dispatch(Command::Snapshot {
-                label: "Restore backup".into(),
+                label: state.strings().undo_restore_backup.into(),
                 before: Box::new(before),
                 after: Box::new(parsed),
             });
@@ -271,7 +274,7 @@ pub fn merge_trips(state: AppState, keep: u32, remove: u32) {
         return;
     }
     state.dispatch(Command::Snapshot {
-        label: "Merge trips".into(),
+        label: state.strings().undo_merge_trips.into(),
         before: Box::new(before),
         after: Box::new(after),
     });
@@ -351,7 +354,7 @@ pub fn open_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize,
     filter.set(benthic_core::DiveFilter::default());
     selection.write().clear();
     state.dispatch(Command::Snapshot {
-        label: format!("Open {dives} dives, {sites} sites"),
+        label: i18n::t2(state.strings().undo_open, dives, sites),
         before: Box::new(before),
         after: Box::new(incoming),
     });
@@ -368,7 +371,7 @@ pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize
     let mut after = before.clone();
     after.merge(incoming);
     state.dispatch(Command::Snapshot {
-        label: format!("Import {dives} dives, {sites} sites"),
+        label: i18n::t2(state.strings().undo_import, dives, sites),
         before: Box::new(before),
         after: Box::new(after),
     });

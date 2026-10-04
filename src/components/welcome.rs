@@ -31,7 +31,7 @@ pub fn WelcomeDialog() -> Element {
                 log.set(parsed);
                 status.set(i18n::t1(t.loaded_demo, count));
             }
-            Err(error) => status.set(format!("Could not load the demo: {error}")),
+            Err(error) => status.set(i18n::t1(t.demo_failed, error)),
         }
         prefs.write().seen_welcome = true;
     };

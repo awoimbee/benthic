@@ -22,7 +22,7 @@ pub fn App() -> Element {
     let log = use_signal(DiveLog::new);
     let selected = use_signal(|| None::<u32>);
     let selection = use_signal(std::collections::BTreeSet::new);
-    let status = use_signal(|| "Ready".to_string());
+    let status = use_signal(String::new);
     let history = use_signal(History::new);
     let filter = use_signal(DiveFilter::default);
     let prefs = use_signal(|| {
@@ -126,6 +126,7 @@ pub fn App() -> Element {
 
     // Load the autosaved log once at startup.
     use_future(move || async move {
+        let t = crate::i18n::strings((prefs)().language);
         let mut log = log;
         let mut selected = selected;
         let mut status = status;
@@ -140,7 +141,7 @@ pub fn App() -> Element {
                     let count = parsed.dives.len();
                     log.set(parsed);
                     loaded.set(true);
-                    status.set(format!("Loaded {count} dives from local storage"));
+                    status.set(crate::i18n::t1(t.status_loaded, count));
                 }
                 // Leave autosave disabled so the unreadable log is preserved
                 // for manual recovery instead of being overwritten.
@@ -153,18 +154,16 @@ pub fn App() -> Element {
                             let count = parsed.dives.len();
                             log.set(parsed);
                             loaded.set(true);
-                            status.set(format!(
-                                "Primary log was unreadable ({e}); recovered {count} dives from the backup",
-                            ));
+                            status.set(crate::i18n::t2(t.status_recovered, e, count));
                         }
-                        Err(_) => status.set(format!("Could not read local log: {e}")),
+                        Err(_) => status.set(crate::i18n::t1(t.status_could_not_read, e)),
                     },
-                    None => status.set(format!("Could not read local log: {e}")),
+                    None => status.set(crate::i18n::t1(t.status_could_not_read, e)),
                 },
             },
             None => {
                 loaded.set(true);
-                status.set("No local log yet — import one to get started".to_string());
+                status.set(t.status_no_log.to_string());
             }
         }
     });

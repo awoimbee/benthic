@@ -121,6 +121,13 @@ pub fn Toolbar() -> Element {
                                     let mut open_menu = open_menu;
                                     open_menu.set(None);
                                 },
+                                onkeydown: move |evt: KeyboardEvent| {
+                                    if evt.key() == Key::Escape {
+                                        let mut open_menu = open_menu;
+                                        open_menu.set(None);
+                                        evt.prevent_default();
+                                    }
+                                },
                                 MenuContent { sections: vec![section], show_headings: false }
                             }
                         }
@@ -159,6 +166,13 @@ pub fn Toolbar() -> Element {
                     onclick: move |_| {
                         let mut sheet_open = sheet_open;
                         sheet_open.set(false);
+                    },
+                    onkeydown: move |evt: KeyboardEvent| {
+                        if evt.key() == Key::Escape {
+                            let mut sheet_open = sheet_open;
+                            sheet_open.set(false);
+                            evt.prevent_default();
+                        }
                     },
                     MenuContent { sections: MenuSection::ALL.to_vec(), show_headings: true }
                     div {

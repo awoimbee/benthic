@@ -42,7 +42,11 @@ pub fn FilterBar() -> Element {
             return;
         }
         let mut list = (state.presets)();
-        let entry = FilterPreset::new(name, (state.filter)());
+        // A preset captures the structured filters, not the toolbar search,
+        // which would otherwise reappear unexpectedly when it is loaded.
+        let mut preset_filter = (state.filter)();
+        preset_filter.query.clear();
+        let entry = FilterPreset::new(name, preset_filter);
         match loaded_preset() {
             Some(index) if index < list.len() => list[index] = entry,
             _ => {

@@ -211,7 +211,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .and_then(|id| log.trip_by_id(id))
         .map(|t| {
             if t.location.is_empty() {
-                format!("Trip #{}", t.id)
+                i18n::t1(tr.trip_fallback, t.id)
             } else {
                 t.location.clone()
             }

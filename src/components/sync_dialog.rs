@@ -56,7 +56,7 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
             // every other change, instead of silently replacing the log.
             let before = (state.log)();
             state.dispatch(benthic_core::Command::Snapshot {
-                label: "Sync: download remote".into(),
+                label: t.sync_downloaded.into(),
                 before: Box::new(before),
                 after: Box::new(parsed),
             });
