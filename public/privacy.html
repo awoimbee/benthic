@@ -168,11 +168,13 @@
       <p>The available backends today are:</p>
       <ul>
         <li>
-          <strong>Google Drive.</strong> The log is stored in the application's
-          private app-data folder (<code>appDataFolder</code>), using the
+          <strong>Google Drive</strong> (development builds only). The log is
+          stored in the application's private app-data folder
+          (<code>appDataFolder</code>), using the
           <code>https://www.googleapis.com/auth/drive.appdata</code> scope.
           This scope only exposes files that benthic itself creates; benthic
           cannot see, read or modify any other file in your Google Drive.
+          Released builds do not offer this option.
         </li>
         <li>
           <strong>A Git repository (for example GitHub or a compatible host).</strong>

@@ -165,10 +165,24 @@ pub trait Backend: Send + Sync {
     async fn sign_out(&self, _settings: &mut Settings) {}
 }
 
+/// Whether the Google Drive backend is offered in this build.
+///
+/// Google Drive requires OAuth brand/domain verification that a shared
+/// `github.io` deployment cannot satisfy (the registrable domain `github.io`
+/// is a public suffix and cannot be owned). It is therefore only offered in
+/// local/development builds; production builds use the token-based Git
+/// backends, which need no OAuth consent screen.
+pub const GDRIVE_ENABLED: bool = cfg!(debug_assertions);
+
 /// Every registered backend, in the order shown to the user.
 pub fn all() -> &'static [&'static dyn Backend] {
-    static REGISTRY: &[&dyn Backend] = &[&github::GITHUB, &gdrive::GDRIVE];
-    REGISTRY
+    static DEV: &[&dyn Backend] = &[&github::GITHUB, &gdrive::GDRIVE];
+    static PROD: &[&dyn Backend] = &[&github::GITHUB];
+    if GDRIVE_ENABLED {
+        DEV
+    } else {
+        PROD
+    }
 }
 
 /// Look a backend up by id, falling back to the first one.

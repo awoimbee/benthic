@@ -125,8 +125,15 @@ natively. Settings are stored per backend as JSON, and old flat configs are
 migrated on load.
 
 GitHub uses the repository-contents API (the base URL is configurable, so Gitea
-and enterprise hosts work). Google Drive stores the log in the app's private
-`appDataFolder` (scope `drive.appdata`) and signs in differently per target:
+and enterprise hosts work), needs only a personal access token, and is the
+backend offered in production builds.
+
+Google Drive stores the log in the app's private `appDataFolder` (scope
+`drive.appdata`). It is **only offered in local/development builds**: publishing
+an OAuth app that uses it requires verifying ownership of the registrable
+domain behind the home page and privacy policy, and `github.io` is a public
+suffix that cannot be owned. The registry in `src/sync/backend.rs` therefore
+lists Drive only when `cfg!(debug_assertions)`. Sign-in differs per target:
 
 * **Web** uses Google Identity Services' browser token flow
   (`public/google-auth.js` + `src/sync/oauth_web.rs`), which needs only a public
@@ -136,10 +143,11 @@ and enterprise hosts work). Google Drive stores the log in the app's private
   on a temporary `127.0.0.1` listener, exchanges it, and keeps the refresh token
   so later syncs need no interaction.
 
-Both need a one-time Google Cloud setup. For the web, enable the Drive API and
-register a **Web application** OAuth client, adding the app's origins as
-Authorized JavaScript origins. For the desktop, register a **Desktop app**
-client and set its ID and (non-confidential) secret in `src/sync/gdrive.rs`.
+For development builds that expose Google Drive, both target flows need a
+one-time Google Cloud setup. For the web, enable the Drive API and register a
+**Web application** OAuth client, adding the app's origins as Authorized
+JavaScript origins. For the desktop, register a **Desktop app** client and set
+its ID and (non-confidential) secret in `src/sync/gdrive.rs`.
 
 ## Dive computer integration
 
