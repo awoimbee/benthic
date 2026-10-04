@@ -1991,3 +1991,9 @@ a:focus-visible {
     box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
   }
 }
+
+/* A transparent wrapper so the global key handler can see events from both
+   the inert app shell and the dialogs rendered beside it. */
+.app-root {
+  display: contents;
+}

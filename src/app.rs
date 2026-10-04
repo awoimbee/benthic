@@ -257,6 +257,18 @@ pub fn App() -> Element {
     if !(state.selection)().is_empty() {
         panes_class.push_str(" selection-active");
     }
+    let show_welcome = (loaded)() && (log)().dives.is_empty() && !(prefs)().seen_welcome;
+    // While a dialog is open, the page behind it is inert, so focus and
+    // assistive technology stay inside the dialog.
+    let modal_open = show_welcome
+        || (show_prefs)()
+        || (show_trips)()
+        || (show_map)()
+        || (show_planner)()
+        || (show_compare)()
+        || (confirm_delete_selected)()
+        || (show_sync)()
+        || (show_download)();
 
     #[cfg(feature = "divecomputer")]
     let device_download = (show_download)().then(|| rsx! { DeviceDownloadDialog {} });
@@ -272,11 +284,14 @@ pub fn App() -> Element {
         // meaningful to announce; it is visually hidden by `.sr-only`.
         h1 { class: "sr-only", "{tr.app_h1}" }
         p { class: "sr-only", "{tr.app_description}" }
+        // The key handler must see events from the dialogs too, so it lives
+        // on this non-inert wrapper rather than on the inert app shell.
+        div { class: "app-root", onkeydown: on_keydown,
         div {
             class: if theme_light { "app theme-light" } else { "app" },
             tabindex: "0",
             autofocus: true,
-            onkeydown: on_keydown,
+            inert: modal_open,
             Toolbar {}
             FilterBar {}
             if let Some(error) = (storage_error)() {
@@ -294,41 +309,44 @@ pub fn App() -> Element {
                 DiveDetail {}
             }
             SelectionBar {}
-            if (loaded)() && (log)().dives.is_empty() && !(prefs)().seen_welcome {
-                WelcomeDialog {}
+        }
+
+        // Dialogs sit outside the inert shell.
+        if show_welcome {
+            WelcomeDialog {}
+        }
+        if (show_prefs)() {
+            PreferencesDialog {}
+        }
+        if (show_trips)() {
+            TripsDialog {}
+        }
+        if (show_map)() {
+            MapDialog {}
+        }
+        if (show_planner)() {
+            PlannerDialog {}
+        }
+        if (show_compare)() {
+            CompareDialog {}
+        }
+        if (confirm_delete_selected)() {
+            ConfirmDialog {
+                title: tr.confirm_delete_dives_title.to_string(),
+                body: crate::i18n::t1(tr.confirm_delete_dives_body, (selection)().len()),
+                confirm_label: tr.delete.to_string(),
+                cancel_label: tr.cancel.to_string(),
+                on_confirm: move |_| {
+                    crate::actions::delete_selected(state);
+                    confirm_delete_selected.set(false);
+                },
+                on_cancel: move |_| confirm_delete_selected.set(false),
             }
-            if (show_prefs)() {
-                PreferencesDialog {}
-            }
-            if (show_trips)() {
-                TripsDialog {}
-            }
-            if (show_map)() {
-                MapDialog {}
-            }
-            if (show_planner)() {
-                PlannerDialog {}
-            }
-            if (show_compare)() {
-                CompareDialog {}
-            }
-            if (confirm_delete_selected)() {
-                ConfirmDialog {
-                    title: tr.confirm_delete_dives_title.to_string(),
-                    body: crate::i18n::t1(tr.confirm_delete_dives_body, (selection)().len()),
-                    confirm_label: tr.delete.to_string(),
-                    cancel_label: tr.cancel.to_string(),
-                    on_confirm: move |_| {
-                        crate::actions::delete_selected(state);
-                        confirm_delete_selected.set(false);
-                    },
-                    on_cancel: move |_| confirm_delete_selected.set(false),
-                }
-            }
-            if (show_sync)() {
-                SyncDialog {}
-            }
-            {device_download}
+        }
+        if (show_sync)() {
+            SyncDialog {}
+        }
+        {device_download}
         }
     }
 }
