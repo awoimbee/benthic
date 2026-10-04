@@ -445,7 +445,7 @@ pub fn PlannerDialog() -> Element {
                                         label { class: "field-label",
                                             span { class: "label-row",
                                                 "{tr.dive_mode}"
-                                                InfoTip { text: "OC: open circuit, breathing from a cylinder. CCR: closed-circuit rebreather. pSCR: passive semi-closed rebreather." }
+                                                InfoTip { text: tr.tip_dive_mode }
                                             }
                                             select {
                                                 class: "field",
@@ -509,7 +509,7 @@ pub fn PlannerDialog() -> Element {
                     label { class: "field-label",
                         span { class: "label-row",
                             "{tr.deco_model}"
-                            InfoTip { text: "The algorithm behind the schedule. Bühlmann uses gradient factors; VPM-B uses a conservatism level." }
+                            InfoTip { text: tr.tip_deco_model }
                         }
                         select {
                             class: "field",
@@ -523,7 +523,7 @@ pub fn PlannerDialog() -> Element {
                         label { class: "field-label",
                             span { class: "label-row",
                                 "{tr.conservatism}"
-                                InfoTip { text: "Higher levels add more safety margin to the VPM-B schedule (0 to 4)." }
+                                InfoTip { text: tr.tip_conservatism }
                             }
                             select {
                                 class: "field",
@@ -538,7 +538,7 @@ pub fn PlannerDialog() -> Element {
                         label { class: "field-label",
                             span { class: "label-row",
                                 "{tr.gf_low}"
-                                InfoTip { text: "Gradient factor at the deepest stop. Lower values are more conservative (typical 0.30)." }
+                                InfoTip { text: tr.tip_gf_low }
                             }
                             input {
                                 class: "field",
@@ -553,7 +553,7 @@ pub fn PlannerDialog() -> Element {
                         label { class: "field-label",
                             span { class: "label-row",
                                 "{tr.gf_high}"
-                                InfoTip { text: "Gradient factor at the surface. Lower values are more conservative (typical 0.70)." }
+                                InfoTip { text: tr.tip_gf_high }
                             }
                             input {
                                 class: "field",
@@ -569,7 +569,7 @@ pub fn PlannerDialog() -> Element {
                     label { class: "field-label",
                         span { class: "label-row",
                             "{tr.rmv}"
-                            InfoTip { text: "Respiratory minute volume: the surface litres of gas you breathe per minute. Used to estimate gas needs. A common planning value is 20 L/min." }
+                            InfoTip { text: tr.tip_rmv }
                         }
                         input {
                             class: "field",
@@ -594,17 +594,17 @@ pub fn PlannerDialog() -> Element {
                     Result {
                         label: tr.mod_depth,
                         value: prefs.depth(Depth::new(mod_mm)),
-                        help: Some("Maximum operating depth: the deepest you can go on this gas while keeping oxygen partial pressure at or below 1.4 bar."),
+                        help: Some(tr.tip_mod),
                     }
                     Result {
                         label: tr.end,
                         value: prefs.depth(Depth::new(end_mm)),
-                        help: Some("Equivalent narcotic depth: the depth that would feel equally narcotic on air."),
+                        help: Some(tr.tip_end),
                     }
                     Result {
                         label: tr.ndl,
                         value: ndl_text,
-                        help: Some("No-decompression limit: how long you can stay at the deepest point without incurring a mandatory stop."),
+                        help: Some(tr.tip_ndl),
                     }
                     Result { label: tr.runtime, value: format_duration(plan.total_time()) }
                     Result { label: tr.bottom_time, value: format_duration(plan.bottom_time()) }
@@ -613,14 +613,14 @@ pub fn PlannerDialog() -> Element {
                         Result {
                             label: tr.gas_needed,
                             value: format!("{gas_needs:.0} L"),
-                            help: Some("Surface litres of breathing gas the plan consumes, based on the RMV above."),
+                            help: Some(tr.tip_gas_needed),
                         }
                         Result { label: "\u{2248} 12 L fills", value: format!("{gas_bar_12l:.0} bar") }
                     }
                     Result {
                         label: tr.oc_bailout,
                         value: format!("{bailout:.0} L"),
-                        help: Some("Open-circuit gas required to get a rebreather diver safely to the surface, based on the RMV above."),
+                        help: Some(tr.tip_bailout),
                     }
                     Result { label: "\u{2248} 12 L bailout", value: format!("{bailout_bar_12l:.0} bar") }
                 }

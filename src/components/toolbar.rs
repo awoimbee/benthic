@@ -89,7 +89,12 @@ pub fn Toolbar() -> Element {
                 oninput: move |evt| filter.write().query = evt.value(),
             }
 
-            span { class: "status status-wide", "{status}" }
+            span {
+                class: "status status-wide",
+                role: "status",
+                aria_live: "polite",
+                "{status}"
+            }
 
             // Menu bar: one dropdown per category on wide screens.
             div { class: "toolbar-menus",
@@ -156,7 +161,12 @@ pub fn Toolbar() -> Element {
                         sheet_open.set(false);
                     },
                     MenuContent { sections: MenuSection::ALL.to_vec(), show_headings: true }
-                    div { class: "menu-status", "{status}" }
+                    div {
+                        class: "menu-status",
+                        role: "status",
+                        aria_live: "polite",
+                        "{status}"
+                    }
                 }
             }
         }

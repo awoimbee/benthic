@@ -223,7 +223,7 @@ pub fn DiveList() -> Element {
                             input {
                                 r#type: "checkbox",
                                 class: "row-check",
-                                aria_label: "{row.title}",
+                                aria_label: i18n::t1(t.select_dive_label, &row.title),
                                 checked: row.checked,
                                 onclick: move |evt| evt.stop_propagation(),
                                 onchange: move |_| {

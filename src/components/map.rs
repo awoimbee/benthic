@@ -94,6 +94,8 @@ pub fn MapView(
     pick: bool,
     #[props(default)] on_pick: Option<EventHandler<(f64, f64)>>,
 ) -> Element {
+    let state = use_context::<AppState>();
+    let t = i18n::strings((state.prefs)().language);
     let dom_id = use_hook(|| format!("benthic-map-{}", next_instance()));
     let mount_id = dom_id.clone();
     // The Leaflet instance lives outside Dioxus. A component that is the single
@@ -112,6 +114,8 @@ pub fn MapView(
                 "sites": sites,
                 "max_zoom": max_zoom,
                 "pick": pick,
+                "satellite": t.satellite,
+                "streets": t.streets,
             });
             let mut eval = document::eval(MAP_SCRIPT);
             if eval.send(payload).is_err() {
@@ -406,8 +410,11 @@ if (!ready || !container) {
     onAdd() {
       const div = L.DomUtil.create("div", "benthic-map-layers");
       div.innerHTML =
-        '<button type="button" class="active" data-layer="satellite">Satellite</button>' +
-        '<button type="button" data-layer="streets">Streets</button>';
+        '<button type="button" class="active" data-layer="satellite">' +
+        escapeHtml(payload.satellite || "Satellite") +
+        '</button><button type="button" data-layer="streets">' +
+        escapeHtml(payload.streets || "Streets") +
+        "</button>";
       L.DomEvent.disableClickPropagation(div);
       L.DomEvent.disableScrollPropagation(div);
       L.DomEvent.on(div, "click", (event) => {

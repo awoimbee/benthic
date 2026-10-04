@@ -38,7 +38,7 @@ pub fn PreferencesDialog() -> Element {
     let backup_age = crate::storage::backup_age_secs();
     let has_backup = backup_age.is_some();
     let backup_label = match backup_age {
-        Some(age) => i18n::t1(t.backup_age, human_age(age)),
+        Some(age) => i18n::t1(t.backup_age, human_age(age, t)),
         None => t.no_backup_yet.to_string(),
     };
 
@@ -212,15 +212,15 @@ fn unit_label(t: &'static i18n::Strings, units: UnitSystem) -> &'static str {
     }
 }
 
-fn human_age(secs: i64) -> String {
+fn human_age(secs: i64, t: &'static i18n::Strings) -> String {
     if secs < 60 {
-        format!("{secs}s ago")
+        i18n::t1(t.ago_seconds, secs)
     } else if secs < 3600 {
-        format!("{} min ago", secs / 60)
+        i18n::t1(t.ago_minutes, secs / 60)
     } else if secs < 86_400 {
-        format!("{} h ago", secs / 3600)
+        i18n::t1(t.ago_hours, secs / 3600)
     } else {
-        format!("{} d ago", secs / 86_400)
+        i18n::t1(t.ago_days, secs / 86_400)
     }
 }
 

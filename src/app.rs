@@ -266,12 +266,8 @@ pub fn App() -> Element {
         link { rel: "icon", r#type: "image/svg+xml", href: "favicon.svg" }
         // A real heading gives search engines and screen readers something
         // meaningful to announce; it is visually hidden by `.sr-only`.
-        h1 { class: "sr-only", "benthic — a modern, local-first dive log" }
-        p { class: "sr-only",
-            "benthic is an open-source dive log for scuba divers. Import and export \
-             Subsurface-compatible logs, plan dives with a Bühlmann decompression model, \
-             browse interactive dive profiles, and keep your data on your own device."
-        }
+        h1 { class: "sr-only", "{tr.app_h1}" }
+        p { class: "sr-only", "{tr.app_description}" }
         div {
             class: if theme_light { "app theme-light" } else { "app" },
             tabindex: "0",
@@ -280,7 +276,7 @@ pub fn App() -> Element {
             Toolbar {}
             FilterBar {}
             if let Some(error) = (storage_error)() {
-                div { class: "storage-warning",
+                div { class: "storage-warning", role: "alert",
                     span { {crate::i18n::t1(tr.welcome_storage_error, error)} }
                     button {
                         class: "btn",
