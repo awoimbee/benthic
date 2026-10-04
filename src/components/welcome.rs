@@ -44,6 +44,8 @@ pub fn WelcomeDialog() -> Element {
         div { class: "modal-backdrop welcome-backdrop",
             div { class: "modal welcome",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "{t.welcome_title}",
                 h2 { "{t.welcome_title}" }

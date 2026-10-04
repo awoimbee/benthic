@@ -63,6 +63,8 @@ pub fn TripsDialog() -> Element {
             div {
                 class: "modal wide",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "{tr.manage_trips}",
                 onclick: move |evt| evt.stop_propagation(),

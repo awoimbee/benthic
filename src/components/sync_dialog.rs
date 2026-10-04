@@ -165,6 +165,8 @@ pub fn SyncDialog() -> Element {
         div { class: "modal-backdrop", onclick: move |_| show_sync.set(false),
             div { class: "modal wide",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "{tr.sync_title}",
                 onclick: move |evt| evt.stop_propagation(),

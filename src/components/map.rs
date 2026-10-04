@@ -187,6 +187,8 @@ pub fn LocationPickerDialog(
         div { class: "modal-backdrop", onclick: move |_| on_close.call(()),
             div { class: "modal map-modal",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "{tr.pick_title}",
                 onclick: move |evt| evt.stop_propagation(),
@@ -279,6 +281,8 @@ pub fn MapDialog() -> Element {
             div {
                 class: "modal map-modal",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "{tr.map_title}",
                 onclick: move |evt| evt.stop_propagation(),

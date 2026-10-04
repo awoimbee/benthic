@@ -68,6 +68,8 @@ pub fn PreferencesDialog() -> Element {
             div {
                 class: "modal",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "{t.preferences}",
                 onclick: move |evt| evt.stop_propagation(),

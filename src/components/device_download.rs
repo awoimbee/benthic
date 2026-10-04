@@ -242,6 +242,8 @@ pub fn DeviceDownloadDialog() -> Element {
         div { class: "modal-backdrop", onclick: move |_| show.set(false),
             div { class: "modal wide",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "Download from a dive computer",
                 onclick: move |evt| evt.stop_propagation(),

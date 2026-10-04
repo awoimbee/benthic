@@ -16,6 +16,8 @@ pub fn ConfirmDialog(
             div {
                 class: "modal confirm",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 aria_label: "{title}",
                 onclick: move |evt| evt.stop_propagation(),

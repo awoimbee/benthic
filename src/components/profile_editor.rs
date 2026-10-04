@@ -71,6 +71,8 @@ pub fn ProfileEditorDialog(
     rsx! {
         section { class: "planner-screen profile-editor",
             role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
             aria_modal: "true",
             aria_label: "{tr.profile_title}",
             div { class: "planner-inner",

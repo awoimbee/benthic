@@ -316,6 +316,8 @@ pub fn PlannerDialog() -> Element {
     rsx! {
         section { class: "planner-screen",
             role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
             aria_modal: "true",
             aria_label: "{tr.dive_planner}",
             div { class: "planner-inner",

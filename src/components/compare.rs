@@ -31,6 +31,8 @@ pub fn CompareDialog() -> Element {
                 div {
                     class: "modal",
                     role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                     aria_modal: "true",
                     onclick: move |evt| evt.stop_propagation(),
                     h2 { "{tr.compare_dives}" }
@@ -91,6 +93,8 @@ pub fn CompareDialog() -> Element {
             div {
                 class: "modal wide",
                 role: "dialog",
+            tabindex: "-1",
+            autofocus: true,
                 aria_modal: "true",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "{tr.compare_dives}" }
