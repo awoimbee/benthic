@@ -291,7 +291,9 @@ pub fn App() -> Element {
             class: if theme_light { "app theme-light" } else { "app" },
             tabindex: "0",
             autofocus: true,
-            inert: modal_open,
+            // Only render the attribute when true: `inert` is a boolean
+            // attribute, so `inert="false"` would still disable the page.
+            inert: if modal_open { Some("true") } else { None },
             Toolbar {}
             FilterBar {}
             if let Some(error) = (storage_error)() {
