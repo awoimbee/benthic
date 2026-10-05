@@ -1,8 +1,9 @@
-//! A full view of one trip: where it was, when, its notes and its dives.
+//! The detail pane for one trip: where it was, when, its notes and its dives.
 //!
 //! Location, start date and notes are edited here and committed with a single
 //! undoable `UpdateTrip`. The date range and totals are derived from the dives
-//! in the trip, so they are always in sync.
+//! in the trip, so they are always in sync. Selecting a trip in the list shows
+//! this in the same pane as a dive.
 
 use dioxus::prelude::*;
 
@@ -16,6 +17,7 @@ use crate::state::AppState;
 pub fn TripView(trip_id: u32) -> Element {
     let state = use_context::<AppState>();
     let mut show_trip = state.show_trip;
+    let mut mobile_detail = state.mobile_detail;
     let log = (state.log)();
     let prefs = (state.prefs)();
     let tr = i18n::strings(prefs.language);
@@ -92,97 +94,97 @@ pub fn TripView(trip_id: u32) -> Element {
                 after,
             });
             state.set_status(tr.saved_trip);
-            show_trip.set(None);
         }
     };
 
-    let close = move |_| show_trip.set(None);
+    // Discard edits and restore the stored values.
+    let on_revert = {
+        let trip = trip.clone();
+        move |_| {
+            location.set(trip.location.clone());
+            notes.set(trip.notes.clone());
+            start_date.set(trip.date.map(date_input_value).unwrap_or_default());
+        }
+    };
 
     rsx! {
-        section {
-            class: "planner-screen trip-view",
-            role: "dialog",
-            aria_modal: "true",
-            aria_label: "{title}",
-            div { class: "planner-inner",
-                header { class: "detail-head",
-                    div { class: "detail-title-row",
-                        button {
-                            class: "btn back-btn",
-                            title: "{tr.back}",
-                            onclick: close,
-                            "\u{2039} {tr.back}"
-                        }
-                        h1 { "{title}" }
-                        div { class: "detail-actions",
-                            button { class: "btn primary", onclick: on_save, "{tr.save}" }
-                            button { class: "btn", onclick: close, "{tr.cancel}" }
-                        }
+        section { class: "detail trip-view",
+            header { class: "detail-head",
+                div { class: "detail-title-row",
+                    button {
+                        class: "btn back-btn",
+                        title: "{tr.back}",
+                        onclick: move |_| mobile_detail.set(false),
+                        "\u{2039} {tr.back}"
                     }
-                    p { class: "muted", "{dates_value}" }
-                }
-
-                div { class: "facts planner-results",
-                    TripFact { label: tr.cat_dives, value: dives.len().to_string() }
-                    TripFact { label: tr.dates, value: dates_value.clone() }
-                    TripFact { label: tr.bottom_time, value: total_time }
-                    TripFact { label: tr.fact_max_depth, value: max_depth }
-                }
-
-                div { class: "section-title", "{tr.trip}" }
-                div { class: "edit-form",
-                    label { class: "field-label", "{tr.location}"
-                        input {
-                            class: "field",
-                            value: "{location()}",
-                            oninput: move |evt| location.set(evt.value()),
-                        }
-                    }
-                    label { class: "field-label", "{tr.start_date}"
-                        input {
-                            class: "field",
-                            r#type: "date",
-                            value: "{start_date()}",
-                            oninput: move |evt| start_date.set(evt.value()),
-                        }
-                    }
-                    label { class: "field-label full", "{tr.field_notes}"
-                        textarea {
-                            class: "field",
-                            rows: "4",
-                            value: "{notes()}",
-                            oninput: move |evt| notes.set(evt.value()),
-                        }
+                    h1 { "{title}" }
+                    div { class: "detail-actions",
+                        button { class: "btn primary", onclick: on_save, "{tr.save}" }
+                        button { class: "btn", onclick: on_revert, "{tr.cancel}" }
                     }
                 }
+                p { class: "muted", "{dates_value}" }
+            }
 
-                div { class: "section-title", "{tr.cat_dives}" }
-                if dives.is_empty() {
-                    p { class: "muted", "{tr.no_dives_in_trip}" }
-                } else {
-                    div { class: "trip-dive-list",
-                        for dive in dives {
-                            {
-                                let dive_id = dive.id;
-                                let dive_title = crate::format::dive_title(&dive, &log);
-                                let dive_subtitle = crate::format::dive_subtitle(&dive, &prefs);
-                                rsx! {
-                                    button {
-                                        key: "{dive_id}",
-                                        class: "trip-dive-row",
-                                        r#type: "button",
-                                        onclick: move |_| {
-                                            let mut selected = state.selected;
-                                            let mut mobile_detail = state.mobile_detail;
-                                            selected.set(Some(dive_id));
-                                            mobile_detail.set(true);
-                                            show_trip.set(None);
-                                        },
-                                        span { class: "trip-dive-date", "{prefs.date(dive.when)}" }
-                                        span { class: "trip-dive-main",
-                                            span { class: "dive-title", "{dive_title}" }
-                                            span { class: "dive-subtitle", "{dive_subtitle}" }
-                                        }
+            div { class: "facts planner-results",
+                TripFact { label: tr.cat_dives, value: dives.len().to_string() }
+                TripFact { label: tr.dates, value: dates_value.clone() }
+                TripFact { label: tr.bottom_time, value: total_time }
+                TripFact { label: tr.fact_max_depth, value: max_depth }
+            }
+
+            div { class: "section-title", "{tr.trip}" }
+            div { class: "edit-form",
+                label { class: "field-label", "{tr.location}"
+                    input {
+                        class: "field",
+                        value: "{location()}",
+                        oninput: move |evt| location.set(evt.value()),
+                    }
+                }
+                label { class: "field-label", "{tr.start_date}"
+                    input {
+                        class: "field",
+                        r#type: "date",
+                        value: "{start_date()}",
+                        oninput: move |evt| start_date.set(evt.value()),
+                    }
+                }
+                label { class: "field-label full", "{tr.field_notes}"
+                    textarea {
+                        class: "field",
+                        rows: "4",
+                        value: "{notes()}",
+                        oninput: move |evt| notes.set(evt.value()),
+                    }
+                }
+            }
+
+            div { class: "section-title", "{tr.cat_dives}" }
+            if dives.is_empty() {
+                p { class: "muted", "{tr.no_dives_in_trip}" }
+            } else {
+                div { class: "trip-dive-list",
+                    for dive in dives {
+                        {
+                            let dive_id = dive.id;
+                            let dive_title = crate::format::dive_title(&dive, &log);
+                            let dive_subtitle = crate::format::dive_subtitle(&dive, &prefs);
+                            rsx! {
+                                button {
+                                    key: "{dive_id}",
+                                    class: "trip-dive-row",
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let mut selected = state.selected;
+                                        selected.set(Some(dive_id));
+                                        show_trip.set(None);
+                                        mobile_detail.set(true);
+                                    },
+                                    span { class: "trip-dive-date", "{prefs.date(dive.when)}" }
+                                    span { class: "trip-dive-main",
+                                        span { class: "dive-title", "{dive_title}" }
+                                        span { class: "dive-subtitle", "{dive_subtitle}" }
                                     }
                                 }
                             }

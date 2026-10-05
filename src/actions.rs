@@ -30,6 +30,8 @@ pub fn new_dive(state: AppState) {
     });
     let mut selected = state.selected;
     selected.set(Some(dive.id));
+    let mut show_trip = state.show_trip;
+    show_trip.set(None);
     state.set_status(state.strings().added_dive);
 }
 
@@ -58,6 +60,8 @@ pub fn duplicate_dive(state: AppState, id: u32) {
     });
     let mut selected = state.selected;
     selected.set(Some(copy.id));
+    let mut show_trip = state.show_trip;
+    show_trip.set(None);
     state.set_status(state.strings().duplicated_dive);
 }
 
@@ -175,6 +179,12 @@ pub fn delete_trip(state: AppState, id: u32) {
         return;
     }
     state.dispatch_all(state.strings().undo_delete_trip, commands);
+    // If the deleted trip was open in the detail pane, fall back to the dive
+    // view so the pane is never left blank.
+    if (state.show_trip)() == Some(id) {
+        let mut show_trip = state.show_trip;
+        show_trip.set(None);
+    }
     state.set_status(state.strings().deleted_trip);
 }
 
@@ -263,6 +273,8 @@ pub fn save_plan(state: AppState, plan: DivePlan) {
     });
     let mut selected = state.selected;
     selected.set(Some(dive.id));
+    let mut show_trip = state.show_trip;
+    show_trip.set(None);
     state.set_status(state.strings().saved_plan);
 }
 
@@ -278,6 +290,11 @@ pub fn merge_trips(state: AppState, keep: u32, remove: u32) {
         before: Box::new(before),
         after: Box::new(after),
     });
+    // Follow the merge if the removed trip was the one on screen.
+    if (state.show_trip)() == Some(remove) {
+        let mut show_trip = state.show_trip;
+        show_trip.set(Some(keep));
+    }
     state.set_status(state.strings().merged_trips);
 }
 

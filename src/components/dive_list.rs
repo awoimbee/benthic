@@ -147,6 +147,8 @@ pub fn DiveList() -> Element {
                             // their explicit toggle button.
                             if let Some(id) = row.dive_id {
                                 selected.set(Some(id));
+                                let mut show_trip = state.show_trip;
+                                show_trip.set(None);
                                 mobile_detail.set(true);
                             }
                         },
@@ -175,7 +177,7 @@ pub fn DiveList() -> Element {
                                     }
                                 } else {
                                     button {
-                                        class: "trip-toggle",
+                                        class: "trip-caret-btn",
                                         r#type: "button",
                                         aria_expanded: if row.collapsed { "false" } else { "true" },
                                         onclick: move |_| {
@@ -189,20 +191,22 @@ pub fn DiveList() -> Element {
                                         span { class: "trip-caret",
                                             if row.collapsed { "\u{25B8}" } else { "\u{25BE}" }
                                         }
+                                    }
+                                    button {
+                                        class: "trip-toggle",
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            if let Some(trip_id) = row.trip_id {
+                                                let mut show_trip = state.show_trip;
+                                                let mut mobile_detail = state.mobile_detail;
+                                                show_trip.set(Some(trip_id));
+                                                mobile_detail.set(true);
+                                            }
+                                        },
                                         span { class: "trip-title", "{row.title}" }
                                         span { class: "trip-subtitle", "{row.subtitle}" }
                                     }
                                     div { class: "trip-actions",
-                                        button {
-                                            class: "icon-btn",
-                                            title: "{t.view_trip}",
-                                            onclick: move |evt| {
-                                                evt.stop_propagation();
-                                                let mut show_trip = state.show_trip;
-                                                show_trip.set(Some(trip_id));
-                                            },
-                                            "\u{203A}"
-                                        }
                                         button {
                                             class: "icon-btn",
                                             title: "{t.rename_trip}",
@@ -255,6 +259,8 @@ pub fn DiveList() -> Element {
                                 onclick: move |_| {
                                     if let Some(id) = row.dive_id {
                                         selected.set(Some(id));
+                                        let mut show_trip = state.show_trip;
+                                        show_trip.set(None);
                                         mobile_detail.set(true);
                                     }
                                 },

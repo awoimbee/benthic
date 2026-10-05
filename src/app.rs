@@ -111,7 +111,7 @@ pub fn App() -> Element {
     // On narrow screens the detail screen replaces the list. With nothing
     // selected there is no detail to show, so return to the list.
     use_effect(move || {
-        if (selected)().is_none() {
+        if (selected)().is_none() && (show_trip)().is_none() {
             mobile_detail.set(false);
         }
     });
@@ -194,7 +194,6 @@ pub fn App() -> Element {
         // Escape closes the open dialog, whichever it is.
         if evt.key() == Key::Escape {
             let mut confirm_delete_selected = confirm_delete_selected;
-            let mut show_trip = show_trip;
             let mut show_prefs = show_prefs;
             let mut show_trips = show_trips;
             let mut show_map = show_map;
@@ -205,8 +204,6 @@ pub fn App() -> Element {
             let mut closed = true;
             if (confirm_delete_selected)() {
                 confirm_delete_selected.set(false);
-            } else if (show_trip)().is_some() {
-                show_trip.set(None);
             } else if (show_prefs)() {
                 show_prefs.set(false);
             } else if (show_trips)() {
@@ -272,7 +269,6 @@ pub fn App() -> Element {
         || (show_planner)()
         || (show_compare)()
         || (confirm_delete_selected)()
-        || (show_trip)().is_some()
         || (show_sync)()
         || (show_download)();
 
@@ -314,7 +310,11 @@ pub fn App() -> Element {
             }
             div { class: "{panes_class}",
                 DiveList {}
-                DiveDetail {}
+                if let Some(trip_id) = (show_trip)() {
+                    TripView { key: "{trip_id}", trip_id }
+                } else {
+                    DiveDetail {}
+                }
             }
             SelectionBar {}
         }
@@ -350,9 +350,6 @@ pub fn App() -> Element {
                 },
                 on_cancel: move |_| confirm_delete_selected.set(false),
             }
-        }
-        if let Some(trip_id) = (show_trip)() {
-            TripView { trip_id }
         }
         if (show_sync)() {
             SyncDialog {}
