@@ -31,6 +31,12 @@ impl MenuSection {
             MenuSection::Settings => t.cat_settings,
         }
     }
+
+    /// The right-hand menus anchor their dropdown to the right edge so it
+    /// never spills past the viewport and forces horizontal scrolling.
+    fn align_end(self) -> bool {
+        matches!(self, MenuSection::Files | MenuSection::Settings)
+    }
 }
 
 /// The application header.
@@ -45,7 +51,25 @@ pub fn Toolbar() -> Element {
     let status = (state.status)();
     let log = (state.log)();
     let mut filter = state.filter;
+    let mut show_filters = state.show_filters;
     let dives_count = i18n::t1(t.dives_count, log.dives.len());
+
+    let current_filter = filter();
+    let active_filter_count = [
+        !current_filter.tags.is_empty(),
+        current_filter.min_rating > 0,
+        current_filter.min_depth.is_some(),
+        current_filter.max_depth.is_some(),
+    ]
+    .iter()
+    .filter(|active| **active)
+    .count();
+    let filters_label = if active_filter_count > 0 {
+        i18n::t1(t.filters_count, active_filter_count)
+    } else {
+        t.filters.to_string()
+    };
+    let filters_open = (show_filters)();
 
     let mut open_menu = use_signal(|| None::<MenuSection>);
     let mut sheet_open = use_signal(|| false);
@@ -79,6 +103,13 @@ pub fn Toolbar() -> Element {
                 "{t.new_dive}"
             }
 
+            button {
+                class: "btn filter-toggle",
+                aria_expanded: if filters_open { "true" } else { "false" },
+                onclick: move |_| show_filters.set(!filters_open),
+                if filters_open { "{filters_label} ▾" } else { "{filters_label} ▸" }
+            }
+
             div { class: "spacer" }
 
             input {
@@ -99,7 +130,7 @@ pub fn Toolbar() -> Element {
             // Menu bar: one dropdown per category on wide screens.
             div { class: "toolbar-menus",
                 for section in MenuSection::ALL {
-                    div { class: "menu",
+                    div { class: if section.align_end() { "menu align-end" } else { "menu" },
                         button {
                             class: if open == Some(section) { "menu-trigger open" } else { "menu-trigger" },
                             aria_expanded: if open == Some(section) { "true" } else { "false" },

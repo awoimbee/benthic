@@ -53,6 +53,7 @@ pub fn App() -> Element {
             .and_then(|text| serde_json::from_str::<Vec<FilterPreset>>(&text).ok())
             .unwrap_or_default()
     });
+    let show_filters = use_signal(|| false);
     // Autosave is gated until the initial load has completed, so we never
     // overwrite a stored log with the empty in-memory log on startup.
     let loaded = use_signal(|| false);
@@ -67,6 +68,7 @@ pub fn App() -> Element {
         history,
         filter,
         presets,
+        show_filters,
         prefs,
         show_prefs,
         show_trips,
@@ -297,7 +299,9 @@ pub fn App() -> Element {
             // attribute, so `inert="false"` would still disable the page.
             inert: if modal_open { Some("true") } else { None },
             Toolbar {}
-            FilterBar {}
+            if (show_filters)() {
+                FilterBar {}
+            }
             if let Some(error) = (storage_error)() {
                 div { class: "storage-warning", role: "alert",
                     span { {crate::i18n::t1(tr.welcome_storage_error, error)} }

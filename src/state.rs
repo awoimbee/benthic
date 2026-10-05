@@ -24,6 +24,8 @@ pub struct AppState {
     pub filter: Signal<DiveFilter>,
     /// Saved filter presets.
     pub presets: Signal<Vec<FilterPreset>>,
+    /// Whether the structured filter fields are expanded.
+    pub show_filters: Signal<bool>,
     /// Display preferences (units, ...).
     pub prefs: Signal<Preferences>,
     /// Whether the preferences dialog is open.

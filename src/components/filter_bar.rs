@@ -71,37 +71,14 @@ pub fn FilterBar() -> Element {
         preset_name.set(String::new());
     };
 
-    // Filters start collapsed on every screen size; the toggle shows how many
-    // are active so a hidden filter is never a surprise.
-    let mut open = use_signal(|| false);
-    let is_open = (open)();
-    let active_count = [
-        !current.tags.is_empty(),
-        current.min_rating > 0,
-        current.min_depth.is_some(),
-        current.max_depth.is_some(),
-    ]
-    .iter()
-    .filter(|active| **active)
-    .count();
-    let toggle_label = if active_count > 0 {
-        i18n::t1(t.filters_count, active_count)
-    } else {
-        t.filters.to_string()
-    };
+    // The toolbar toggle controls visibility; this component is only mounted
+    // while the filter fields are shown.
     let min_depth_hint = i18n::t1(t.min_depth, prefs.depth_unit());
     let max_depth_hint = i18n::t1(t.max_depth, prefs.depth_unit());
 
     rsx! {
         div { class: "filter-bar",
-            button {
-                class: "btn filter-toggle",
-                aria_expanded: if is_open { "true" } else { "false" },
-                onclick: move |_| open.set(!is_open),
-                if is_open { "{toggle_label} ▾" } else { "{toggle_label} ▸" }
-            }
-            div {
-                class: if is_open { "filter-fields open" } else { "filter-fields" },
+            div { class: "filter-fields open",
             span { class: "filter-label", "{t.filters}" }
             select {
                 class: "field",
