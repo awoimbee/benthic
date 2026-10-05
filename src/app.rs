@@ -6,7 +6,7 @@ use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
     CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog,
-    PreferencesDialog, SelectionBar, SyncDialog, Toolbar, TripsDialog, WelcomeDialog,
+    PreferencesDialog, SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
 };
 use crate::state::AppState;
 
@@ -46,6 +46,7 @@ pub fn App() -> Element {
     let download_available = use_signal(|| true);
     let show_compare = use_signal(|| false);
     let mut confirm_delete_selected = use_signal(|| false);
+    let show_trip = use_signal(|| None::<u32>);
     let mut mobile_detail = use_signal(|| false);
     let presets = use_signal(|| {
         crate::storage::load_presets()
@@ -76,6 +77,7 @@ pub fn App() -> Element {
         download_available,
         show_compare,
         confirm_delete_selected,
+        show_trip,
         mobile_detail,
     };
     use_context_provider(|| state);
@@ -192,6 +194,7 @@ pub fn App() -> Element {
         // Escape closes the open dialog, whichever it is.
         if evt.key() == Key::Escape {
             let mut confirm_delete_selected = confirm_delete_selected;
+            let mut show_trip = show_trip;
             let mut show_prefs = show_prefs;
             let mut show_trips = show_trips;
             let mut show_map = show_map;
@@ -202,6 +205,8 @@ pub fn App() -> Element {
             let mut closed = true;
             if (confirm_delete_selected)() {
                 confirm_delete_selected.set(false);
+            } else if (show_trip)().is_some() {
+                show_trip.set(None);
             } else if (show_prefs)() {
                 show_prefs.set(false);
             } else if (show_trips)() {
@@ -267,6 +272,7 @@ pub fn App() -> Element {
         || (show_planner)()
         || (show_compare)()
         || (confirm_delete_selected)()
+        || (show_trip)().is_some()
         || (show_sync)()
         || (show_download)();
 
@@ -344,6 +350,9 @@ pub fn App() -> Element {
                 },
                 on_cancel: move |_| confirm_delete_selected.set(false),
             }
+        }
+        if let Some(trip_id) = (show_trip)() {
+            TripView { trip_id }
         }
         if (show_sync)() {
             SyncDialog {}

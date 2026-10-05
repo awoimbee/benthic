@@ -1997,3 +1997,54 @@ a:focus-visible {
 .app-root {
   display: contents;
 }
+
+/* ---- Trip view ---- */
+.trip-dive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.trip-dive-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trip-dive-row:hover {
+  border-color: var(--accent);
+}
+
+.trip-dive-date {
+  min-width: 8rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.trip-dive-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .trip-dive-row {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .trip-dive-date {
+    min-width: 0;
+  }
+}

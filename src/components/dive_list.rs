@@ -195,6 +195,16 @@ pub fn DiveList() -> Element {
                                     div { class: "trip-actions",
                                         button {
                                             class: "icon-btn",
+                                            title: "{t.view_trip}",
+                                            onclick: move |evt| {
+                                                evt.stop_propagation();
+                                                let mut show_trip = state.show_trip;
+                                                show_trip.set(Some(trip_id));
+                                            },
+                                            "\u{203A}"
+                                        }
+                                        button {
+                                            class: "icon-btn",
                                             title: "{t.rename_trip}",
                                             onclick: move |evt| {
                                                 evt.stop_propagation();

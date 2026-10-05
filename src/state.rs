@@ -48,6 +48,8 @@ pub struct AppState {
     pub show_compare: Signal<bool>,
     /// Whether the bulk-delete confirmation is open.
     pub confirm_delete_selected: Signal<bool>,
+    /// The trip currently shown in the trip view, if any.
+    pub show_trip: Signal<Option<u32>>,
     /// Narrow screens only: whether the detail screen is showing rather than
     /// the dive list. Ignored on wide screens, where both panes are visible.
     pub mobile_detail: Signal<bool>,

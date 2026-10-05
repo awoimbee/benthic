@@ -17,6 +17,7 @@ mod profile_editor;
 mod selection_bar;
 mod sync_dialog;
 mod toolbar;
+mod trip_view;
 mod trips_dialog;
 mod welcome;
 
@@ -39,5 +40,6 @@ pub use profile_editor::{profile_bounds, ProfileEditorDialog};
 pub use selection_bar::SelectionBar;
 pub use sync_dialog::SyncDialog;
 pub use toolbar::Toolbar;
+pub use trip_view::TripView;
 pub use trips_dialog::TripsDialog;
 pub use welcome::WelcomeDialog;
