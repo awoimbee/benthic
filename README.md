@@ -1,5 +1,9 @@
 # benthic
 
+> [!IMPORTANT]
+> **This project is no longer maintained and the repository is archived.**
+> Just use <https://github.com/submersion-app/submersion> instead.
+
 A modern, cross-platform dive log — a ground-up rewrite of
 [Subsurface](https://subsurface-divelog.org/) in Rust and
 [Dioxus](https://dioxuslabs.com/).
