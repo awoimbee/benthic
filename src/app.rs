@@ -38,6 +38,7 @@ pub fn App() -> Element {
     let show_prefs = use_signal(|| false);
     let show_trips = use_signal(|| false);
     let show_map = use_signal(|| false);
+    let map_focus = use_signal(|| None::<(f64, f64)>);
     let show_planner = use_signal(|| false);
     let show_sync = use_signal(|| false);
     let show_download = use_signal(|| false);
@@ -73,6 +74,7 @@ pub fn App() -> Element {
         show_prefs,
         show_trips,
         show_map,
+        map_focus,
         show_planner,
         show_sync,
         show_download,

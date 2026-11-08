@@ -32,10 +32,11 @@ impl MenuSection {
         }
     }
 
-    /// The right-hand menus anchor their dropdown to the right edge so it
-    /// never spills past the viewport and forces horizontal scrolling.
+    /// Only the first menu opens rightwards. Every later one would push its
+    /// dropdown past the right edge of the menu bar (and of the viewport), so
+    /// it anchors to its trigger's right edge and grows leftwards instead.
     fn align_end(self) -> bool {
-        matches!(self, MenuSection::Files | MenuSection::Settings)
+        !matches!(self, MenuSection::Dives)
     }
 }
 
@@ -230,6 +231,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
     let selected_count = (state.selection)().len();
     let mut selection = state.selection;
     let mut show_map = state.show_map;
+    let mut map_focus = state.map_focus;
     let mut show_sync = state.show_sync;
 
     rsx! {
@@ -296,14 +298,28 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                 MenuSection::Tools => rsx! {
                     MenuItem {
                         label: t.map.to_string(),
-                        onclick: move |_| show_map.set(true),
+                        onclick: move |_| {
+                            map_focus.set(None);
+                            show_map.set(true);
+                        },
                     }
                     MenuItem {
                         label: t.dive_planner.to_string(),
                         onclick: move |_| actions::open_planner(state),
                     }
+                    a {
+                        class: "menu-item",
+                        href: "https://antjac.github.io/DiveComputerSimulator/",
+                        target: "_blank",
+                        rel: "noopener",
+                        "{t.dive_computer_simulator}"
+                    }
                 },
                 MenuSection::Files => rsx! {
+                    MenuItem {
+                        label: t.open_example_log.to_string(),
+                        onclick: move |_| actions::open_example_log(state),
+                    }
                     ImportExport {}
                     DownloadItem {}
                     MenuItem {

@@ -34,6 +34,8 @@ pub struct AppState {
     pub show_trips: Signal<bool>,
     /// Whether the dive-site map is open.
     pub show_map: Signal<bool>,
+    /// Coordinates the site map should centre on when it opens, if any.
+    pub map_focus: Signal<Option<(f64, f64)>>,
     /// Whether the dive planner is open.
     pub show_planner: Signal<bool>,
     /// Whether the remote-sync dialog is open.

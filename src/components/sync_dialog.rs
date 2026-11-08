@@ -171,6 +171,7 @@ pub fn SyncDialog() -> Element {
                 aria_label: "{tr.sync_title}",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "{tr.sync_title}" }
+                p { class: "sync-temporary", "{tr.sync_temporary}" }
                 p { class: "muted", "{tr.sync_intro}" }
                 div { class: "edit-form",
                     label { class: "field-label", "{tr.sync_service}"

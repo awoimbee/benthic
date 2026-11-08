@@ -9,6 +9,10 @@ use dioxus::prelude::WritableExt;
 use crate::i18n;
 use crate::state::AppState;
 
+/// The example logbook shipped inside the binary, so the app can offer sample
+/// data without a file dialog.
+pub const EXAMPLE_LOG: &str = include_str!("../dives/demo.ssrf");
+
 /// Days between consecutive dives before automatic grouping breaks a trip.
 pub const AUTOGROUP_MAX_GAP_DAYS: i64 = 3;
 
@@ -376,6 +380,21 @@ pub fn open_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize,
         after: Box::new(incoming),
     });
     (dives, sites)
+}
+
+/// Replace the log with the bundled example logbook as one undoable step, and
+/// select the most recent dive.
+pub fn open_example_log(state: AppState) {
+    match benthic_core::io::parse_auto(EXAMPLE_LOG) {
+        Ok(parsed) => {
+            let dives = parsed.dives.len();
+            open_log(state, parsed);
+            let mut selected = state.selected;
+            selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
+            state.set_status(i18n::t1(state.strings().loaded_demo, dives));
+        }
+        Err(error) => state.set_status(i18n::t1(state.strings().demo_failed, error)),
+    }
 }
 
 /// Merge an imported log into the current one as a single undoable step.

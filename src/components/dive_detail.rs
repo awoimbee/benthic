@@ -811,6 +811,13 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             }],
                             max_zoom: 13,
                             height: "240px".to_string(),
+                            ctrl_zoom: true,
+                            on_click: move |_| {
+                                let mut map_focus = state.map_focus;
+                                let mut show_map = state.show_map;
+                                map_focus.set(Some((location.lat, location.lon)));
+                                show_map.set(true);
+                            },
                         }
                         a {
                             class: "map-link",

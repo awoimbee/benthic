@@ -29,7 +29,8 @@ needed by the desktop build. Building the native dive-computer integration
 additionally needs `autoconf`, `automake`, `libtool`, `pkg-config` and the
 `libusb-1.0` and bluez development headers; the dev container provides them.
 
-Import `dives/demo.ssrf` from the app to get sample data.
+Use **Files → Open example logbook** in the app (or import `dives/demo.ssrf`)
+to get sample data.
 
 ## Before opening a PR
 

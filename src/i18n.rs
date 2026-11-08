@@ -63,6 +63,7 @@ pub struct Strings {
     pub clear: &'static str,
     pub dismiss: &'static str,
     pub open: &'static str,
+    pub open_example_log: &'static str,
     pub import: &'static str,
     pub export: &'static str,
     pub open_title: &'static str,
@@ -90,6 +91,7 @@ pub struct Strings {
     pub redo: &'static str,
     pub map: &'static str,
     pub dive_planner: &'static str,
+    pub dive_computer_simulator: &'static str,
     pub download_dc: &'static str,
     pub sync: &'static str,
     pub preferences: &'static str,
@@ -251,6 +253,7 @@ pub struct Strings {
     pub pick_title: &'static str,
     pub pick_hint: &'static str,
     pub use_this_location: &'static str,
+    pub map_ctrl_zoom: &'static str,
 
     // ---- profile editor ----
     pub pe_explainer: &'static str,
@@ -321,6 +324,7 @@ pub struct Strings {
     // ---- sync ----
     pub sync_title: &'static str,
     pub sync_intro: &'static str,
+    pub sync_temporary: &'static str,
     pub sync_service: &'static str,
     pub sync_signed_in: &'static str,
     pub sync_sign_out: &'static str,
@@ -461,6 +465,7 @@ pub static ENGLISH: Strings = Strings {
     clear: "Clear",
     dismiss: "Dismiss",
     open: "Open…",
+    open_example_log: "Open example logbook",
     import: "Import…",
     export: "Export",
     open_title: "Replace the current log with a file (undoable)",
@@ -487,6 +492,7 @@ pub static ENGLISH: Strings = Strings {
     redo: "Redo",
     map: "Map",
     dive_planner: "Dive planner",
+    dive_computer_simulator: "Dive computer simulator ↗",
     download_dc: "Download from dive computer",
     sync: "Sync…",
     preferences: "Preferences",
@@ -641,6 +647,7 @@ pub static ENGLISH: Strings = Strings {
     pick_title: "Pick a dive site location",
     pick_hint: "Tap the map to place the pin",
     use_this_location: "Use this location",
+    map_ctrl_zoom: "Click to open the full map. Ctrl + scroll to zoom.",
 
     pe_explainer:
         "Record the depth and time you remember. benthic does not add decompression stops here.",
@@ -729,6 +736,8 @@ pub static ENGLISH: Strings = Strings {
     sync_title: "Sync",
     sync_intro:
         "Mirror the log to a remote service. Nothing is overwritten silently: benthic asks when both sides changed.",
+    sync_temporary:
+        "Temporary: this is a stopgap until benthic settles on a long-term cloud-sync design. Expect it to change.",
     sync_service: "Service",
     sync_signed_in: "Signed in to {}.",
     sync_sign_out: "Sign out",
@@ -835,6 +844,7 @@ pub static FRENCH: Strings = Strings {
     clear: "Effacer",
     dismiss: "Ignorer",
     open: "Ouvrir…",
+    open_example_log: "Ouvrir le journal d'exemple",
     import: "Importer…",
     export: "Exporter",
     open_title: "Remplacer le journal actuel par un fichier (annulable)",
@@ -861,6 +871,7 @@ pub static FRENCH: Strings = Strings {
     redo: "Rétablir",
     map: "Carte",
     dive_planner: "Planificateur de plongée",
+    dive_computer_simulator: "Simulateur d'ordinateur de plongée ↗",
     download_dc: "Télécharger depuis un ordinateur de plongée",
     sync: "Synchroniser…",
     preferences: "Réglages",
@@ -1018,6 +1029,7 @@ pub static FRENCH: Strings = Strings {
     pick_title: "Choisir l'emplacement du site",
     pick_hint: "Touchez la carte pour placer le repère",
     use_this_location: "Utiliser cet emplacement",
+    map_ctrl_zoom: "Cliquez pour ouvrir la carte complète. Ctrl + molette pour zoomer.",
 
     pe_explainer:
         "Saisissez la profondeur et le temps dont vous vous souvenez. benthic n'ajoute aucun palier ici.",
@@ -1107,6 +1119,8 @@ pub static FRENCH: Strings = Strings {
     sync_title: "Synchronisation",
     sync_intro:
         "Répliquez le journal vers un service distant. Rien n'est écrasé silencieusement : benthic demande quand les deux côtés ont changé.",
+    sync_temporary:
+        "Temporaire : solution provisoire en attendant une conception pérenne de la synchronisation cloud. Elle est amenée à changer.",
     sync_service: "Service",
     sync_signed_in: "Connecté à {}.",
     sync_sign_out: "Se déconnecter",

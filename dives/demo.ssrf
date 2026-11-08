@@ -1,74 +1,412 @@
 <divelog program='subsurface' version='2'>
 <settings>
 <divecomputerid model='Shearwater Perdix' deviceid='1a2b3c4d' serial='12345678' firmware='93'/>
+<divecomputerid model='Shearwater Perdix 2' deviceid='2b3c4d5e' serial='87654321' firmware='95'/>
   <autogroup state='1' />
 </settings>
 <divesites>
-<site uuid='00000001' name='Blue Hole' gps='28.572100 34.536700' description='Reef wall, drift entry'>
-  <notes>Classic Red Sea site. Watch the current.</notes>
-  <geo cat='1' origin='0' value='Red Sea'/>
-  <geo cat='2' origin='0' value='Egypt'/>
+<site uuid='00000001' name='Le Grec' gps='43.015000 6.280000' description='Cargo wreck off Cap des Mèdes, 38 m'>
+  <notes>Small cargo wreck on the sand at the foot of the wall. Mostly intact holds.</notes>
+  <geo cat='1' origin='0' value='Mediterranean Sea'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000002' name='Le Donator' gps='42.970000 6.220000' description='Cargo wreck south of Porquerolles, 48 m'>
+  <notes>The classic Var deep wreck: propeller, winches and two big holds.</notes>
+  <geo cat='1' origin='0' value='Mediterranean Sea'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000003' name='Le Rubis' gps='43.135000 6.540000' description='Submarine wreck off Cavalaire, 41 m'>
+  <notes>Sank in 1958 as a target. Conning tower at about 38 m, deck at 41 m.</notes>
+  <geo cat='1' origin='0' value='Mediterranean Sea'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000004' name='Le Liban' gps='43.120000 6.560000' description='Freighter wreck off Cavalaire, 45 m'>
+  <notes>Big freighter, broken in two. The bow section stands almost upright.</notes>
+  <geo cat='1' origin='0' value='Mediterranean Sea'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000005' name='U-171' gps='47.610000 -3.480000' description='German U-boat off Groix, 42 m'>
+  <notes>Type IXC boat, sunk in 1942. Cold, dark water and a lot of current.</notes>
+  <geo cat='1' origin='0' value='Atlantic Ocean'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000006' name='Le Cyrano' gps='47.630000 -3.460000' description='Cargo wreck off Groix, 33 m'>
+  <notes>Steamer on the sand, largely broken up. Lifeboat davits still visible.</notes>
+  <geo cat='1' origin='0' value='Atlantic Ocean'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000007' name='La Horaine' gps='47.675000 -3.420000' description='Rocky plateau north of Groix, 18 m'>
+  <notes>Kelp, spider crabs and a lot of life in the gullies. Sheltered from the swell.</notes>
+  <geo cat='1' origin='0' value='Atlantic Ocean'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000008' name='La Gabinière' gps='42.992000 6.395000' description='Reef and drop-off at Port-Cros, 35 m'>
+  <notes>Gorgonians, barracuda and groupers on the drop-off. Can get crowded in summer.</notes>
+  <geo cat='1' origin='0' value='Mediterranean Sea'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='00000009' name='Lac d&#39;Annecy' gps='45.860000 6.175000' description='Freshwater lake, 447 m altitude'>
+  <notes>Cold, clear freshwater. A small barge lies at about 15 m near the shore.</notes>
+  <geo cat='2' origin='0' value='France'/>
+</site>
+<site uuid='0000000a' name='Les Lavezzi' gps='41.340000 9.260000' description='Granite islands south of Corsica, 18 m'>
+  <notes>Boulders, posidonia meadows and tame groupers in the marine reserve.</notes>
+  <geo cat='1' origin='0' value='Mediterranean Sea'/>
+  <geo cat='2' origin='0' value='France'/>
 </site>
 </divesites>
 <dives>
-<trip date='2024-05-12' time='08:15:00' location='Dahab'>
-<dive number='1' tags='reef, training' divesiteid='00000001' date='2024-05-12' time='08:15:00' duration='42:30 min' rating='4'>
-  <divemaster>Mona</divemaster>
-  <buddy>Alex</buddy>
-  <notes>Buoyancy drills on the sand line, then a gentle drift along the wall.
-Water was unusually clear.</notes>
-  <suit>5mm wetsuit</suit>
-  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80' start='200.0 bar' end='60.0 bar' />
-  <weightsystem weight='6.0 kg' description='belt' />
-  <divetemperature air='29.0 C' water='26.0 C' />
-  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000001' duration='42:30 min'>
-  <depth max='18.4 m' mean='12.1 m' />
-  <temperature air='29.0 C' water='26.0 C' />
+<trip date='2024-05-12' time='08:30:00' location='Porquerolles'>
+<dive number='1' tags='wreck, technical, deco' divesiteid='00000001' date='2024-05-12' time='09:00:00' duration='48:00 min' rating='4'>
+  <divemaster>Yann</divemaster>
+  <buddy>Camille</buddy>
+  <notes>First dive on Le Grec. Air on the back, Nx70 for the hang from 6 m.
+Dropped down the line, a quick lap of the holds and back up on the line.
+Water was 17 C with a mild thermocline below 25 m.</notes>
+  <suit>7mm wetsuit</suit>
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15' start='220.0 bar' end='80.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx70' o2='70.0%' start='200.0 bar' end='120.0 bar' />
+  <weightsystem weight='5.0 kg' description='belt' />
+  <divetemperature air='24.0 C' water='17.0 C' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000001' duration='48:00 min'>
+  <depth max='38.4 m' mean='24.8 m' />
+  <temperature air='24.0 C' water='17.0 C' />
   <surface pressure='1.013 bar' />
-  <sample time='0:00 min' depth='0.0 m' temp='26.0 C' pressure0='200.0 bar' />
-  <sample time='5:00 min' depth='12.0 m' temp='26.0 C' pressure0='180.0 bar' />
-  <sample time='10:00 min' depth='18.0 m' pressure0='160.0 bar' ndl='25:00 min' />
-  <sample time='20:00 min' depth='16.5 m' pressure0='130.0 bar' ndl='20:00 min' />
-  <sample time='30:00 min' depth='9.0 m' pressure0='95.0 bar' ndl='45:00 min' />
-  <sample time='40:00 min' depth='5.0 m' pressure0='70.0 bar' />
-  <sample time='42:30 min' depth='0.0 m' pressure0='60.0 bar' />
-  <event time='12:00 min' name='Marker' />
-  <event time='30:00 min' name='gaschange' cylinder='0' o2='32.0%' />
+  <sample time='0:00 min' depth='0.0 m' temp='17.0 C' pressure0='220.0 bar' />
+  <sample time='3:00 min' depth='24.0 m' pressure0='195.0 bar' ndl='12:00 min' />
+  <sample time='7:00 min' depth='38.4 m' pressure0='170.0 bar' ndl='3:00 min' cns='7%' />
+  <sample time='11:00 min' depth='37.0 m' pressure0='145.0 bar' ndl='0:00 min' tts='24:00 min' in_deco='1' stopdepth='6.0 m' stoptime='24:00 min' />
+  <sample time='15:00 min' depth='30.0 m' pressure0='125.0 bar' tts='22:00 min' />
+  <sample time='19:00 min' depth='21.0 m' pressure0='105.0 bar' tts='20:00 min' />
+  <sample time='23:00 min' depth='12.0 m' pressure0='90.0 bar' tts='17:00 min' />
+  <sample time='27:00 min' depth='6.0 m' pressure0='80.0 bar' pressure1='200.0 bar' tts='12:00 min' stopdepth='6.0 m' stoptime='12:00 min' />
+  <sample time='31:00 min' depth='6.0 m' pressure1='185.0 bar' tts='9:00 min' />
+  <sample time='36:00 min' depth='6.0 m' pressure1='170.0 bar' tts='6:00 min' />
+  <sample time='41:00 min' depth='4.5 m' pressure1='160.0 bar' tts='4:00 min' stopdepth='3.0 m' stoptime='4:00 min' />
+  <sample time='45:00 min' depth='3.0 m' pressure1='150.0 bar' tts='2:00 min' />
+  <sample time='48:00 min' depth='0.0 m' pressure1='120.0 bar' tts='0:00 min' />
+  <event time='7:00 min' name='Marker' />
+  <event time='15:00 min' name='Marker' />
+  <event time='27:00 min' name='gaschange' cylinder='1' o2='70.0%' />
   </divecomputer>
 </dive>
-<dive number='2' tags='reef' divesiteid='00000001' date='2024-05-12' time='11:30:00' duration='38:00 min' rating='5'>
-  <divemaster>Mona</divemaster>
-  <buddy>Alex</buddy>
-  <notes>Second dive of the day. Turtles on the plateau.</notes>
-  <suit>5mm wetsuit</suit>
-  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80' o2='32.0%' start='205.0 bar' end='75.0 bar' />
-  <weightsystem weight='6.0 kg' description='belt' />
-  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000002' duration='38:00 min'>
-  <depth max='22.0 m' mean='14.3 m' />
-  <temperature air='31.0 C' water='27.0 C' />
-  <sample time='0:00 min' depth='0.0 m' temp='27.0 C' pressure0='205.0 bar' />
-  <sample time='8:00 min' depth='22.0 m' temp='27.0 C' pressure0='165.0 bar' ndl='18:00 min' />
-  <sample time='20:00 min' depth='18.0 m' pressure0='120.0 bar' ndl='15:00 min' />
-  <sample time='32:00 min' depth='8.0 m' pressure0='90.0 bar' />
-  <sample time='38:00 min' depth='0.0 m' pressure0='75.0 bar' />
+<dive number='2' tags='wreck, technical, deco, deep' divesiteid='00000002' date='2024-05-12' time='12:30:00' duration='55:00 min' rating='5'>
+  <divemaster>Yann</divemaster>
+  <buddy>Camille</buddy>
+  <notes>Le Donator in the afternoon, flat sea and no current on the line. Air on
+the back, Nx70 from 6 m. Propeller first, then a slow pass over the holds.
+Long hang, ran the deco exactly as planned with 110 bar left in the 70.</notes>
+  <suit>7mm wetsuit</suit>
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15' start='230.0 bar' end='74.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx70' o2='70.0%' start='200.0 bar' end='110.0 bar' />
+  <weightsystem weight='5.0 kg' description='belt' />
+  <divetemperature air='25.0 C' water='18.0 C' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000002' duration='55:00 min'>
+  <depth max='47.6 m' mean='31.2 m' />
+  <temperature air='25.0 C' water='18.0 C' />
+  <surface pressure='1.013 bar' />
+  <sample time='0:00 min' depth='0.0 m' temp='18.0 C' pressure0='230.0 bar' />
+  <sample time='3:00 min' depth='26.0 m' pressure0='200.0 bar' ndl='8:00 min' />
+  <sample time='6:00 min' depth='44.0 m' pressure0='175.0 bar' ndl='2:00 min' cns='10%' />
+  <sample time='9:00 min' depth='47.6 m' pressure0='155.0 bar' ndl='0:00 min' tts='34:00 min' in_deco='1' stopdepth='6.0 m' stoptime='34:00 min' />
+  <sample time='14:00 min' depth='46.0 m' pressure0='130.0 bar' tts='38:00 min' cns='18%' />
+  <sample time='18:00 min' depth='36.0 m' pressure0='110.0 bar' tts='34:00 min' />
+  <sample time='22:00 min' depth='24.0 m' pressure0='92.0 bar' tts='30:00 min' />
+  <sample time='26:00 min' depth='15.0 m' pressure0='82.0 bar' tts='27:00 min' />
+  <sample time='29:00 min' depth='6.0 m' pressure0='74.0 bar' pressure1='200.0 bar' tts='22:00 min' stoptime='22:00 min' />
+  <sample time='34:00 min' depth='6.0 m' pressure1='180.0 bar' tts='17:00 min' />
+  <sample time='40:00 min' depth='6.0 m' pressure1='160.0 bar' tts='13:00 min' />
+  <sample time='46:00 min' depth='4.5 m' pressure1='145.0 bar' tts='8:00 min' stopdepth='3.0 m' stoptime='8:00 min' />
+  <sample time='51:00 min' depth='3.0 m' pressure1='130.0 bar' tts='4:00 min' />
+  <sample time='55:00 min' depth='0.0 m' pressure1='110.0 bar' tts='0:00 min' />
+  <event time='9:00 min' name='Marker' />
+  <event time='18:00 min' name='bookmark' value='1' />
+  <event time='29:00 min' name='gaschange' cylinder='1' o2='70.0%' />
   </divecomputer>
 </dive>
 </trip>
-<dive number='3' date='2024-06-02' time='14:05:00' duration='25:15 min'>
-  <location>Local quarry</location>
-  <buddy>Sam</buddy>
-  <notes>Cold-water skills dive. Dry suit.</notes>
+<trip date='2024-06-02' time='08:30:00' location='Cavalaire'>
+<dive number='3' tags='wreck, technical, deco' divesiteid='00000003' date='2024-06-02' time='09:30:00' duration='50:00 min' rating='5'>
+  <buddy>Camille</buddy>
+  <notes>Le Rubis, the old submarine. Air and Nx70 again, same plan as the Var
+wrecks. Deck at 41 m, conning tower a bit shallower. Vis was close to 25 m.</notes>
+  <suit>7mm wetsuit</suit>
+  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80 air' start='220.0 bar' end='75.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx70' o2='70.0%' start='200.0 bar' end='120.0 bar' />
+  <weightsystem weight='5.0 kg' description='belt' />
+  <divetemperature air='24.0 C' water='17.0 C' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000003' duration='50:00 min'>
+  <depth max='41.2 m' mean='27.6 m' />
+  <temperature air='24.0 C' water='17.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='17.0 C' pressure0='220.0 bar' />
+  <sample time='3:00 min' depth='22.0 m' pressure0='195.0 bar' ndl='12:00 min' />
+  <sample time='6:00 min' depth='38.0 m' pressure0='172.0 bar' ndl='4:00 min' />
+  <sample time='9:00 min' depth='41.2 m' pressure0='150.0 bar' ndl='0:00 min' tts='26:00 min' in_deco='1' stopdepth='6.0 m' stoptime='26:00 min' cns='9%' />
+  <sample time='13:00 min' depth='38.0 m' pressure0='128.0 bar' tts='28:00 min' />
+  <sample time='17:00 min' depth='30.0 m' pressure0='108.0 bar' tts='25:00 min' />
+  <sample time='21:00 min' depth='21.0 m' pressure0='92.0 bar' tts='22:00 min' stopdepth='6.0 m' />
+  <sample time='25:00 min' depth='12.0 m' pressure0='82.0 bar' tts='19:00 min' />
+  <sample time='28:00 min' depth='6.0 m' pressure0='75.0 bar' pressure1='200.0 bar' tts='16:00 min' />
+  <sample time='33:00 min' depth='6.0 m' pressure1='185.0 bar' tts='11:00 min' />
+  <sample time='38:00 min' depth='6.0 m' pressure1='168.0 bar' tts='8:00 min' />
+  <sample time='43:00 min' depth='4.5 m' pressure1='152.0 bar' tts='5:00 min' stopdepth='3.0 m' stoptime='5:00 min' />
+  <sample time='47:00 min' depth='3.0 m' pressure1='138.0 bar' tts='2:00 min' />
+  <sample time='50:00 min' depth='0.0 m' pressure1='120.0 bar' tts='0:00 min' />
+  <event time='9:00 min' name='Marker' />
+  <event time='17:00 min' name='bookmark' value='1' />
+  <event time='28:00 min' name='gaschange' cylinder='1' o2='70.0%' />
+  </divecomputer>
+</dive>
+<dive number='4' tags='wreck, technical, deco' divesiteid='00000004' date='2024-06-02' time='12:45:00' duration='52:00 min' rating='4'>
+  <buddy>Camille</buddy>
+  <notes>Le Liban after a long surface interval. Bow section first, then the
+stern half on the sand. Air on the back and Nx70 for deco, same as the
+morning dive. A bit of current picked up on the ascent.</notes>
+  <suit>7mm wetsuit</suit>
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15' start='225.0 bar' end='77.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx70' o2='70.0%' start='200.0 bar' end='120.0 bar' />
+  <weightsystem weight='5.0 kg' description='belt' />
+  <divetemperature air='26.0 C' water='18.0 C' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000004' duration='52:00 min'>
+  <depth max='44.8 m' mean='29.4 m' />
+  <temperature air='26.0 C' water='18.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='18.0 C' pressure0='225.0 bar' />
+  <sample time='3:00 min' depth='24.0 m' pressure0='198.0 bar' ndl='10:00 min' />
+  <sample time='6:00 min' depth='40.0 m' pressure0='174.0 bar' ndl='3:00 min' />
+  <sample time='9:00 min' depth='44.8 m' pressure0='152.0 bar' ndl='0:00 min' tts='30:00 min' in_deco='1' stopdepth='6.0 m' stoptime='30:00 min' cns='12%' />
+  <sample time='13:00 min' depth='42.0 m' pressure0='130.0 bar' tts='33:00 min' />
+  <sample time='17:00 min' depth='33.0 m' pressure0='112.0 bar' tts='29:00 min' />
+  <sample time='21:00 min' depth='24.0 m' pressure0='96.0 bar' tts='26:00 min' />
+  <sample time='25:00 min' depth='15.0 m' pressure0='85.0 bar' tts='23:00 min' />
+  <sample time='28:00 min' depth='6.0 m' pressure0='77.0 bar' pressure1='200.0 bar' tts='19:00 min' />
+  <sample time='33:00 min' depth='6.0 m' pressure1='184.0 bar' tts='14:00 min' />
+  <sample time='39:00 min' depth='6.0 m' pressure1='166.0 bar' tts='10:00 min' />
+  <sample time='44:00 min' depth='4.5 m' pressure1='150.0 bar' tts='6:00 min' stopdepth='3.0 m' stoptime='6:00 min' />
+  <sample time='48:00 min' depth='3.0 m' pressure1='136.0 bar' tts='3:00 min' />
+  <sample time='52:00 min' depth='0.0 m' pressure1='120.0 bar' tts='0:00 min' />
+  <event time='9:00 min' name='Marker' />
+  <event time='21:00 min' name='Marker' />
+  <event time='28:00 min' name='gaschange' cylinder='1' o2='70.0%' />
+  </divecomputer>
+</dive>
+</trip>
+<trip date='2024-08-09' time='09:00:00' location='Groix'>
+<dive number='5' tags='wreck, technical, trimix, deco' divesiteid='00000005' date='2024-08-09' time='10:00:00' duration='46:00 min' rating='5'>
+  <divemaster>Erwan</divemaster>
+  <buddy>Camille</buddy>
+  <notes>U-171 in Brittany, cold and green with a proper current. Trimix 21/35 on
+the back, Nx50 from 21 m and Nx70 from 6 m. Dry suit and two deco stages.
+The hull is intact but the conning tower is covered in dead men&#39;s fingers.</notes>
   <suit>dry suit</suit>
-  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15' start='210.0 bar' end='120.0 bar' />
-  <weightsystem weight='9.0 kg' description='belt' />
-  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='00000003' duration='25:15 min'>
-  <depth max='14.0 m' mean='9.2 m' />
-  <temperature air='12.0 C' water='9.0 C' />
-  <sample time='0:00 min' depth='0.0 m' temp='9.0 C' pressure0='210.0 bar' />
-  <sample time='6:00 min' depth='14.0 m' temp='9.0 C' pressure0='180.0 bar' />
-  <sample time='15:00 min' depth='10.0 m' pressure0='150.0 bar' />
-  <sample time='25:15 min' depth='0.0 m' pressure0='120.0 bar' />
-  <event time='6:00 min' name='Marker' />
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15 Tx21/35' o2='21.0%' he='35.0%' start='230.0 bar' end='95.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx50' o2='50.0%' start='210.0 bar' end='165.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx70' o2='70.0%' start='200.0 bar' end='150.0 bar' />
+  <weightsystem weight='8.0 kg' description='belt' />
+  <divetemperature air='17.0 C' water='14.0 C' />
+  <divecomputer model='Shearwater Perdix 2' deviceid='2b3c4d5e' diveid='00000005' duration='46:00 min' dctype='OC' no_o2sensors='0'>
+  <depth max='42.0 m' mean='28.8 m' />
+  <temperature air='17.0 C' water='14.0 C' />
+  <surface pressure='1.015 bar' />
+  <sample time='0:00 min' depth='0.0 m' temp='14.0 C' pressure0='230.0 bar' />
+  <sample time='4:00 min' depth='24.0 m' pressure0='200.0 bar' ndl='10:00 min' />
+  <sample time='8:00 min' depth='42.0 m' pressure0='170.0 bar' ndl='2:00 min' cns='8%' />
+  <sample time='11:00 min' depth='42.0 m' pressure0='148.0 bar' ndl='0:00 min' tts='28:00 min' in_deco='1' stopdepth='6.0 m' stoptime='28:00 min' />
+  <sample time='15:00 min' depth='36.0 m' pressure0='126.0 bar' tts='26:00 min' />
+  <sample time='19:00 min' depth='27.0 m' pressure0='108.0 bar' tts='23:00 min' />
+  <sample time='22:00 min' depth='21.0 m' pressure0='95.0 bar' pressure1='210.0 bar' tts='21:00 min' />
+  <sample time='26:00 min' depth='21.0 m' pressure1='195.0 bar' tts='16:00 min' />
+  <sample time='30:00 min' depth='15.0 m' pressure1='182.0 bar' tts='13:00 min' />
+  <sample time='34:00 min' depth='9.0 m' pressure1='172.0 bar' tts='10:00 min' />
+  <sample time='37:00 min' depth='6.0 m' pressure1='165.0 bar' pressure2='200.0 bar' tts='8:00 min' stoptime='8:00 min' />
+  <sample time='41:00 min' depth='6.0 m' pressure2='185.0 bar' tts='5:00 min' />
+  <sample time='44:00 min' depth='3.0 m' pressure2='168.0 bar' tts='2:00 min' stopdepth='3.0 m' stoptime='2:00 min' />
+  <sample time='46:00 min' depth='0.0 m' pressure2='150.0 bar' tts='0:00 min' />
+  <event time='8:00 min' name='Marker' />
+  <event time='22:00 min' name='gaschange' cylinder='1' o2='50.0%' />
+  <event time='37:00 min' name='gaschange' cylinder='2' o2='70.0%' />
+  </divecomputer>
+</dive>
+<dive number='6' tags='wreck, technical, deco' divesiteid='00000006' date='2024-08-09' time='14:30:00' duration='44:00 min' rating='4'>
+  <divemaster>Erwan</divemaster>
+  <buddy>Camille</buddy>
+  <notes>Le Cyrano on Nx32 with Nx70 for the hang. Shallower than the U-boat so
+the stops were short. Lots of life on the wreck, and a friendly conger in
+one of the open holds.</notes>
+  <suit>dry suit</suit>
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15 Nx32' o2='32.0%' start='220.0 bar' end='80.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx70' o2='70.0%' start='200.0 bar' end='140.0 bar' />
+  <weightsystem weight='8.0 kg' description='belt' />
+  <divetemperature air='16.0 C' water='14.0 C' />
+  <divecomputer model='Shearwater Perdix 2' deviceid='2b3c4d5e' diveid='00000006' duration='44:00 min'>
+  <depth max='33.5 m' mean='22.1 m' />
+  <temperature air='16.0 C' water='14.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='14.0 C' pressure0='220.0 bar' />
+  <sample time='4:00 min' depth='22.0 m' pressure0='194.0 bar' ndl='16:00 min' />
+  <sample time='8:00 min' depth='33.5 m' pressure0='168.0 bar' ndl='5:00 min' cns='6%' />
+  <sample time='12:00 min' depth='33.0 m' pressure0='140.0 bar' ndl='0:00 min' tts='12:00 min' in_deco='1' stopdepth='6.0 m' stoptime='12:00 min' />
+  <sample time='16:00 min' depth='26.0 m' pressure0='118.0 bar' tts='11:00 min' />
+  <sample time='20:00 min' depth='18.0 m' pressure0='100.0 bar' tts='9:00 min' />
+  <sample time='24:00 min' depth='9.0 m' pressure0='88.0 bar' tts='7:00 min' />
+  <sample time='27:00 min' depth='6.0 m' pressure0='80.0 bar' pressure1='200.0 bar' tts='6:00 min' />
+  <sample time='32:00 min' depth='6.0 m' pressure1='185.0 bar' tts='3:00 min' />
+  <sample time='38:00 min' depth='4.5 m' pressure1='165.0 bar' tts='2:00 min' />
+  <sample time='44:00 min' depth='0.0 m' pressure1='140.0 bar' tts='0:00 min' />
+  <event time='8:00 min' name='Marker' />
+  <event time='20:00 min' name='Marker' />
+  <event time='27:00 min' name='gaschange' cylinder='1' o2='70.0%' />
+  </divecomputer>
+</dive>
+<dive number='7' tags='reef, night' divesiteid='00000007' date='2024-08-10' time='21:00:00' duration='38:20 min' rating='5'>
+  <buddy>Camille</buddy>
+  <notes>Dusk dive on La Horaine once the current dropped. Nx32, shallow and slow.
+Kelp everywhere, spider crabs and a cuttlefish that stayed with us for ten
+minutes. Water was 14 C, dry suit was worth it.</notes>
+  <suit>dry suit</suit>
+  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80 Nx32' o2='32.0%' start='200.0 bar' end='90.0 bar' />
+  <weightsystem weight='8.0 kg' description='belt' />
+  <divetemperature air='15.0 C' water='14.0 C' />
+  <divecomputer model='Shearwater Perdix 2' deviceid='2b3c4d5e' diveid='00000007' duration='38:20 min'>
+  <depth max='18.2 m' mean='12.6 m' />
+  <temperature air='15.0 C' water='14.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='14.0 C' pressure0='200.0 bar' />
+  <sample time='5:00 min' depth='14.0 m' pressure0='178.0 bar' ndl='30:00 min' />
+  <sample time='10:00 min' depth='18.2 m' pressure0='160.0 bar' ndl='22:00 min' />
+  <sample time='20:00 min' depth='15.0 m' pressure0='135.0 bar' ndl='28:00 min' />
+  <sample time='28:00 min' depth='10.0 m' pressure0='112.0 bar' />
+  <sample time='34:00 min' depth='5.0 m' pressure0='98.0 bar' />
+  <sample time='38:20 min' depth='0.0 m' pressure0='90.0 bar' />
+  <event time='10:00 min' name='Marker' />
+  </divecomputer>
+</dive>
+</trip>
+<trip date='2025-01-18' time='09:00:00' location='Port-Cros'>
+<dive number='8' tags='reef, rebreather, deco' divesiteid='00000008' date='2025-01-18' time='10:00:00' duration='55:00 min' rating='5'>
+  <divemaster>Yann</divemaster>
+  <buddy>Camille</buddy>
+  <notes>First proper rebreather dive on the Gabinière drop-off. Diluent 10/50,
+setpoint 1.3 in the water and 0.7 on the surface. Three O2 sensors within
+0.03 bar of each other all dive. Gorgonians and a very relaxed grouper.</notes>
+  <suit>7mm wetsuit</suit>
+  <cylinder size='3.0 l' workpressure='232.0 bar' description='diluent 10/50' o2='10.0%' he='50.0%' use='diluent' start='200.0 bar' end='118.0 bar' />
+  <cylinder size='3.0 l' workpressure='232.0 bar' description='O2 supply' o2='100.0%' use='oxygen' start='200.0 bar' end='130.0 bar' />
+  <weightsystem weight='5.0 kg' description='belt' />
+  <divetemperature air='22.0 C' water='17.0 C' />
+  <divecomputer model='Shearwater Perdix 2' deviceid='2b3c4d5e' diveid='00000008' duration='55:00 min' dctype='CCR' no_o2sensors='3'>
+  <depth max='35.4 m' mean='24.9 m' />
+  <temperature air='22.0 C' water='17.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='17.0 C' pressure0='200.0 bar' po2='0.70 bar' sensor1='0.68 bar' sensor2='0.71 bar' sensor3='0.69 bar' />
+  <sample time='6:00 min' depth='20.0 m' pressure0='188.0 bar' po2='1.30 bar' sensor1='1.28 bar' sensor2='1.30 bar' sensor3='1.29 bar' ndl='22:00 min' />
+  <sample time='12:00 min' depth='30.0 m' pressure0='176.0 bar' po2='1.30 bar' sensor1='1.27 bar' sensor2='1.31 bar' sensor3='1.29 bar' ndl='12:00 min' />
+  <sample time='16:00 min' depth='35.4 m' pressure0='168.0 bar' po2='1.30 bar' sensor1='1.28 bar' sensor2='1.30 bar' sensor3='1.28 bar' ndl='4:00 min' cns='5%' />
+  <sample time='22:00 min' depth='32.0 m' pressure0='158.0 bar' po2='1.30 bar' ndl='0:00 min' tts='18:00 min' in_deco='1' stopdepth='6.0 m' stoptime='18:00 min' />
+  <sample time='28:00 min' depth='21.0 m' pressure0='148.0 bar' po2='1.30 bar' sensor1='1.29 bar' sensor2='1.30 bar' sensor3='1.27 bar' tts='16:00 min' />
+  <sample time='34:00 min' depth='12.0 m' pressure0='140.0 bar' po2='1.30 bar' tts='13:00 min' />
+  <sample time='40:00 min' depth='6.0 m' pressure0='134.0 bar' po2='1.30 bar' tts='10:00 min' stopdepth='6.0 m' stoptime='10:00 min' />
+  <sample time='47:00 min' depth='6.0 m' pressure0='128.0 bar' po2='1.30 bar' tts='5:00 min' />
+  <sample time='52:00 min' depth='3.0 m' pressure0='122.0 bar' po2='1.30 bar' tts='2:00 min' stopdepth='3.0 m' stoptime='2:00 min' />
+  <sample time='55:00 min' depth='0.0 m' pressure0='118.0 bar' po2='0.70 bar' sensor1='0.69 bar' sensor2='0.70 bar' sensor3='0.68 bar' tts='0:00 min' />
+  <event time='16:00 min' name='Marker' />
+  <event time='28:00 min' name='bookmark' value='1' />
+  </divecomputer>
+</dive>
+<dive number='9' tags='reef' divesiteid='00000008' date='2025-01-18' time='14:00:00' duration='51:00 min' rating='4'>
+  <divemaster>Yann</divemaster>
+  <buddy>Camille</buddy>
+  <notes>Second Gabinière dive, shallower on Nx32. Barracuda on the drop-off and
+a lot of gorgonians at 25 m. Easy swim back to the boat in the reserve.</notes>
+  <suit>7mm wetsuit</suit>
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15 Nx32' o2='32.0%' start='210.0 bar' end='80.0 bar' />
+  <weightsystem weight='5.0 kg' description='belt' />
+  <divetemperature air='23.0 C' water='17.0 C' />
+  <divecomputer model='Shearwater Perdix 2' deviceid='2b3c4d5e' diveid='00000009' duration='51:00 min'>
+  <depth max='22.6 m' mean='16.4 m' />
+  <temperature air='23.0 C' water='17.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='17.0 C' pressure0='210.0 bar' />
+  <sample time='6:00 min' depth='20.0 m' pressure0='190.0 bar' ndl='30:00 min' />
+  <sample time='12:00 min' depth='22.6 m' pressure0='170.0 bar' ndl='25:00 min' />
+  <sample time='22:00 min' depth='20.0 m' pressure0='145.0 bar' ndl='28:00 min' />
+  <sample time='34:00 min' depth='14.0 m' pressure0='118.0 bar' ndl='40:00 min' />
+  <sample time='44:00 min' depth='6.0 m' pressure0='96.0 bar' />
+  <sample time='51:00 min' depth='0.0 m' pressure0='80.0 bar' />
+  <event time='22:00 min' name='Marker' />
+  </divecomputer>
+</dive>
+</trip>
+<dive number='10' tags='lake, freshwater, training' divesiteid='00000009' date='2025-03-15' time='10:00:00' duration='41:00 min' rating='3'>
+  <buddy>Sam</buddy>
+  <notes>Freshwater dive in Lac d&#39;Annecy, 447 m altitude. Cold and very clear:
+you could see the barge from the surface. Buoyancy and reel work on the
+platform, then a lap of the wreck. Air, 12 L, dry suit.</notes>
+  <suit>dry suit</suit>
+  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80 air' start='200.0 bar' end='90.0 bar' />
+  <weightsystem weight='7.0 kg' description='belt' />
+  <divetemperature air='12.0 C' water='8.0 C' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='0000000a' duration='41:00 min'>
+  <depth max='15.3 m' mean='10.7 m' />
+  <temperature air='12.0 C' water='8.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='8.0 C' pressure0='200.0 bar' />
+  <sample time='6:00 min' depth='12.0 m' pressure0='182.0 bar' ndl='45:00 min' />
+  <sample time='15:00 min' depth='15.3 m' pressure0='162.0 bar' ndl='35:00 min' />
+  <sample time='25:00 min' depth='12.0 m' pressure0='140.0 bar' ndl='50:00 min' />
+  <sample time='34:00 min' depth='6.0 m' pressure0='115.0 bar' />
+  <sample time='41:00 min' depth='0.0 m' pressure0='90.0 bar' />
+  <event time='15:00 min' name='Marker' />
+  </divecomputer>
+</dive>
+<dive number='11' tags='wreck, technical, deco, deep' divesiteid='00000002' date='2025-04-06' time='08:00:00' duration='57:00 min' rating='5'>
+  <divemaster>Yann</divemaster>
+  <buddy>Camille</buddy>
+  <notes>Back on Le Donator with the same air and Nx70 plan as last year. Flat
+sea, good light and no current. Spent more time on the stern this time.
+Long deco hang from 6 m, all stages above 110 bar at the end.</notes>
+  <suit>7mm wetsuit</suit>
+  <cylinder size='15.0 l' workpressure='232.0 bar' description='steel 15' start='230.0 bar' end='76.0 bar' />
+  <cylinder size='11.1 l' workpressure='207.0 bar' description='AL80 Nx70' o2='70.0%' start='200.0 bar' end='110.0 bar' />
+  <weightsystem weight='5.0 kg' description='belt' />
+  <divetemperature air='24.0 C' water='18.0 C' />
+  <divecomputer model='Shearwater Perdix 2' deviceid='2b3c4d5e' diveid='0000000b' duration='57:00 min'>
+  <depth max='46.8 m' mean='30.1 m' />
+  <temperature air='24.0 C' water='18.0 C' />
+  <surface pressure='1.013 bar' />
+  <sample time='0:00 min' depth='0.0 m' temp='18.0 C' pressure0='230.0 bar' />
+  <sample time='3:00 min' depth='25.0 m' pressure0='202.0 bar' ndl='7:00 min' />
+  <sample time='6:00 min' depth='42.0 m' pressure0='178.0 bar' ndl='2:00 min' />
+  <sample time='9:00 min' depth='46.8 m' pressure0='158.0 bar' ndl='0:00 min' tts='32:00 min' in_deco='1' stopdepth='6.0 m' stoptime='32:00 min' cns='13%' />
+  <sample time='14:00 min' depth='45.0 m' pressure0='134.0 bar' tts='36:00 min' />
+  <sample time='18:00 min' depth='36.0 m' pressure0='114.0 bar' tts='32:00 min' />
+  <sample time='22:00 min' depth='24.0 m' pressure0='96.0 bar' tts='28:00 min' />
+  <sample time='26:00 min' depth='15.0 m' pressure0='85.0 bar' tts='25:00 min' />
+  <sample time='29:00 min' depth='6.0 m' pressure0='76.0 bar' pressure1='200.0 bar' tts='21:00 min' stoptime='21:00 min' />
+  <sample time='35:00 min' depth='6.0 m' pressure1='182.0 bar' tts='16:00 min' />
+  <sample time='41:00 min' depth='6.0 m' pressure1='163.0 bar' tts='12:00 min' />
+  <sample time='47:00 min' depth='4.5 m' pressure1='147.0 bar' tts='7:00 min' stopdepth='3.0 m' stoptime='7:00 min' />
+  <sample time='52:00 min' depth='3.0 m' pressure1='132.0 bar' tts='3:00 min' />
+  <sample time='57:00 min' depth='0.0 m' pressure1='110.0 bar' tts='0:00 min' />
+  <event time='9:00 min' name='Marker' />
+  <event time='22:00 min' name='bookmark' value='1' />
+  <event time='29:00 min' name='gaschange' cylinder='1' o2='70.0%' />
+  </divecomputer>
+</dive>
+<dive number='12' tags='reef' divesiteid='0000000a' date='2025-06-14' time='10:30:00' duration='46:30 min' rating='4'>
+  <divemaster>Paul</divemaster>
+  <buddy>Camille</buddy>
+  <notes>Holiday dive at Les Lavezzi on Nx32. Granite boulders, posidonia and a
+lot of groupers that clearly know divers mean no harm. Easy 18 m profile.</notes>
+  <suit>5mm wetsuit</suit>
+  <cylinder size='12.0 l' workpressure='232.0 bar' description='AL80 Nx32' o2='32.0%' start='200.0 bar' end='85.0 bar' />
+  <weightsystem weight='4.0 kg' description='belt' />
+  <divetemperature air='27.0 C' water='19.0 C' />
+  <divecomputer model='Shearwater Perdix' deviceid='1a2b3c4d' diveid='0000000c' duration='46:30 min'>
+  <depth max='18.4 m' mean='12.9 m' />
+  <temperature air='27.0 C' water='19.0 C' />
+  <sample time='0:00 min' depth='0.0 m' temp='19.0 C' pressure0='200.0 bar' />
+  <sample time='5:00 min' depth='16.0 m' pressure0='178.0 bar' ndl='35:00 min' />
+  <sample time='12:00 min' depth='18.4 m' pressure0='158.0 bar' ndl='28:00 min' />
+  <sample time='22:00 min' depth='15.0 m' pressure0='132.0 bar' ndl='35:00 min' />
+  <sample time='32:00 min' depth='10.0 m' pressure0='108.0 bar' />
+  <sample time='40:00 min' depth='5.0 m' pressure0='95.0 bar' />
+  <sample time='46:30 min' depth='0.0 m' pressure0='85.0 bar' />
+  <event time='12:00 min' name='Marker' />
   </divecomputer>
 </dive>
 </dives>

@@ -10,7 +10,9 @@ Guiding principles:
 1. **Never lose a dive.** Import/export and local persistence are core, not
    add-ons. Every write path is covered by round-trip tests.
 2. **Local-first, sync later.** No account is required. Cloud/git sync is an
-   opt-in layer on top of the local log.
+   opt-in layer on top of the local log. The current Google Drive/GitHub sync is
+   **temporary**: it is a stopgap that will be revisited once a long-term
+   cloud-sync design is settled.
 3. **One model, many front-ends.** All logic lives in `benthic-core`, free of
    UI and platform code.
 4. **Correct units, always.** Internal storage uses integer base units
@@ -105,7 +107,8 @@ list below).
 - [x] GPX import (dive sites from waypoints and tracks)
 - [ ] Additional importers: UDDF, DL7, Cobalt, Shearwater, Suunto,
       Diving Log, SeaBear, Cochran, ...
-- [ ] Subsurface cloud storage and git-backed logs
+- [ ] Subsurface cloud storage and git-backed logs (on hold until the temporary
+      sync layer is replaced)
 - [ ] CSV/HTML/JSON bulk export; Subsurface-compatible export options
 
 ## Phase 4 — Visualization, media and statistics

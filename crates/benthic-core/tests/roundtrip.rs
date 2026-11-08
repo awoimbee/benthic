@@ -9,20 +9,125 @@ const DEMO: &str = include_str!("../../../dives/demo.ssrf");
 #[test]
 fn parses_demo_ssrf() {
     let log = ssrf::parse_str(DEMO).expect("demo parses");
-    assert_eq!(log.dives.len(), 3);
-    assert_eq!(log.trips.len(), 1);
-    // One explicit site + one synthesized from the inline <location>.
-    assert_eq!(log.sites.len(), 2);
+    assert_eq!(log.dives.len(), 12);
+    assert_eq!(log.trips.len(), 4);
+    assert_eq!(log.sites.len(), 10);
 
     let first = log.dives_sorted().first().copied().unwrap();
     assert_eq!(first.number, 1);
-    assert_eq!(first.tags, vec!["reef", "training"]);
-    assert_eq!(first.cylinders.len(), 1);
+    assert_eq!(first.tags, vec!["wreck", "technical", "deco"]);
+    assert_eq!(first.cylinders.len(), 2);
     assert!(first.cylinders[0].gas.is_air());
     let dc = first.primary_computer().unwrap();
-    assert_eq!(dc.samples.len(), 7);
-    assert_eq!(dc.events.len(), 2);
-    assert_eq!(dc.max_depth, Some(Depth::from_meters(18.4)));
+    assert_eq!(dc.samples.len(), 13);
+    assert_eq!(dc.events.len(), 3);
+    assert_eq!(dc.max_depth, Some(Depth::from_meters(38.4)));
+}
+
+/// The demo log is also the showcase, so it must exercise the range of dive
+/// styles the model supports: air, nitrox, trimix, CCR and staged deco.
+#[test]
+fn demo_covers_typical_dive_styles() {
+    use benthic_core::Divemode;
+
+    let log = ssrf::parse_str(DEMO).expect("demo parses");
+
+    let nitrox = log
+        .dives
+        .iter()
+        .filter(|d| {
+            d.cylinders
+                .first()
+                .is_some_and(|c| c.gas.he_permille == 0 && (220..=400).contains(&c.gas.o2_permille))
+        })
+        .count();
+    assert_eq!(nitrox, 4, "recreational nitrox dives");
+
+    let trimix = log
+        .dives
+        .iter()
+        .filter(|d| {
+            d.computers
+                .iter()
+                .all(|dc| dc.divemode == Divemode::OpenCircuit)
+                && d.cylinders.iter().any(|c| c.gas.he_permille > 0)
+        })
+        .count();
+    assert_eq!(trimix, 1, "open-circuit trimix dives");
+
+    let rebreather = log
+        .dives
+        .iter()
+        .filter(|d| d.computers.iter().any(|dc| dc.divemode == Divemode::Ccr))
+        .count();
+    assert_eq!(rebreather, 1, "rebreather dive");
+
+    let deco = log
+        .dives
+        .iter()
+        .filter(|d| {
+            d.computers
+                .iter()
+                .any(|dc| dc.samples.iter().any(|s| s.in_deco))
+        })
+        .count();
+    assert_eq!(deco, 8, "dives with a deco obligation");
+
+    let gas_switches: usize = log
+        .dives
+        .iter()
+        .flat_map(|d| d.computers.iter())
+        .flat_map(|dc| dc.events.iter())
+        .filter(|e| e.is_gas_change())
+        .count();
+    assert_eq!(gas_switches, 8, "staged gas switches across the demo");
+}
+
+/// The example logbook is a French wreck-diving showcase: every site is in
+/// France and the four Var wrecks are dived on air with Nx70 deco.
+#[test]
+fn demo_is_set_in_france_with_70_percent_deco() {
+    let log = ssrf::parse_str(DEMO).expect("demo parses");
+    assert!(
+        log.sites
+            .iter()
+            .all(|s| s.country.as_deref() == Some("France")),
+        "every demo site must be in France"
+    );
+
+    for name in ["Le Donator", "Le Grec", "Le Rubis", "Le Liban"] {
+        let site = log
+            .sites
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("missing site {name}"));
+        let dives: Vec<_> = log
+            .dives
+            .iter()
+            .filter(|d| d.site_id == Some(site.uuid))
+            .collect();
+        assert!(!dives.is_empty(), "no dive for {name}");
+        for dive in dives {
+            assert!(
+                dive.cylinders.first().is_some_and(|c| c.gas.is_air()),
+                "{name} should be dived on air"
+            );
+            assert!(
+                dive.cylinders
+                    .iter()
+                    .skip(1)
+                    .any(|c| c.gas.o2_permille == 700),
+                "{name} should have an Nx70 deco bottle"
+            );
+        }
+    }
+
+    for name in ["U-171", "Le Cyrano"] {
+        assert!(
+            log.sites.iter().any(|s| s.name == name),
+            "missing Groix site {name}"
+        );
+    }
 }
 
 #[test]
@@ -75,7 +180,7 @@ fn parse_auto_handles_both_formats() {
     let log = io::parse_auto(DEMO).unwrap();
     let as_json = json::to_string(&log).unwrap();
     let reparsed = io::parse_auto(&as_json).unwrap();
-    assert_eq!(reparsed.dives.len(), 3);
+    assert_eq!(reparsed.dives.len(), 12);
 }
 
 #[test]
@@ -169,7 +274,7 @@ fn filter_narrows_the_demo_log() {
 
     let log = ssrf::parse_str(DEMO).unwrap();
     let filter = DiveFilter {
-        query: "turtles".into(),
+        query: "Liban".into(),
         ..Default::default()
     };
     let matches: Vec<_> = log
@@ -178,7 +283,7 @@ fn filter_narrows_the_demo_log() {
         .filter(|d| filter.matches(d, &log))
         .collect();
     assert_eq!(matches.len(), 1);
-    assert_eq!(matches[0].number, 2);
+    assert_eq!(matches[0].number, 4);
 }
 
 #[test]
@@ -414,5 +519,5 @@ fn dives_recent_first_orders_newest_first() {
     chronological.reverse();
 
     assert_eq!(recent, chronological);
-    assert_eq!(recent, vec![3, 2, 1]);
+    assert_eq!(recent, (1..=12).rev().collect::<Vec<i32>>());
 }

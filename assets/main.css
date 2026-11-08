@@ -649,6 +649,18 @@ body {
   gap: 0.6rem;
 }
 
+/* Cloud sync is a stopgap; keep that visible instead of only in the docs. */
+.sync-temporary {
+  margin: 0 0 0.9rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px dashed var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .sync-advanced {
   grid-column: 1 / -1;
 }
@@ -846,6 +858,12 @@ textarea.field {
   padding: 1.25rem 1.5rem;
   min-width: 320px;
   max-width: 90vw;
+  /* A dialog taller than the window scrolls inside itself; otherwise its top
+     and bottom would sit outside the backdrop and be unreachable. */
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
@@ -1042,9 +1060,6 @@ textarea.field {
   .menu-toggle {
     display: inline-flex;
     gap: 0.35rem;
-  }
-  .toolbar-menus {
-    display: none;
   }
 
   /* Filters collapse behind a toggle to save vertical space. */
@@ -1254,7 +1269,8 @@ a:focus-visible {
 
 .map-modal {
   width: min(1000px, 94vw);
-  max-height: 90vh;
+  max-height: min(90vh, calc(100vh - 2rem));
+  max-height: min(90vh, calc(100dvh - 2rem));
   display: flex;
   flex-direction: column;
 }
@@ -1523,8 +1539,10 @@ a:focus-visible {
   /* The folded sheet can be taller than the viewport: scroll it and keep the
      last item clear of the home indicator. */
   .toolbar-sheet {
-    max-height: calc(100dvh - 4.5rem);
+    max-height: calc(100vh - 7rem);
+    max-height: calc(100dvh - 7rem);
     overflow-y: auto;
+    overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -1858,6 +1876,9 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 0.15rem;
+  /* If the toolbar has to wrap, keep the menus against the right edge of
+     their row instead of letting them drift to the left edge. */
+  margin-inline-start: auto;
 }
 
 .menu {
@@ -1893,8 +1914,14 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   min-width: 240px;
-  max-height: min(80vh, 640px);
+  /* A dropdown is out of flow, but it still counts towards the page's
+     scrollable area: bound it by the viewport so an open menu can never add
+     scrollbars (7rem leaves room for a wrapped toolbar row above it). */
+  max-width: calc(100vw - 1rem);
+  max-height: min(calc(100vh - 7rem), 640px);
+  max-height: min(calc(100dvh - 7rem), 640px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.4rem;
   background: var(--bg-alt);
   border: 1px solid var(--border);
@@ -1992,6 +2019,12 @@ a:focus-visible {
 }
 
 @media (max-width: 720px) {
+  /* Phones fold the categories into one sheet; the wide-screen menu bar is
+     declared after the other mobile rules, so it has to be hidden here. */
+  .toolbar-menus {
+    display: none;
+  }
+
   .toolbar-sheet {
     position: absolute;
     top: calc(100% + 0.25rem);

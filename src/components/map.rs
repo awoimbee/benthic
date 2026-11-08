@@ -25,6 +25,9 @@ const MAP_JS: Asset = asset!(
     AssetOptions::js().with_minify(false)
 );
 
+/// Zoom level used when a map is asked to centre on a single site.
+const FOCUS_ZOOM: u8 = 13;
+
 /// A dive site projected onto the map.
 #[derive(Clone, PartialEq, Serialize)]
 pub struct MapSite {
@@ -88,6 +91,16 @@ pub fn MapView(
     #[props(default)] max_zoom: u8,
     #[props(default)] height: Option<String>,
     #[props(default)] on_select: Option<EventHandler<u32>>,
+    /// Require Ctrl (or Cmd) to be held for scroll-wheel zooming, so scrolling
+    /// a page past an embedded map cannot zoom it by accident.
+    #[props(default)]
+    ctrl_zoom: bool,
+    /// Coordinates the map centres on once it is ready.
+    #[props(default)]
+    focus: Option<(f64, f64)>,
+    /// Called when the map background itself is clicked.
+    #[props(default)]
+    on_click: Option<EventHandler<()>>,
     /// When true, tapping the map reports the tapped coordinates instead of
     /// (or as well as) opening a marker.
     #[props(default)]
@@ -104,59 +117,96 @@ pub fn MapView(
     // changes. Instead we keep the eval handle and push updated marker data
     // into the existing map.
     let mut eval_slot = use_signal(|| None::<document::Eval>);
-    use_effect(use_reactive((&sites,), move |(sites,)| match eval_slot() {
-        Some(eval) => {
-            let _ = eval.send(serde_json::json!({ "type": "sites", "sites": sites }));
-        }
-        None => {
-            let payload = serde_json::json!({
-                "id": mount_id.clone(),
-                "sites": sites,
-                "max_zoom": max_zoom,
-                "pick": pick,
-                "satellite": t.satellite,
-                "streets": t.streets,
-            });
-            let mut eval = document::eval(MAP_SCRIPT);
-            if eval.send(payload).is_err() {
-                return;
+    use_effect(use_reactive((&sites,), move |(sites,)| {
+        let existing: Option<document::Eval> = *eval_slot.peek();
+        match existing {
+            Some(eval) => {
+                let _ = eval.send(serde_json::json!({ "type": "sites", "sites": sites }));
             }
-            eval_slot.set(Some(eval));
-            spawn(async move {
-                while let Ok(message) = eval.recv::<String>().await {
-                    let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) else {
-                        continue;
-                    };
-                    match value.get("type").and_then(|t| t.as_str()) {
-                        Some("select") => {
-                            if let (Some(handler), Some(site)) = (
-                                on_select,
-                                value.get("site").and_then(|s| s.as_u64()).map(|s| s as u32),
-                            ) {
-                                handler.call(site);
-                            }
-                        }
-                        Some("pick") => {
-                            if let Some(handler) = on_pick {
-                                let lat = value.get("lat").and_then(|v| v.as_f64());
-                                let lon = value.get("lon").and_then(|v| v.as_f64());
-                                if let (Some(lat), Some(lon)) = (lat, lon) {
-                                    handler.call((lat, lon));
+            None => {
+                let payload = serde_json::json!({
+                    "id": mount_id.clone(),
+                    "sites": sites,
+                    "max_zoom": max_zoom,
+                    "pick": pick,
+                    "ctrl_zoom": ctrl_zoom,
+                    "open_on_click": on_click.is_some(),
+                    "focus": focus.map(|(lat, lon)| serde_json::json!({ "lat": lat, "lon": lon })),
+                    "satellite": t.satellite,
+                    "streets": t.streets,
+                });
+                let mut eval = document::eval(MAP_SCRIPT);
+                if eval.send(payload).is_err() {
+                    return;
+                }
+                eval_slot.set(Some(eval));
+                spawn(async move {
+                    while let Ok(message) = eval.recv::<String>().await {
+                        let Ok(value) = serde_json::from_str::<serde_json::Value>(&message) else {
+                            continue;
+                        };
+                        match value.get("type").and_then(|t| t.as_str()) {
+                            Some("select") => {
+                                if let (Some(handler), Some(site)) = (
+                                    on_select,
+                                    value.get("site").and_then(|s| s.as_u64()).map(|s| s as u32),
+                                ) {
+                                    handler.call(site);
                                 }
                             }
+                            Some("pick") => {
+                                if let Some(handler) = on_pick {
+                                    let lat = value.get("lat").and_then(|v| v.as_f64());
+                                    let lon = value.get("lon").and_then(|v| v.as_f64());
+                                    if let (Some(lat), Some(lon)) = (lat, lon) {
+                                        handler.call((lat, lon));
+                                    }
+                                }
+                            }
+                            Some("open") => {
+                                if let Some(handler) = on_click {
+                                    handler.call(());
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
-                }
-            });
+                });
+            }
+        }
+    }));
+
+    // Keep an already-mounted map centred when the requested focus changes.
+    use_effect(use_reactive((&focus,), move |(focus,)| {
+        let Some((lat, lon)) = focus else {
+            return;
+        };
+        let existing: Option<document::Eval> = *eval_slot.peek();
+        if let Some(eval) = existing {
+            let _ = eval.send(serde_json::json!({
+                "type": "focus",
+                "lat": lat,
+                "lon": lon,
+                "zoom": FOCUS_ZOOM,
+            }));
         }
     }));
 
     let style = height.map(|h| format!("height: {h};"));
+    let title = if ctrl_zoom {
+        Some(t.map_ctrl_zoom)
+    } else {
+        None
+    };
     rsx! {
         document::Stylesheet { href: MAP_CSS }
         document::Script { src: MAP_JS }
-        div { id: "{dom_id}", class: "benthic-map", style: style.as_deref().unwrap_or("") }
+        div {
+            id: "{dom_id}",
+            class: "benthic-map",
+            style: style.as_deref().unwrap_or(""),
+            title: title.unwrap_or_default(),
+        }
     }
 }
 
@@ -240,6 +290,7 @@ pub fn MapDialog() -> Element {
     let log = (state.log)();
     let tr = i18n::strings((state.prefs)().language);
     let sites = MapSite::all(&log);
+    let focus = (state.map_focus)();
     let geolocated = sites.len();
     let total = log.sites.len();
 
@@ -314,6 +365,7 @@ pub fn MapDialog() -> Element {
                     MapView {
                         sites: sites.clone(),
                         max_zoom: 12,
+                        focus: focus,
                         on_select: move |site: u32| {
                             let dive_id = sites
                                 .iter()
@@ -392,7 +444,23 @@ if (!ready || !container) {
     message: ready ? "map container is missing" : "map library failed to load",
   }));
 } else {
-  const map = L.map(container, { worldCopyJump: true, minZoom: 2 });
+  const map = L.map(container, {
+    worldCopyJump: true,
+    minZoom: 2,
+    // Embedded maps only zoom with the wheel while Ctrl is held, so scrolling
+    // a long page past the map cannot change its zoom by accident.
+    scrollWheelZoom: !payload.ctrl_zoom,
+  });
+  if (payload.ctrl_zoom) {
+    container.addEventListener(
+      "wheel",
+      (event) => {
+        if (event.ctrlKey || event.metaKey) map.scrollWheelZoom.enable();
+        else map.scrollWheelZoom.disable();
+      },
+      { capture: true, passive: true },
+    );
+  }
 
   const satellite = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -447,6 +515,9 @@ if (!ready || !container) {
       );
     });
   }
+  if (payload.open_on_click) {
+    map.on("click", () => dioxus.send(JSON.stringify({ type: "open" })));
+  }
 
   const group =
     typeof L.markerClusterGroup === "function"
@@ -481,12 +552,17 @@ if (!ready || !container) {
       );
       marker.on("click", () => {
         dioxus.send(JSON.stringify({ type: "select", site: site.site_id }));
+        if (payload.open_on_click) {
+          dioxus.send(JSON.stringify({ type: "open" }));
+        }
       });
       group.addLayer(marker);
       points.push([site.lat, site.lon]);
     }
     const maxZoom = payload.max_zoom || 12;
-    if (points.length === 1) {
+    if (payload.focus) {
+      map.setView([payload.focus.lat, payload.focus.lon], payload.focus.zoom || 13);
+    } else if (points.length === 1) {
       map.setView(points[0], Math.min(maxZoom, 13));
     } else if (points.length > 1) {
       map.fitBounds(points, { maxZoom, padding: [30, 30] });
@@ -502,7 +578,7 @@ if (!ready || !container) {
     const message = await dioxus.recv();
     if (!message || message.type === "done") break;
     if (message.type === "sites") addSites(message.sites);
-    else if (message.type === "focus") map.setView([message.lat, message.lon], message.zoom || 12);
+    else if (message.type === "focus") map.setView([message.lat, message.lon], message.zoom || 13);
     else if (message.type === "resize") map.invalidateSize();
   }
   map.remove();

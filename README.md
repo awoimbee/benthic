@@ -50,7 +50,9 @@ dx serve                      # web app at http://localhost:8080
 dx serve --platform desktop   # desktop app
 ```
 
-Import `dives/demo.ssrf` to see the app with data.
+Use **Files → Open example logbook** to load the bundled logbook (French wrecks
+such as Le Donator, Le Rubis and U-171, with nitrox, trimix and rebreather
+dives), or import `dives/demo.ssrf` directly.
 
 ## Dive computers
 
@@ -101,7 +103,7 @@ benthic/
 ├── src/                   # Dioxus app: root component, state, storage, components
 ├── assets/main.css
 ├── public/                # static web assets
-├── dives/demo.ssrf        # demo log used by the app and tests
+├── dives/demo.ssrf        # example logbook (French sites) used by the app and tests
 └── docs/                  # architecture, data model, formats, contributing
 ```
 

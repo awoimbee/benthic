@@ -109,6 +109,11 @@ the effect stays cheap and writes never reorder.
 
 ## Remote sync
 
+> **Temporary.** The backends described in this section are a stopgap until a
+> long-term cloud-sync design is settled. The sync dialog says so in the UI.
+> Treat the transport and its stored configuration as replaceable rather than
+> as a stable contract.
+
 `benthic-core::sync` is the pure, tested decision logic: given the local log,
 the last-synced bookkeeping and the remote copy, it returns `UpToDate`, `Push`,
 `Pull` or `Conflict`. A push happens only when the remote is unchanged since the
