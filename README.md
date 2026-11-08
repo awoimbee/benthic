@@ -1,12 +1,13 @@
 # benthic
 
-> [!IMPORTANT]
-> **This project is no longer maintained and the repository is archived.**
-> Just use <https://github.com/submersion-app/submersion> instead.
+My personal dive log.
 
-A modern, cross-platform dive log — a ground-up rewrite of
-[Subsurface](https://subsurface-divelog.org/) in Rust and
+It is a spiritual successor to [Subsurface](https://subsurface-divelog.org/),
+the reference open-source dive planner and logbook, in Rust and
 [Dioxus](https://dioxuslabs.com/).
+[Submersion](https://github.com/submersion-app/submersion) is a community
+successor in the same spirit: a modern, cross-platform dive log built on these
+ideas.
 
 * Runs in the browser and on the desktop from one Rust/Dioxus codebase.
 * Local-first: no account, no server, automatic persistence, explicit
