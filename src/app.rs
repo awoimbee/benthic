@@ -8,6 +8,7 @@ use crate::components::{
     CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog,
     PreferencesDialog, SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
 };
+use crate::routing::{self, Route};
 use crate::state::AppState;
 
 #[cfg(feature = "divecomputer")]
@@ -19,6 +20,7 @@ const CSS: &str = include_str!("../assets/main.css");
 
 #[component]
 pub fn App() -> Element {
+    let initial_route = routing::current_route();
     let log = use_signal(DiveLog::new);
     let selected = use_signal(|| None::<u32>);
     let selection = use_signal(std::collections::BTreeSet::new);
@@ -35,20 +37,24 @@ pub fn App() -> Element {
                 ..Default::default()
             })
     });
-    let show_prefs = use_signal(|| false);
-    let show_trips = use_signal(|| false);
-    let show_map = use_signal(|| false);
+    let show_prefs = use_signal(|| initial_route == Route::Preferences);
+    let show_trips = use_signal(|| initial_route == Route::Trips);
+    let show_map = use_signal(|| initial_route == Route::Map);
     let map_focus = use_signal(|| None::<(f64, f64)>);
-    let show_planner = use_signal(|| false);
-    let show_sync = use_signal(|| false);
-    let show_download = use_signal(|| false);
+    let show_planner = use_signal(|| initial_route == Route::Planner);
+    let show_sync = use_signal(|| initial_route == Route::Sync);
+    let show_download = use_signal(|| initial_route == Route::Download);
     // Assume available, then hide the Download action on web platforms that
     // have neither Web Serial nor Web Bluetooth (e.g. iOS).
     let download_available = use_signal(|| true);
-    let show_compare = use_signal(|| false);
+    let show_compare = use_signal(|| initial_route == Route::Compare);
     let mut confirm_delete_selected = use_signal(|| false);
-    let show_trip = use_signal(|| None::<u32>);
-    let mut mobile_detail = use_signal(|| false);
+    let show_trip = use_signal(|| match initial_route {
+        Route::Trip(id) => Some(id),
+        _ => None,
+    });
+    let mut mobile_detail = use_signal(|| matches!(initial_route, Route::Trip(_)));
+    let route = use_signal(|| initial_route);
     let presets = use_signal(|| {
         crate::storage::load_presets()
             .and_then(|text| serde_json::from_str::<Vec<FilterPreset>>(&text).ok())
@@ -83,8 +89,45 @@ pub fn App() -> Element {
         confirm_delete_selected,
         show_trip,
         mobile_detail,
+        route,
     };
     use_context_provider(|| state);
+
+    // Keep the browser URL in sync with the open pane or dialog. This is the
+    // single place that pushes history for UI-driven navigation.
+    use_effect(move || {
+        let desired = Route::from_ui(
+            (show_prefs)(),
+            (show_trips)(),
+            (show_map)(),
+            (show_planner)(),
+            (show_sync)(),
+            (show_compare)(),
+            (show_download)(),
+            (show_trip)(),
+        );
+        if desired == (state.route)() {
+            return;
+        }
+        let mut route_signal = state.route;
+        route_signal.set(desired);
+        routing::push(desired);
+    });
+
+    // Browser Back/Forward applies the URL route to the UI without pushing a
+    // new entry.
+    #[cfg(target_arch = "wasm32")]
+    use_future(move || async move {
+        let mut route_signal = state.route;
+        let mut eval = document::eval(
+            "window.addEventListener('popstate', () => dioxus.send(window.location.pathname));",
+        );
+        while let Ok(path) = eval.recv::<String>().await {
+            let next = routing::route_from_path(&path);
+            route_signal.set(next);
+            routing::apply_route(state, next);
+        }
+    });
 
     // Preferences and filter presets are small and load synchronously.
     use_effect(move || {

@@ -529,18 +529,11 @@ impl Buhlmann {
     pub fn deco_schedule(&self, plan: &DecoSegment) -> Vec<Stop> {
         let tissues = self.tissues_at_profile(&plan.points);
         let start_m = plan.points.last().map(|p| p.depth.meters()).unwrap_or(0.0);
-        let mode = plan.points.last().map(|p| p.mode).unwrap_or_default();
-        self.schedule_from(tissues, start_m, mode, plan)
+        self.schedule_from(tissues, start_m, plan)
     }
 
     /// Compute the ascent and stops from an already-loaded tissue state.
-    fn schedule_from(
-        &self,
-        mut tissues: Tissues,
-        start_m: f64,
-        mode: BreathingMode,
-        plan: &DecoSegment,
-    ) -> Vec<Stop> {
+    fn schedule_from(&self, mut tissues: Tissues, start_m: f64, plan: &DecoSegment) -> Vec<Stop> {
         // The gradient factor is anchored at the deepest ceiling of the dive
         // (Subsurface's `gf_low_pressure_this_dive`) and interpolated to the
         // surface.
@@ -577,6 +570,7 @@ impl Buhlmann {
                 let d_next = depth_m + (next - depth_m) * ((i + 1) as f64 / steps as f64);
                 let mid = (d + d_next) / 2.0;
                 let amb = self.ambient_bar(Depth::from_meters(mid));
+                let mode = plan.ascent_mode(Depth::from_meters(mid));
                 load_inert_gas(&mut trial, amb, dt, mode.gas_at(amb), WATER_VAPOUR_BAR);
                 if self
                     .gf_ceiling_depth_of(&trial, plan.gf_low, plan.gf_high, anchor_bar)
@@ -595,6 +589,7 @@ impl Buhlmann {
                 flush(&mut holding, &mut stops);
             } else {
                 let amb = self.ambient_bar(Depth::from_meters(depth_m));
+                let mode = plan.ascent_mode(Depth::from_meters(depth_m));
                 load_inert_gas(
                     &mut tissues,
                     amb,
@@ -626,6 +621,10 @@ pub struct DecoSegment {
     pub ascent_rate: f64,
     /// Descent rate, in metres per minute. Only used to build a square profile.
     pub descent_rate: f64,
+    /// Gases to switch to during the generated ascent, as `(depth, mode)`.
+    /// A switch applies at or above `depth`; the deepest applicable switch
+    /// wins, so richer gases are picked up as the diver ascends.
+    pub gas_switches: Vec<(Depth, BreathingMode)>,
 }
 
 impl Default for DecoSegment {
@@ -637,6 +636,7 @@ impl Default for DecoSegment {
             stop_step: 3.0,
             ascent_rate: 10.0,
             descent_rate: 20.0,
+            gas_switches: Vec::new(),
         }
     }
 }
@@ -667,6 +667,22 @@ impl DecoSegment {
     /// The breathing mode of the last (deepest) waypoint.
     pub fn bottom_mode(&self) -> BreathingMode {
         self.points.last().map(|p| p.mode).unwrap_or_default()
+    }
+
+    /// The gas breathed while ascending through `depth`.
+    pub fn ascent_mode(&self, depth: Depth) -> BreathingMode {
+        let mut chosen: Option<(Depth, BreathingMode)> = None;
+        for (switch_depth, mode) in &self.gas_switches {
+            if depth.mm > switch_depth.mm {
+                continue;
+            }
+            if chosen.is_none_or(|(best, _)| switch_depth.mm < best.mm) {
+                chosen = Some((*switch_depth, *mode));
+            }
+        }
+        chosen
+            .map(|(_, mode)| mode)
+            .unwrap_or_else(|| self.bottom_mode())
     }
 }
 

@@ -372,7 +372,8 @@ impl Vpmb {
         let mut ds = self.clone();
         if wait_seconds > 0.0 {
             let amb = ds.ambient_bar_mm(from_mm);
-            ds.add_segment_bar(amb, wait_seconds, plan.bottom_mode().gas_at(amb));
+            let mode = plan.ascent_mode(Depth::new(from_mm));
+            ds.add_segment_bar(amb, wait_seconds, mode.gas_at(amb));
         }
         // Consistency with other VPM-B implementations: do not start the ascent
         // while the ceiling is already deeper than the next stop.
@@ -388,7 +389,8 @@ impl Vpmb {
                 deltad = depth;
             }
             let amb = ds.ambient_bar_mm(depth);
-            ds.add_segment_bar(amb, BASE_TIMESTEP as f64, plan.bottom_mode().gas_at(amb));
+            let mode = plan.ascent_mode(Depth::new(depth));
+            ds.add_segment_bar(amb, BASE_TIMESTEP as f64, mode.gas_at(amb));
             let tolerance = ds.tolerance_bar(ds.ambient_bar_mm(depth));
             if ds.ceiling_depth_mm(tolerance) > depth - deltad {
                 return false;
@@ -428,7 +430,6 @@ impl Vpmb {
     /// resulting decompression time in seconds.
     fn run(&mut self, plan: &DecoSegment, bottom_mm: i32, bottom_time: i64) -> (Vec<Stop>, f64) {
         let rate = self.ascent_rate_mm_s(plan);
-        let mode = plan.bottom_mode();
 
         // The first ceiling is the VPM-B tolerance at the start of the ascent,
         // round-tripped through Subsurface's integer mbar pressure.
@@ -463,6 +464,7 @@ impl Vpmb {
                     deltad = depth - level;
                 }
                 let amb = self.ambient_bar_mm(depth);
+                let mode = plan.ascent_mode(Depth::new(depth));
                 self.add_segment_bar(amb, BASE_TIMESTEP as f64, mode.gas_at(amb));
                 depth -= deltad;
                 clock += BASE_TIMESTEP as i64;
@@ -480,6 +482,7 @@ impl Vpmb {
                 laststoptime = new_clock - clock;
                 if laststoptime > 0 {
                     let amb = self.ambient_bar_mm(depth);
+                    let mode = plan.ascent_mode(Depth::new(depth));
                     self.add_segment_bar(amb, laststoptime as f64, mode.gas_at(amb));
                     clock = new_clock;
                     stops.push(Stop {

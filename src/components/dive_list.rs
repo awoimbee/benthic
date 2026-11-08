@@ -18,6 +18,9 @@ struct Row {
     title: String,
     subtitle: String,
     trailing: String,
+    freedive_group: bool,
+    expanded: bool,
+    day: Option<String>,
 }
 
 #[component]
@@ -38,6 +41,8 @@ pub fn DiveList() -> Element {
     // Trip ids whose dives are rolled up.
     let mut collapsed_trips = use_signal(std::collections::HashSet::<u32>::new);
     let collapsed = (collapsed_trips)();
+    let mut expanded_freedives = use_signal(std::collections::HashSet::<String>::new);
+    let expanded_days = (expanded_freedives)();
 
     let filtered: Vec<&benthic_core::Dive> = log
         .dives_recent_first()
@@ -45,9 +50,126 @@ pub fn DiveList() -> Element {
         .filter(|dive| filter.matches(dive, &log))
         .collect();
 
+    // Freedives are grouped by calendar day: the list shows one row per day
+    // that contains several freedives, and expanding it reveals the individual
+    // dives so one can still be selected.
+    let mut freedive_days: std::collections::BTreeMap<String, Vec<&benthic_core::Dive>> =
+        Default::default();
+    for dive in &filtered {
+        if dive.is_freedive() {
+            let day = benthic_core::format_timestamp_utc(dive.when)
+                .split(' ')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            freedive_days.entry(day).or_default().push(dive);
+        }
+    }
+    let grouped_days: std::collections::HashSet<String> = freedive_days
+        .iter()
+        .filter(|(_, dives)| dives.len() > 1)
+        .map(|(day, _)| day.clone())
+        .collect();
+    let mut seen_freedive_days: std::collections::HashSet<String> = Default::default();
+
+    let make_dive_row = |dive: &benthic_core::Dive, extra_class: &str| -> Row {
+        Row {
+            key: dive.id.to_string(),
+            class: {
+                let mut class = if current == Some(dive.id) {
+                    String::from("dive-row selected")
+                } else {
+                    String::from("dive-row")
+                };
+                if !extra_class.is_empty() {
+                    class.push(' ');
+                    class.push_str(extra_class);
+                }
+                class
+            },
+            is_trip: false,
+            collapsed: false,
+            checked: checked_ids.contains(&dive.id),
+            is_selected: current == Some(dive.id),
+            dive_id: Some(dive.id),
+            trip_id: None,
+            number: if dive.number != 0 {
+                dive.number.to_string()
+            } else {
+                "•".to_string()
+            },
+            title: crate::format::dive_title(dive, &log),
+            subtitle: crate::format::dive_subtitle(dive, &prefs),
+            trailing: dive
+                .cylinders
+                .first()
+                .map(|c| c.gas.name())
+                .unwrap_or_else(|| "—".to_string()),
+            freedive_group: false,
+            expanded: false,
+            day: None,
+        }
+    };
+
     let mut rows: Vec<Row> = Vec::new();
     let mut seen_trips: std::collections::HashSet<u32> = Default::default();
     for (index, dive) in filtered.iter().enumerate() {
+        let day = if dive.is_freedive() {
+            Some(
+                benthic_core::format_timestamp_utc(dive.when)
+                    .split(' ')
+                    .next()
+                    .unwrap_or("")
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+        if let Some(day) = day.as_ref().filter(|day| grouped_days.contains(*day)) {
+            if seen_freedive_days.insert(day.clone()) {
+                let dives = &freedive_days[day];
+                let titles: Vec<String> = dives
+                    .iter()
+                    .map(|dive| crate::format::dive_title(dive, &log))
+                    .collect();
+                let title = if titles.iter().all(|title| title == &titles[0]) {
+                    titles[0].clone()
+                } else {
+                    prefs.date(dives[0].when)
+                };
+                let date = prefs.date(dives[0].when);
+                let title = if title == date {
+                    title
+                } else {
+                    format!("{title} · {date}")
+                };
+                let expanded = expanded_days.contains(day);
+                rows.push(Row {
+                    key: format!("freedive-day-{day}"),
+                    class: "trip-row freedive-day-row".to_string(),
+                    is_trip: false,
+                    collapsed: !expanded,
+                    checked: false,
+                    is_selected: false,
+                    dive_id: None,
+                    trip_id: None,
+                    number: String::new(),
+                    title,
+                    subtitle: i18n::t1(t.n_freedives, dives.len()),
+                    trailing: String::new(),
+                    freedive_group: true,
+                    expanded,
+                    day: Some(day.clone()),
+                });
+                if expanded {
+                    for freedive in dives {
+                        rows.push(make_dive_row(freedive, "freedive-child"));
+                    }
+                }
+            }
+            continue;
+        }
+
         // The last dive of a trip is marked so the group reads as one block
         // and is visibly separated from the dives that follow.
         let trip_end = dive.trip_id.is_some()
@@ -77,6 +199,9 @@ pub fn DiveList() -> Element {
                         title,
                         subtitle: i18n::t1(t.n_dives, count),
                         trailing: String::new(),
+                        freedive_group: false,
+                        expanded: false,
+                        day: None,
                     });
                 }
             }
@@ -87,41 +212,14 @@ pub fn DiveList() -> Element {
         {
             continue;
         }
-        rows.push(Row {
-            key: dive.id.to_string(),
-            class: {
-                let mut class = if current == Some(dive.id) {
-                    String::from("dive-row selected")
-                } else {
-                    String::from("dive-row")
-                };
-                if dive.trip_id.is_some() {
-                    class.push_str(" in-trip");
-                }
-                if trip_end {
-                    class.push_str(" trip-end");
-                }
-                class
-            },
-            is_trip: false,
-            collapsed: false,
-            checked: checked_ids.contains(&dive.id),
-            is_selected: current == Some(dive.id),
-            dive_id: Some(dive.id),
-            trip_id: None,
-            number: if dive.number != 0 {
-                dive.number.to_string()
-            } else {
-                "•".to_string()
-            },
-            title: crate::format::dive_title(dive, &log),
-            subtitle: crate::format::dive_subtitle(dive, &prefs),
-            trailing: dive
-                .cylinders
-                .first()
-                .map(|c| c.gas.name())
-                .unwrap_or_else(|| "—".to_string()),
-        });
+        let mut row = make_dive_row(dive, "");
+        if dive.trip_id.is_some() {
+            row.class.push_str(" in-trip");
+        }
+        if trip_end {
+            row.class.push_str(" trip-end");
+        }
+        rows.push(row);
     }
 
     let total = log.dives.len();
@@ -152,7 +250,26 @@ pub fn DiveList() -> Element {
                                 mobile_detail.set(true);
                             }
                         },
-                        if row.is_trip {
+                        if row.freedive_group {
+                            button {
+                                class: "trip-toggle",
+                                r#type: "button",
+                                aria_expanded: if row.expanded { "true" } else { "false" },
+                                onclick: move |_| {
+                                    if let Some(day) = row.day.clone() {
+                                        let mut set = expanded_freedives.write();
+                                        if !set.remove(&day) {
+                                            set.insert(day);
+                                        }
+                                    }
+                                },
+                                span { class: "trip-caret",
+                                    if row.expanded { "\u{25BE}" } else { "\u{25B8}" }
+                                }
+                                span { class: "trip-title", "{row.title}" }
+                                span { class: "trip-subtitle", "{row.subtitle}" }
+                            }
+                        } else if row.is_trip {
                             if let Some(trip_id) = row.trip_id {
                                 if renaming == Some(trip_id) {
                                     input {

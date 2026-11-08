@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>benthic</title>
+    <script>
+      // Deep links (for example /benthic/planner) are a client-side route, not
+      // a static file. Send them to the app root with the intended route in a
+      // query parameter; the app restores the real URL with replaceState.
+      (function () {
+        var segments = location.pathname.split("/").filter(Boolean);
+        var known = ["planner", "map", "preferences", "sync", "compare", "download", "trips"];
+        var index = segments.findIndex(function (part) { return known.indexOf(part) !== -1; });
+        var base = "";
+        var route = "/";
+        if (index >= 0) {
+          base = index > 0 ? "/" + segments.slice(0, index).join("/") : "";
+          route = "/" + segments.slice(index).join("/") + location.search;
+        }
+        location.replace(base + "/?route=" + encodeURIComponent(route));
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

@@ -369,6 +369,15 @@ impl Dive {
         }
     }
 
+    /// Whether this dive was recorded in freediving mode. Subsurface stores
+    /// the mode on each dive computer, so any freedive computer makes the
+    /// whole entry a freedive.
+    pub fn is_freedive(&self) -> bool {
+        self.computers
+            .iter()
+            .any(|dc| dc.divemode == Divemode::Freedive)
+    }
+
     /// The primary dive computer, if any.
     pub fn primary_computer(&self) -> Option<&DiveComputer> {
         self.computers.first()

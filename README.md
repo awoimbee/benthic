@@ -11,7 +11,8 @@ ideas.
 
 * Runs in the browser and on the desktop from one Rust/Dioxus codebase.
 * Local-first: no account, no server, automatic persistence, explicit
-  import/export.
+  import/export, optional GitHub sync (web or desktop) or Subsurface cloud
+  sync (desktop).
 * Reads and writes Subsurface-compatible XML (`.ssrf`).
 * Deployed from `main` to <https://awoimbee.github.io/benthic/>.
 
@@ -51,8 +52,8 @@ dx serve --platform desktop   # desktop app
 ```
 
 Use **Files → Open example logbook** to load the bundled logbook (French wrecks
-such as Le Donator, Le Rubis and U-171, with nitrox, trimix and rebreather
-dives), or import `dives/demo.ssrf` directly.
+such as Le Donator, Le Rubis and U-171, with nitrox, trimix, rebreather and
+freedive sessions), or import `dives/demo.ssrf` directly.
 
 ## Dive computers
 

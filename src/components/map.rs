@@ -275,7 +275,6 @@ struct SiteRow {
     id: u32,
     name: String,
     dives_label: String,
-    dive_id: Option<u32>,
     country: Option<String>,
 }
 
@@ -286,13 +285,29 @@ pub fn MapDialog() -> Element {
     let mut show_map = state.show_map;
     let mut selected = state.selected;
     let mut mobile_detail = state.mobile_detail;
+    let mut selected_site = use_signal(|| None::<u32>);
+    let selected_site_id = (selected_site)();
 
     let log = (state.log)();
-    let tr = i18n::strings((state.prefs)().language);
+    let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
     let sites = MapSite::all(&log);
-    let focus = (state.map_focus)();
+    let selected_site_data =
+        selected_site_id.and_then(|id| sites.iter().find(|site| site.site_id == id));
+    let focus = selected_site_data
+        .map(|site| (site.lat, site.lon))
+        .or((state.map_focus)());
     let geolocated = sites.len();
     let total = log.sites.len();
+    let site_dives: Vec<benthic_core::Dive> = selected_site_id
+        .map(|id| {
+            log.dives_recent_first()
+                .into_iter()
+                .filter(|dive| dive.site_id == Some(id))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
 
     let mut open_dive = move |dive_id: Option<u32>| {
         let t = state.strings();
@@ -320,7 +335,6 @@ pub fn MapDialog() -> Element {
                     tr.dive_plural
                 }
             ),
-            dive_id: s.dive_id,
             country: s.country.clone(),
         })
         .collect();
@@ -343,21 +357,46 @@ pub fn MapDialog() -> Element {
                 }
                 div { class: "map-modal-body",
                     div { class: "map-site-list",
-                        if rows.is_empty() {
-                            div { class: "muted", "{tr.map_empty}" }
-                        }
-                        for row in rows {
-                            button {
-                                key: "{row.id}",
-                                class: "map-site-row",
-                                disabled: row.dive_id.is_none(),
-                                onclick: move |_| open_dive(row.dive_id),
-                                span { class: "map-site-name", "{row.name}" }
-                                span { class: "muted map-site-meta",
-                                    if let Some(country) = row.country.clone() {
-                                        "{country} · "
+                        if let Some(site) = selected_site_data {
+                            div { class: "map-site-head",
+                                button {
+                                    class: "btn",
+                                    onclick: move |_| selected_site.set(None),
+                                    "‹ {tr.back_to_sites}"
+                                }
+                                strong { "{site.name}" }
+                                span { class: "muted", "{rows.iter().find(|r| r.id == site.site_id).map(|r| r.dives_label.clone()).unwrap_or_default()}" }
+                            }
+                            if site_dives.is_empty() {
+                                div { class: "muted map-site-empty", "{tr.no_dives_at_site}" }
+                            }
+                            for dive in site_dives.clone() {
+                                button {
+                                    key: "{dive.id}",
+                                    class: "map-site-row map-dive-row",
+                                    onclick: move |_| open_dive(Some(dive.id)),
+                                    span { class: "map-site-name", "{crate::format::dive_title(&dive, &log)}" }
+                                    span { class: "muted map-site-meta",
+                                        "{crate::format::dive_subtitle(&dive, &prefs)}"
                                     }
-                                    "{row.dives_label}"
+                                }
+                            }
+                        } else {
+                            if rows.is_empty() {
+                                div { class: "muted", "{tr.map_empty}" }
+                            }
+                            for row in rows {
+                                button {
+                                    key: "{row.id}",
+                                    class: if selected_site_id == Some(row.id) { "map-site-row selected" } else { "map-site-row" },
+                                    onclick: move |_| selected_site.set(Some(row.id)),
+                                    span { class: "map-site-name", "{row.name}" }
+                                    span { class: "muted map-site-meta",
+                                        if let Some(country) = row.country.clone() {
+                                            "{country} · "
+                                        }
+                                        "{row.dives_label}"
+                                    }
                                 }
                             }
                         }
@@ -366,13 +405,7 @@ pub fn MapDialog() -> Element {
                         sites: sites.clone(),
                         max_zoom: 12,
                         focus: focus,
-                        on_select: move |site: u32| {
-                            let dive_id = sites
-                                .iter()
-                                .find(|s| s.site_id == site)
-                                .and_then(|s| s.dive_id);
-                            open_dive(dive_id);
-                        },
+                        on_select: move |site: u32| selected_site.set(Some(site)),
                     }
                 }
                 div { class: "detail-actions",
@@ -461,6 +494,14 @@ if (!ready || !container) {
       { capture: true, passive: true },
     );
   }
+
+  // A map can be created while its pane is still hidden (the mobile
+  // list/detail switch does exactly that). Leaflet then measures a zero-size
+  // container and draws nothing until it is told the element was resized.
+  const resizeObserver = new ResizeObserver(() => map.invalidateSize());
+  resizeObserver.observe(container);
+  const onWindowResize = () => map.invalidateSize();
+  window.addEventListener("resize", onWindowResize);
 
   const satellite = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -551,6 +592,7 @@ if (!ready || !container) {
         "<strong>" + escapeHtml(site.name) + "</strong>" + country + dives,
       );
       marker.on("click", () => {
+        map.setView([site.lat, site.lon], Math.max(map.getZoom(), 13));
         dioxus.send(JSON.stringify({ type: "select", site: site.site_id }));
         if (payload.open_on_click) {
           dioxus.send(JSON.stringify({ type: "open" }));
@@ -581,6 +623,8 @@ if (!ready || !container) {
     else if (message.type === "focus") map.setView([message.lat, message.lon], message.zoom || 13);
     else if (message.type === "resize") map.invalidateSize();
   }
+  resizeObserver.disconnect();
+  window.removeEventListener("resize", onWindowResize);
   map.remove();
 }
 "##;

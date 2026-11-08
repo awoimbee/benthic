@@ -54,6 +54,11 @@
   <geo cat='1' origin='0' value='Mediterranean Sea'/>
   <geo cat='2' origin='0' value='France'/>
 </site>
+<site uuid='0000000b' name='Baie de Villefranche' gps='43.696000 7.317000' description='Deep bay east of Nice, 30 m'>
+  <notes>Steep wall dropping into blue water. A classic spot for line diving and training.</notes>
+  <geo cat='1' origin='0' value='Mediterranean Sea'/>
+  <geo cat='2' origin='0' value='France'/>
+</site>
 </divesites>
 <dives>
 <trip date='2024-05-12' time='08:30:00' location='Porquerolles'>
@@ -407,6 +412,58 @@ lot of groupers that clearly know divers mean no harm. Easy 18 m profile.</notes
   <sample time='40:00 min' depth='5.0 m' pressure0='95.0 bar' />
   <sample time='46:30 min' depth='0.0 m' pressure0='85.0 bar' />
   <event time='12:00 min' name='Marker' />
+  </divecomputer>
+</dive>
+<dive number='13' tags='freedive, training' divesiteid='0000000b' date='2025-07-12' time='09:00:00' duration='2:20 min' rating='4'>
+  <buddy>Camille</buddy>
+  <notes>Morning line session in Villefranche. Warm-up dives, then a clean constant-weight dive to 24 m along the line. Good visibility and no current.</notes>
+  <suit>3mm wetsuit</suit>
+  <divecomputer model='Freedive computer' diveid='0000000d' dctype='Freedive'>
+  <depth max='24.0 m' mean='12.0 m' />
+  <sample time='0:00 min' depth='0.0 m' temp='22.0 C' />
+  <sample time='0:30 min' depth='12.0 m' temp='20.0 C' />
+  <sample time='1:00 min' depth='24.0 m' temp='18.0 C' />
+  <sample time='1:40 min' depth='8.0 m' temp='20.0 C' />
+  <sample time='2:20 min' depth='0.0 m' temp='22.0 C' />
+  </divecomputer>
+</dive>
+<dive number='14' tags='freedive, training' divesiteid='0000000b' date='2025-07-12' time='11:00:00' duration='2:05 min' rating='4'>
+  <buddy>Camille</buddy>
+  <notes>Second session on the same line. Two hangs at 20 m and a relaxed surface interval. Practised equalisation on the way down.</notes>
+  <suit>3mm wetsuit</suit>
+  <divecomputer model='Freedive computer' diveid='0000000e' dctype='Freedive'>
+  <depth max='21.0 m' mean='11.0 m' />
+  <sample time='0:00 min' depth='0.0 m' temp='22.0 C' />
+  <sample time='0:25 min' depth='10.0 m' temp='20.0 C' />
+  <sample time='0:55 min' depth='21.0 m' temp='18.0 C' />
+  <sample time='1:30 min' depth='7.0 m' temp='20.0 C' />
+  <sample time='2:05 min' depth='0.0 m' temp='22.0 C' />
+  </divecomputer>
+</dive>
+<dive number='15' tags='freedive, line' divesiteid='0000000b' date='2025-07-13' time='10:00:00' duration='2:35 min' rating='5'>
+  <buddy>Camille</buddy>
+  <notes>Deeper line dive in flat conditions. Slow descent, relaxed turn at the plate and a controlled ascent. New personal best for the trip.</notes>
+  <suit>3mm wetsuit</suit>
+  <divecomputer model='Freedive computer' diveid='0000000f' dctype='Freedive'>
+  <depth max='28.0 m' mean='14.0 m' />
+  <sample time='0:00 min' depth='0.0 m' temp='23.0 C' />
+  <sample time='0:35 min' depth='14.0 m' temp='20.0 C' />
+  <sample time='1:10 min' depth='28.0 m' temp='17.0 C' />
+  <sample time='1:55 min' depth='9.0 m' temp='19.0 C' />
+  <sample time='2:35 min' depth='0.0 m' temp='23.0 C' />
+  </divecomputer>
+</dive>
+<dive number='16' tags='freedive, fun' divesiteid='0000000b' date='2025-07-13' time='14:00:00' duration='1:50 min' rating='4'>
+  <buddy>Camille</buddy>
+  <notes>Afternoon play dive on the shallow wall. No depth goal, just buoyancy and turns. Lots of small fish in the shallows.</notes>
+  <suit>3mm wetsuit</suit>
+  <divecomputer model='Freedive computer' diveid='00000010' dctype='Freedive'>
+  <depth max='16.0 m' mean='8.0 m' />
+  <sample time='0:00 min' depth='0.0 m' temp='23.0 C' />
+  <sample time='0:25 min' depth='8.0 m' temp='21.0 C' />
+  <sample time='0:50 min' depth='16.0 m' temp='19.0 C' />
+  <sample time='1:25 min' depth='6.0 m' temp='21.0 C' />
+  <sample time='1:50 min' depth='0.0 m' temp='23.0 C' />
   </divecomputer>
 </dive>
 </dives>

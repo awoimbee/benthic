@@ -9,9 +9,9 @@ const DEMO: &str = include_str!("../../../dives/demo.ssrf");
 #[test]
 fn parses_demo_ssrf() {
     let log = ssrf::parse_str(DEMO).expect("demo parses");
-    assert_eq!(log.dives.len(), 12);
+    assert_eq!(log.dives.len(), 16);
     assert_eq!(log.trips.len(), 4);
-    assert_eq!(log.sites.len(), 10);
+    assert_eq!(log.sites.len(), 11);
 
     let first = log.dives_sorted().first().copied().unwrap();
     assert_eq!(first.number, 1);
@@ -81,6 +81,9 @@ fn demo_covers_typical_dive_styles() {
         .filter(|e| e.is_gas_change())
         .count();
     assert_eq!(gas_switches, 8, "staged gas switches across the demo");
+
+    let freedives = log.dives.iter().filter(|d| d.is_freedive()).count();
+    assert_eq!(freedives, 4, "freedives with their own daily sessions");
 }
 
 /// The example logbook is a French wreck-diving showcase: every site is in
@@ -180,7 +183,7 @@ fn parse_auto_handles_both_formats() {
     let log = io::parse_auto(DEMO).unwrap();
     let as_json = json::to_string(&log).unwrap();
     let reparsed = io::parse_auto(&as_json).unwrap();
-    assert_eq!(reparsed.dives.len(), 12);
+    assert_eq!(reparsed.dives.len(), 16);
 }
 
 #[test]
@@ -519,5 +522,5 @@ fn dives_recent_first_orders_newest_first() {
     chronological.reverse();
 
     assert_eq!(recent, chronological);
-    assert_eq!(recent, (1..=12).rev().collect::<Vec<i32>>());
+    assert_eq!(recent, (1..=16).rev().collect::<Vec<i32>>());
 }

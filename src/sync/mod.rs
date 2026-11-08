@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 pub mod backend;
 
 mod gdrive;
+#[cfg(not(target_arch = "wasm32"))]
+mod git;
 mod github;
 mod http;
 
@@ -24,6 +26,9 @@ mod oauth_desktop;
 
 #[cfg(target_arch = "wasm32")]
 mod oauth_web;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod subsurface_cloud;
 
 #[cfg(test)]
 mod test_server;

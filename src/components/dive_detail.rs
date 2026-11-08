@@ -2,7 +2,9 @@ use dioxus::prelude::*;
 
 use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
 use benthic_core::units::{format_duration, Timestamp, Weight};
-use benthic_core::{Command, Cylinder, CylinderUse, Dive, DiveSite, Location, WeightSystem};
+use benthic_core::{
+    Command, Cylinder, CylinderUse, Dive, DiveSite, Divemode, Location, WeightSystem,
+};
 
 use crate::actions;
 use crate::components::{
@@ -43,6 +45,7 @@ struct DiveForm {
     rating: u8,
     tags: String,
     trip_id: Option<u32>,
+    divemode: Divemode,
     site_name: String,
     site_gps: String,
     cylinders: Vec<Cylinder>,
@@ -61,6 +64,10 @@ impl DiveForm {
             rating: dive.rating,
             tags: dive.tags.join(", "),
             trip_id: dive.trip_id,
+            divemode: dive
+                .primary_computer()
+                .map(|dc| dc.divemode)
+                .unwrap_or_default(),
             site_name: site.map(|s| s.name.clone()).unwrap_or_default(),
             site_gps: site
                 .and_then(|s| s.location)
@@ -115,6 +122,9 @@ fn DiveDetailInner(dive: Dive) -> Element {
             after.rating = f.rating;
             after.tags = parse_tags(&f.tags);
             after.trip_id = f.trip_id;
+            if let Some(computer) = after.computers.first_mut() {
+                computer.divemode = f.divemode;
+            }
             after.cylinders = f.cylinders;
             after.weights = f.weights;
 
@@ -249,6 +259,16 @@ fn DiveDetailInner(dive: Dive) -> Element {
         } else {
             model
         }
+    };
+    let dive_mode = match dive
+        .primary_computer()
+        .map(|computer| computer.divemode)
+        .unwrap_or_default()
+    {
+        Divemode::OpenCircuit => tr.oc_label,
+        Divemode::Ccr => tr.ccr_label,
+        Divemode::Pscr => tr.pscr_label,
+        Divemode::Freedive => tr.freedive_label,
     };
     let salinity = salinity_label(
         dive.salinity
@@ -507,6 +527,29 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             } else {
                                 span { class: "muted", "{tr.profile_from_computer}" }
                             }
+                        }
+                    }
+                    label { class: "field-label", "{tr.dive_mode}"
+                        select {
+                            class: "field",
+                            value: match f.divemode {
+                                Divemode::OpenCircuit => "oc",
+                                Divemode::Ccr => "ccr",
+                                Divemode::Pscr => "pscr",
+                                Divemode::Freedive => "freedive",
+                            },
+                            onchange: move |evt| {
+                                form.write().divemode = match evt.value().as_str() {
+                                    "ccr" => Divemode::Ccr,
+                                    "pscr" => Divemode::Pscr,
+                                    "freedive" => Divemode::Freedive,
+                                    _ => Divemode::OpenCircuit,
+                                };
+                            },
+                            option { value: "oc", "{tr.oc_label}" }
+                            option { value: "ccr", "{tr.ccr_label}" }
+                            option { value: "pscr", "{tr.pscr_label}" }
+                            option { value: "freedive", "{tr.freedive_label}" }
                         }
                     }
                     label { class: "field-label", "{tr.field_number}"
@@ -788,6 +831,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                     Fact { label: tr.fact_water_temp, value: water_temp }
                     Fact { label: tr.fact_air_temp, value: air_temp }
                     Fact { label: tr.fact_computer, value: computer }
+                    Fact { label: tr.dive_mode, value: dive_mode.to_string() }
                     Fact { label: tr.fact_buddy, value: dive.buddy.clone() }
                     Fact { label: tr.fact_dive_master, value: dive.diveguide.clone() }
                     Fact { label: tr.fact_suit, value: dive.suit.clone() }

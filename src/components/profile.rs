@@ -49,6 +49,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
     let mut drag = use_signal(|| None::<(f64, f64)>);
     let mut plot_width = use_signal(|| 0.0f64);
     let mut plot_left = use_signal(|| 0.0f64);
+    let mut touches = use_signal(Vec::<(i32, f64, f64)>::new);
+    let mut touch_gesture = use_signal(|| None::<TouchGesture>);
 
     let Some(active) = active_opt else {
         return rsx! { div { class: "profile empty-hint", "{tr.no_profile}" } };
@@ -367,23 +369,114 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                     // values stay readable.
                     onpointerdown: move |evt: PointerEvent| {
                         let width = (plot_width)();
-                        if width > 1.0 {
-                            let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
-                            hover.set(Some(fraction));
-                            drag.set(Some((fraction, fraction)));
+                        if width <= 1.0 {
+                            return;
                         }
+                        if evt.pointer_type() == "touch" {
+                            let x = evt.element_coordinates().x;
+                            let y = evt.element_coordinates().y;
+                            let id = evt.pointer_id();
+                            let mut points = touches.write();
+                            points.retain(|(existing, _, _)| *existing != id);
+                            points.push((id, x, y));
+                            let points = points.clone();
+                            let zoom_value = (zoom)().max(1.0);
+                            let half = 0.5 / zoom_value;
+                            let center = (pan)().clamp(half, 1.0 - half);
+                            touch_gesture.set(match points.as_slice() {
+                                [(_, x, _)] => Some(TouchGesture::Pan {
+                                    start_center: center,
+                                    start_x: *x,
+                                }),
+                                [(_, x1, y1), (_, x2, y2), ..] => {
+                                    let mid = ((x1 + x2) / 2.0 / width).clamp(0.0, 1.0);
+                                    let anchor = win_start + mid * win_span;
+                                    Some(TouchGesture::Pinch {
+                                        start_zoom: zoom_value,
+                                        start_center: center,
+                                        anchor,
+                                        start_distance: distance(*x1, *y1, *x2, *y2).max(1.0),
+                                    })
+                                }
+                                _ => None,
+                            });
+                            return;
+                        }
+                        let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
+                        hover.set(Some(fraction));
+                        drag.set(Some((fraction, fraction)));
                     },
                     onpointermove: move |evt: PointerEvent| {
                         let width = (plot_width)();
-                        if width > 1.0 {
-                            let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
-                            hover.set(Some(fraction));
-                            if let Some((start, _)) = (drag)() {
-                                drag.set(Some((start, fraction)));
+                        if width <= 1.0 {
+                            return;
+                        }
+                        if evt.pointer_type() == "touch" {
+                            let id = evt.pointer_id();
+                            let x = evt.element_coordinates().x;
+                            let y = evt.element_coordinates().y;
+                            {
+                                let mut points = touches.write();
+                                if let Some(point) = points.iter_mut().find(|(existing, _, _)| *existing == id) {
+                                    point.1 = x;
+                                    point.2 = y;
+                                }
                             }
+                            match (touch_gesture)() {
+                                Some(TouchGesture::Pan { start_center, start_x }) => {
+                                    let zoom_value = (zoom)().max(1.0);
+                                    let half = 0.5 / zoom_value;
+                                    let moved = -(x - start_x) / width / zoom_value;
+                                    pan.set((start_center + moved).clamp(half, 1.0 - half));
+                                }
+                                Some(TouchGesture::Pinch {
+                                    start_zoom,
+                                    start_center,
+                                    anchor,
+                                    start_distance,
+                                }) => {
+                                    let points = (touches)();
+                                    if points.len() >= 2 {
+                                        let distance = distance(
+                                            points[0].1,
+                                            points[0].2,
+                                            points[1].1,
+                                            points[1].2,
+                                        )
+                                        .max(1.0);
+                                        let next_zoom =
+                                            (start_zoom * distance / start_distance).clamp(1.0, MAX_ZOOM);
+                                        let half = 0.5 / next_zoom;
+                                        let center = anchor
+                                            + (start_center - anchor) * (start_zoom / next_zoom);
+                                        zoom.set(next_zoom);
+                                        pan.set(center.clamp(half, 1.0 - half));
+                                    }
+                                }
+                                None => {}
+                            }
+                            return;
+                        }
+                        let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
+                        hover.set(Some(fraction));
+                        if let Some((start, _)) = (drag)() {
+                            drag.set(Some((start, fraction)));
                         }
                     },
-                    onpointerup: move |_evt: PointerEvent| {
+                    onpointerup: move |evt: PointerEvent| {
+                        if evt.pointer_type() == "touch" {
+                            finish_touch(
+                                evt.pointer_id(),
+                                touches,
+                                touch_gesture,
+                                plot_width,
+                                zoom,
+                                pan,
+                                win_start,
+                                win_span,
+                            );
+                            return;
+                        }
                         if let Some((a, b)) = (drag)() {
                             drag.set(None);
                             let (lo, hi) = (a.min(b), a.max(b));
@@ -398,9 +491,48 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                             }
                         }
                     },
-                    onpointercancel: move |_| {
+                    onpointercancel: move |evt: PointerEvent| {
+                        if evt.pointer_type() == "touch" {
+                            finish_touch(
+                                evt.pointer_id(),
+                                touches,
+                                touch_gesture,
+                                plot_width,
+                                zoom,
+                                pan,
+                                win_start,
+                                win_span,
+                            );
+                            return;
+                        }
                         drag.set(None);
                         hover.set(None);
+                    },
+                    // A mouse wheel zooms around the pointer. Touch gestures
+                    // are handled above because a wheel event is not emitted
+                    // for finger drags or pinches.
+                    onwheel: move |evt: WheelEvent| {
+                        let width = (plot_width)();
+                        if width <= 1.0 {
+                            return;
+                        }
+                        let delta = evt.delta().strip_units().y;
+                        if delta == 0.0 {
+                            return;
+                        }
+                        let factor = (-delta / 500.0).exp();
+                        let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
+                        let current_zoom = (zoom)().max(1.0);
+                        let half = 0.5 / current_zoom;
+                        let center = (pan)().clamp(half, 1.0 - half);
+                        let anchor = win_start + fraction * win_span;
+                        let next_zoom = (current_zoom * factor).clamp(1.0, MAX_ZOOM);
+                        let next_half = 0.5 / next_zoom;
+                        let next_center =
+                            anchor + (center - anchor) * (current_zoom / next_zoom);
+                        zoom.set(next_zoom);
+                        pan.set(next_center.clamp(next_half, 1.0 - next_half));
+                        evt.prevent_default();
                     },
                     // Keep the readout pinned where the pointer left; the
                     // scrubber (or a new hover) moves it.
@@ -728,6 +860,65 @@ fn scaled_series(
 /// A drag narrower than this fraction of the plot is treated as a click, not a
 /// zoom selection.
 const MIN_SELECTION: f64 = 0.02;
+
+#[derive(Clone, Copy)]
+enum TouchGesture {
+    Pan {
+        start_center: f64,
+        start_x: f64,
+    },
+    Pinch {
+        start_zoom: f64,
+        start_center: f64,
+        anchor: f64,
+        start_distance: f64,
+    },
+}
+
+fn distance(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt()
+}
+
+/// Remove a lifted touch and restart a one-finger pan or pinch if fingers
+/// remain. This keeps gestures continuous when a second finger joins or
+/// leaves mid-gesture.
+#[allow(clippy::too_many_arguments)]
+fn finish_touch(
+    id: i32,
+    mut touches: Signal<Vec<(i32, f64, f64)>>,
+    mut touch_gesture: Signal<Option<TouchGesture>>,
+    plot_width: Signal<f64>,
+    zoom: Signal<f64>,
+    pan: Signal<f64>,
+    win_start: f64,
+    win_span: f64,
+) {
+    let points = {
+        let mut points = touches.write();
+        points.retain(|(existing, _, _)| *existing != id);
+        points.clone()
+    };
+    let width = (plot_width)();
+    let zoom_value = (zoom)().max(1.0);
+    let half = 0.5 / zoom_value;
+    let center = (pan)().clamp(half, 1.0 - half);
+    touch_gesture.set(match points.as_slice() {
+        [] => None,
+        [(_, x, _)] => Some(TouchGesture::Pan {
+            start_center: center,
+            start_x: *x,
+        }),
+        [(_, x1, y1), (_, x2, y2), ..] => {
+            let mid = ((x1 + x2) / 2.0 / width.max(1.0)).clamp(0.0, 1.0);
+            Some(TouchGesture::Pinch {
+                start_zoom: zoom_value,
+                start_center: center,
+                anchor: win_start + mid * win_span,
+                start_distance: distance(*x1, *y1, *x2, *y2).max(1.0),
+            })
+        }
+    });
+}
 /// The largest zoom a drag selection may request.
 const MAX_ZOOM: f64 = 100.0;
 

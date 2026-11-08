@@ -13,6 +13,7 @@ mod divecomputer_web;
 mod format;
 mod i18n;
 mod platform;
+mod routing;
 mod state;
 mod storage;
 mod sync;

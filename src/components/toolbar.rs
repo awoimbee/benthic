@@ -131,7 +131,16 @@ pub fn Toolbar() -> Element {
             // Menu bar: one dropdown per category on wide screens.
             div { class: "toolbar-menus",
                 for section in MenuSection::ALL {
-                    div { class: if section.align_end() { "menu align-end" } else { "menu" },
+                    div {
+                        class: if section.align_end() { "menu align-end" } else { "menu" },
+                        // Once a menu is open, hovering another top-level item
+                        // switches to it immediately, like a desktop menu bar.
+                        onpointerenter: move |_| {
+                            let mut open_menu = open_menu;
+                            if open_menu().is_some_and(|current| current != section) {
+                                open_menu.set(Some(section));
+                            }
+                        },
                         button {
                             class: if open == Some(section) { "menu-trigger open" } else { "menu-trigger" },
                             aria_expanded: if open == Some(section) { "true" } else { "false" },

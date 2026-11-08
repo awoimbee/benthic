@@ -5,6 +5,7 @@ use dioxus::prelude::*;
 use benthic_core::{Command, DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::i18n::{self, Strings};
+use crate::routing::Route;
 
 /// Signals shared across the app. `Signal` is `Copy`, so this whole struct is
 /// cheap to pass around and to provide as context.
@@ -57,6 +58,8 @@ pub struct AppState {
     /// Narrow screens only: whether the detail screen is showing rather than
     /// the dive list. Ignored on wide screens, where both panes are visible.
     pub mobile_detail: Signal<bool>,
+    /// The current URL-backed section.
+    pub route: Signal<Route>,
 }
 
 impl AppState {
