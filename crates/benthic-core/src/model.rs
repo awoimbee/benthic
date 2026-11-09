@@ -274,6 +274,7 @@ impl WeightSystem {
 /// A photo or video associated with a dive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Picture {
+    /// Local filename or a public photo/album URL.
     pub filename: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<Duration>,

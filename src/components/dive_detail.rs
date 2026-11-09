@@ -3,12 +3,13 @@ use dioxus::prelude::*;
 use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
 use benthic_core::units::{format_duration, Timestamp, Weight};
 use benthic_core::{
-    Command, Cylinder, CylinderUse, Dive, DiveSite, Divemode, Location, WeightSystem,
+    Command, Cylinder, CylinderUse, Dive, DiveSite, Divemode, Location, Picture, WeightSystem,
 };
 
 use crate::actions;
 use crate::components::{
-    profile_bounds, DiveProfile, LocationPickerDialog, MapSite, MapView, ProfileEditorDialog,
+    normalize_media_url, profile_bounds, DiveProfile, LocationPickerDialog, MapSite, MapView,
+    MediaGallery, ProfileEditorDialog,
 };
 use crate::i18n;
 use crate::state::AppState;
@@ -50,6 +51,7 @@ struct DiveForm {
     site_gps: String,
     cylinders: Vec<Cylinder>,
     weights: Vec<WeightSystem>,
+    pictures: Vec<Picture>,
 }
 
 impl DiveForm {
@@ -75,6 +77,7 @@ impl DiveForm {
                 .unwrap_or_default(),
             cylinders: dive.cylinders.clone(),
             weights: dive.weights.clone(),
+            pictures: dive.pictures.clone(),
         }
     }
 }
@@ -127,6 +130,16 @@ fn DiveDetailInner(dive: Dive) -> Element {
             }
             after.cylinders = f.cylinders;
             after.weights = f.weights;
+            after.pictures = f
+                .pictures
+                .into_iter()
+                .filter_map(|mut picture| {
+                    if let Some(url) = normalize_media_url(&picture.filename) {
+                        picture.filename = url;
+                    }
+                    (!picture.filename.trim().is_empty()).then_some(picture)
+                })
+                .collect();
 
             // A profile edited in the profile editor replaces the samples;
             // max depth and bottom time are derived from it.
@@ -682,6 +695,36 @@ fn DiveDetailInner(dive: Dive) -> Element {
                         }
                     }
 
+                    div { class: "field-label full", "{tr.section_media}"
+                        div { class: "media-edit-list",
+                            for (i, picture) in f.pictures.iter().enumerate() {
+                                div { key: "{i}", class: "media-edit-row",
+                                    input {
+                                        class: "field",
+                                        r#type: "url",
+                                        inputmode: "url",
+                                        placeholder: "{tr.media_url_placeholder}",
+                                        value: "{picture.filename}",
+                                        oninput: move |evt| form.write().pictures[i].filename = evt.value(),
+                                    }
+                                    button {
+                                        class: "icon-btn",
+                                        r#type: "button",
+                                        title: "{tr.remove}",
+                                        onclick: move |_| { form.write().pictures.remove(i); },
+                                        "✕"
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            class: "btn",
+                            r#type: "button",
+                            onclick: move |_| form.write().pictures.push(Picture::default()),
+                            "{tr.add_media_link}"
+                        }
+                    }
+
                     div { class: "field-label full", "{tr.cyl_cylinder}"
                         div { class: "equip-list",
                             for (i, cyl) in f.cylinders.iter().enumerate() {
@@ -880,6 +923,8 @@ fn DiveDetailInner(dive: Dive) -> Element {
                         }
                     }
                 }
+
+                MediaGallery { pictures: dive.pictures.clone() }
 
                 if !cylinders.is_empty() {
                     div { class: "section-title", "{tr.section_gas}" }

@@ -240,16 +240,25 @@ fn write_one_dive(files: &mut Files, parent: &str, dive: &Dive) {
             write_divecomputer(dc, dive).into_bytes(),
         );
     }
+    let mut used_picture_names = std::collections::BTreeSet::new();
     for picture in &dive.pictures {
         let offset = picture.offset.unwrap_or_default().seconds;
         let sign = if offset < 0 { '-' } else { '+' };
         let offset = offset.unsigned_abs();
-        let name = format!(
+        let base = format!(
             "{sign}{:02}={:02}={:02}",
             offset / 3600,
             (offset % 3600) / 60,
             offset % 60
         );
+        // Pictures without an offset all map to +00=00=00. Links commonly
+        // have no offset, so keep a unique suffix rather than overwriting.
+        let mut name = base.clone();
+        let mut suffix = 1;
+        while !used_picture_names.insert(name.clone()) {
+            name = format!("{base}~{suffix}");
+            suffix += 1;
+        }
         files.insert(
             format!("{dir}/Pictures/{name}"),
             write_picture(picture).into_bytes(),
@@ -1432,6 +1441,16 @@ mod tests {
         dive.site_id = Some(0xabc);
         dive.duration = Some(Duration::new(1800));
         dive.max_depth = Some(Depth::from_meters(30.0));
+        dive.pictures = vec![
+            Picture {
+                filename: "https://photos.app.goo.gl/abc123".into(),
+                ..Default::default()
+            },
+            Picture {
+                filename: "https://www.icloud.com/sharedalbum/#B0abc".into(),
+                ..Default::default()
+            },
+        ];
         dive.computers[0] = DiveComputer {
             model: "Test".into(),
             divemode: Divemode::Freedive,
@@ -1455,5 +1474,13 @@ mod tests {
         assert_eq!(back.dives[0].when, 1_700_000_000);
         assert_eq!(back.dives[0].site_id, Some(0xabc));
         assert_eq!(back.dives[0].computers[0].divemode, Divemode::Freedive);
+        assert_eq!(back.dives[0].pictures.len(), 2);
+        let pictures: std::collections::BTreeSet<_> = back.dives[0]
+            .pictures
+            .iter()
+            .map(|picture| picture.filename.as_str())
+            .collect();
+        assert!(pictures.contains("https://photos.app.goo.gl/abc123"));
+        assert!(pictures.contains("https://www.icloud.com/sharedalbum/#B0abc"));
     }
 }

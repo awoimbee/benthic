@@ -18,7 +18,7 @@ the model easy to serialize, diff and (eventually) apply commands to.
 | `DiveSite` | `struct dive_site` | Named location with optional GPS |
 | `DiveTrip` | `struct dive_trip` | Group of dives |
 | `Device` | `struct device` | Known dive computer (nickname/serial) |
-| `Picture` | `struct picture` | Photo/video + time offset |
+| `Picture` | `struct picture` | Photo/video (local file or public URL) + time offset |
 | `GasMix` | `struct gasmix` | O2/He in permille |
 | `SensorPressure` | `sample.pressure[]` + `sample.sensor[]` | Per-sensor tank pressure |
 

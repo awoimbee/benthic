@@ -12,6 +12,18 @@ use crate::i18n;
 use crate::routing::{self, Route};
 use crate::state::AppState;
 
+const GAS_COLORS: [&str; 8] = [
+    "#4cc9f0", "#7ee787", "#f5a623", "#f28fad", "#c792ea", "#ffd166", "#a8dadc", "#d0ffb7",
+];
+
+fn gas_color(gases: &[GasForm], gas: GasMix) -> &'static str {
+    let index = gases
+        .iter()
+        .position(|candidate| candidate.gas() == gas)
+        .unwrap_or(0);
+    GAS_COLORS[index % GAS_COLORS.len()]
+}
+
 /// One editable cylinder.
 #[derive(Clone, PartialEq)]
 struct GasForm {
@@ -19,6 +31,7 @@ struct GasForm {
     pressure: f64,
     o2: f64,
     he: f64,
+    enabled: bool,
 }
 
 impl Default for GasForm {
@@ -28,6 +41,7 @@ impl Default for GasForm {
             pressure: 200.0,
             o2: 21.0,
             he: 0.0,
+            enabled: true,
         }
     }
 }
@@ -172,9 +186,17 @@ impl PlannerParams {
                     he: number(&format!("gas{index}he"))
                         .unwrap_or(default.he)
                         .clamp(0.0, 100.0 - o2),
+                    enabled: value(&format!("gas{index}on"))
+                        .map(|v| v != "0" && v != "false")
+                        .unwrap_or(true),
                 }
             })
             .collect();
+        if params.gases.iter().all(|gas| !gas.enabled) {
+            if let Some(gas) = params.gases.first_mut() {
+                gas.enabled = true;
+            }
+        }
 
         if params.custom {
             let waypoint_count = value("waypoints")
@@ -301,6 +323,7 @@ fn share_query(
         parts.push(format!("gas{index}bar={}", number(gas.pressure)));
         parts.push(format!("gas{index}o2={}", number(gas.o2)));
         parts.push(format!("gas{index}he={}", number(gas.he)));
+        parts.push(format!("gas{index}on={}", if gas.enabled { 1 } else { 0 }));
     }
     parts.push(format!(
         "depth={}",
@@ -389,17 +412,15 @@ fn Gauge(
     #[props(default)] disabled: bool,
 ) -> Element {
     let mut editing = use_signal(|| false);
-    let mut edit_text = use_signal(String::new);
     let mut drag = use_signal(|| None::<(f64, f64, bool)>);
+    let mut anchor = use_signal(|| (0.0f64, 0.0f64));
+    let mut gauge_rect = use_signal(|| None::<(f64, f64, f64, f64)>);
     let fraction = if max > min {
         ((value - min) / (max - min)).clamp(0.0, 1.0)
     } else {
         0.0
     };
     let shown = format!("{:.*}", decimals, value);
-    let shown_for_key = shown.clone();
-    let shown_for_pointer = shown.clone();
-    let shown_for_overlay = shown.clone();
     let progress = fraction * 100.0;
     let quantize = move |next: f64| {
         let step = step.max(0.001);
@@ -413,6 +434,22 @@ fn Gauge(
     if disabled {
         class.push_str(" disabled");
     }
+    let step_size = step.max(0.001);
+    let option_count = (((max - min) / step_size).round() as usize).min(5000);
+    let options: Vec<(f64, String)> = (0..=option_count)
+        .map(|index| {
+            let option = min + index as f64 * step_size;
+            (option, format!("{:.*}", decimals, option))
+        })
+        .collect();
+    let selected_index = options
+        .iter()
+        .position(|(option, _)| (option - value).abs() <= step_size / 2.0)
+        .unwrap_or(0);
+    let (anchor_x, anchor_y) = (anchor)();
+    let picker_style = format!(
+        "left: clamp(0.5rem, calc({anchor_x}px - 9.5rem), calc(100vw - 19.5rem)); top: clamp(0.5rem, calc({anchor_y}px + 0.5rem), calc(100dvh - 29rem));"
+    );
 
     rsx! {
         div {
@@ -425,6 +462,17 @@ fn Gauge(
             aria_valuemax: "{max}",
             aria_valuenow: "{value}",
             aria_disabled: if disabled { "true" } else { "false" },
+            aria_haspopup: "dialog",
+            onmounted: move |evt: MountedEvent| async move {
+                if let Ok(rect) = evt.get_client_rect().await {
+                    gauge_rect.set(Some((
+                        rect.origin.x,
+                        rect.origin.y,
+                        rect.size.width,
+                        rect.size.height,
+                    )));
+                }
+            },
             onkeydown: move |evt: KeyboardEvent| {
                 if disabled {
                     return;
@@ -439,7 +487,9 @@ fn Gauge(
                     evt.prevent_default();
                 }
                 Key::Enter => {
-                    edit_text.set(shown_for_key.clone());
+                    if let Some((x, y, width, height)) = (gauge_rect)() {
+                        anchor.set((x + width / 2.0, y + height));
+                    }
                     editing.set(true);
                     evt.prevent_default();
                 }
@@ -469,7 +519,7 @@ fn Gauge(
                 onchange.call(quantize(start_value + delta / 140.0 * (max - min)));
                 drag.set(Some((start_y, start_value, true)));
             },
-            onpointerup: move |_| {
+            onpointerup: move |evt: PointerEvent| {
                 if disabled {
                     return;
                 }
@@ -478,7 +528,8 @@ fn Gauge(
                 };
                 drag.set(None);
                 if !moved {
-                    edit_text.set(shown_for_pointer.clone());
+                    let coords = evt.client_coordinates();
+                    anchor.set((coords.x, coords.y));
                     editing.set(true);
                 }
             },
@@ -499,44 +550,7 @@ fn Gauge(
                 }
             }
             div { class: "planner-gauge-content",
-                if (editing)() {
-                    input {
-                        class: "planner-gauge-input",
-                        r#type: "number",
-                        inputmode: "decimal",
-                        step: "{step}",
-                        value: "{edit_text}",
-                        autofocus: true,
-                        onmounted: move |evt: MountedEvent| async move {
-                            let _ = evt.set_focus(true).await;
-                            // Select the current value so typing replaces it.
-                            let _ = document::eval(
-                                "document.activeElement && document.activeElement.select && document.activeElement.select();",
-                            );
-                        },
-                        oninput: move |evt| edit_text.set(evt.value()),
-                        onkeydown: move |evt: KeyboardEvent| {
-                            evt.stop_propagation();
-                            if evt.key() == Key::Enter {
-                                if let Ok(value) = edit_text().trim().parse::<f64>() {
-                                    onchange.call(quantize(value));
-                                }
-                                editing.set(false);
-                                evt.prevent_default();
-                            } else if evt.key() == Key::Escape {
-                                editing.set(false);
-                            }
-                        },
-                        onblur: move |_| {
-                            if let Ok(value) = edit_text().trim().parse::<f64>() {
-                                onchange.call(quantize(value));
-                            }
-                            editing.set(false);
-                        },
-                    }
-                } else {
-                    span { class: "planner-gauge-value", "{shown}" }
-                }
+                span { class: "planner-gauge-value", "{shown}" }
                 span { class: "planner-gauge-unit", "{unit}" }
                 span { class: "planner-gauge-label", "{label}" }
             }
@@ -558,17 +572,69 @@ fn Gauge(
                         onchange.call(quantize(start_value + delta / 140.0 * (max - min)));
                         drag.set(Some((start_y, start_value, true)));
                     },
-                    onpointerup: move |_| {
+                    onpointerup: move |evt: PointerEvent| {
                         let Some((_, _, moved)) = (drag)() else {
                             return;
                         };
                         drag.set(None);
                         if !moved {
-                            edit_text.set(shown_for_overlay.clone());
+                            let coords = evt.client_coordinates();
+                            anchor.set((coords.x, coords.y));
                             editing.set(true);
                         }
                     },
                     onpointercancel: move |_| drag.set(None),
+                }
+            }
+        }
+        if (editing)() {
+            div {
+                class: "planner-gauge-picker-backdrop",
+                onclick: move |_| editing.set(false),
+                div {
+                    class: "planner-gauge-picker",
+                    style: "{picker_style}",
+                    role: "dialog",
+                    aria_label: "{label}",
+                    onclick: move |evt| evt.stop_propagation(),
+                    div { class: "planner-gauge-picker-head",
+                        div {
+                            div { class: "planner-gauge-picker-title", "{label}" }
+                            div { class: "planner-gauge-picker-unit", "{unit}" }
+                        }
+                        button {
+                            class: "icon-btn",
+                            r#type: "button",
+                            aria_label: "Close",
+                            onclick: move |_| editing.set(false),
+                            "\u{00d7}"
+                        }
+                    }
+                    div { class: "planner-gauge-picker-list",
+                        for (index, (option, option_label)) in options.into_iter().enumerate() {
+                            button {
+                                key: "{option}",
+                                r#type: "button",
+                                class: if index == selected_index { "planner-gauge-picker-item selected" } else { "planner-gauge-picker-item" },
+                                onclick: move |_| {
+                                    onchange.call(option);
+                                    editing.set(false);
+                                },
+                                onmounted: move |evt: MountedEvent| async move {
+                                    if index == selected_index {
+                                        let _ = evt
+                                            .scroll_to_with_options(dioxus::events::ScrollToOptions {
+                                                behavior: dioxus::events::ScrollBehavior::Instant,
+                                                vertical: dioxus::events::ScrollLogicalPosition::Center,
+                                                horizontal: dioxus::events::ScrollLogicalPosition::Center,
+                                            })
+                                            .await;
+                                    }
+                                },
+                                "{option_label}"
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -655,12 +721,17 @@ pub fn PlannerDialog() -> Element {
     });
 
     let gas_forms = (gases)();
-    let switch_locked = gas_forms
+    let active_gases: Vec<GasForm> = gas_forms
+        .iter()
+        .filter(|gas| gas.enabled)
+        .cloned()
+        .collect();
+    let switch_locked = active_gases
         .iter()
         .filter(|gas| gas.size > 0.0 && gas.pressure > 0.0)
         .count()
         <= 1;
-    let gas_supplies: Vec<GasSupply> = gas_forms.iter().map(GasForm::supply).collect();
+    let gas_supplies: Vec<GasSupply> = active_gases.iter().map(GasForm::supply).collect();
     let max_ppo2_value = (max_ppo2)();
     let safety_m = prefs.depth_from_value((switch_safety)()).meters().max(0.0);
     let reserve_value = Pressure::from_bar((reserve)());
@@ -686,7 +757,7 @@ pub fn PlannerDialog() -> Element {
     // For open circuit, the deepest-capable gas is the bottom gas and the
     // richer gases become automatic ascent switches. For a rebreather, the
     // first gas is the diluent and the mode applies to the whole dive.
-    let bottom_gas = gas_forms
+    let bottom_gas = active_gases
         .iter()
         .filter(|gas| gas.size > 0.0 && gas.pressure > 0.0)
         .max_by_key(|gas| gas.switch_depth(max_ppo2_value, safety_m, salinity).mm)
@@ -827,7 +898,7 @@ pub fn PlannerDialog() -> Element {
         false,
     );
     let over_mod = mode_value == 0
-        && gas_forms.iter().any(|gas| {
+        && active_gases.iter().any(|gas| {
             // A gas is used on the bottom only if it is the deepest-capable
             // one; otherwise exceeding its switch depth is fine until the
             // ascent reaches that switch.
@@ -859,10 +930,19 @@ pub fn PlannerDialog() -> Element {
             }
         }
     }
-    let gas_low = plan
-        .gas_uses
-        .iter()
-        .any(|gas| gas.end_pressure.mbar < reserve_value.mbar);
+    // A partly used first bottle may be empty by design when a second bottle
+    // of the same gas takes over. Only the last bottle of each gas mix has to
+    // retain the reserve.
+    let mut last_for_gas = std::collections::HashMap::new();
+    for (index, gas) in plan.gas_uses.iter().enumerate() {
+        last_for_gas.insert((gas.gas.o2_permille, gas.gas.he_permille), index);
+    }
+    let gas_low = plan.gas_uses.iter().enumerate().any(|(index, gas)| {
+        last_for_gas
+            .get(&(gas.gas.o2_permille, gas.gas.he_permille))
+            .is_some_and(|last| *last == index)
+            && gas.end_pressure.mbar < reserve_value.mbar
+    });
 
     let ndl_text = ndl()
         .map(|d| {
@@ -879,7 +959,7 @@ pub fn PlannerDialog() -> Element {
         .iter()
         .map(|stop| (prefs.depth(stop.depth), format_duration(stop.duration)))
         .collect();
-    let switches: Vec<(String, String, String)> = plan
+    let switches: Vec<(String, String, String, String)> = plan
         .gas_switches
         .iter()
         .map(|switch| {
@@ -887,31 +967,46 @@ pub fn PlannerDialog() -> Element {
                 format_duration(switch.time),
                 prefs.depth(switch.depth),
                 switch.gas.name(),
+                gas_color(&gas_forms, switch.gas).to_string(),
             )
         })
         .collect();
-    let gas_usage: Vec<(String, f64, f64, f64, f64)> = plan
+    let gas_usage: Vec<(String, f64, f64, f64, f64, bool, String)> = plan
         .gas_uses
         .iter()
-        .map(|gas| {
+        .enumerate()
+        .map(|(index, gas)| {
+            let low = last_for_gas
+                .get(&(gas.gas.o2_permille, gas.gas.he_permille))
+                .is_some_and(|last| *last == index)
+                && gas.end_pressure.mbar < reserve_value.mbar;
             (
                 gas.gas.name(),
                 gas.size.liters(),
                 gas.start_pressure.bar(),
                 gas.used_liters,
                 gas.end_pressure.bar(),
+                low,
+                gas_color(&gas_forms, gas.gas).to_string(),
             )
         })
         .collect();
     let has_stops = !stops.is_empty();
     let gas_needed: f64 = plan.gas_uses.iter().map(|gas| gas.used_liters).sum();
 
+    let graph_samples = plan.graph_samples(SURFACE_PRESSURE_MBAR / 1000.0, salinity, rmv_value);
+    let pressure_colors: Vec<String> = plan
+        .gas_uses
+        .iter()
+        .map(|gas| gas_color(&gas_forms, gas.gas).to_string())
+        .collect();
+
     let graph_dive = Dive {
         max_depth: Some(max_depth),
         duration: Some(plan.total_time()),
         computers: vec![DiveComputer {
             model: "Planner".to_string(),
-            samples: plan.samples(),
+            samples: graph_samples,
             ..Default::default()
         }],
         ..Default::default()
@@ -936,7 +1031,11 @@ pub fn PlannerDialog() -> Element {
     };
 
     let optimize = move |_| {
-        let supplies: Vec<GasSupply> = (gases)().iter().map(GasForm::supply).collect();
+        let supplies: Vec<GasSupply> = (gases)()
+            .iter()
+            .filter(|gas| gas.enabled)
+            .map(GasForm::supply)
+            .collect();
         let time = DivePlan::max_bottom_time_for_reserve(
             prefs.depth_from_value((bottom_depth)()),
             &supplies,
@@ -1113,11 +1212,28 @@ pub fn PlannerDialog() -> Element {
                 div { class: "section-title", "{tr.gas_cylinders}" }
                 div { class: "planner-gases",
                     for (index, gas) in gas_forms.iter().enumerate() {
-                        div { key: "gas-{index}", class: "gas-card",
+                        div {
+                            key: "gas-{index}",
+                            class: if gas.enabled { "gas-card" } else { "gas-card hidden-gas" },
                             div { class: "gas-card-head",
+                                span {
+                                    class: "gas-color-dot",
+                                    style: "background: {gas_color(&gas_forms, gas.gas())};",
+                                }
                                 strong { "{gas.gas().name()}" }
                                 span { class: "muted",
                                     "{tr.switch_depth} {prefs.depth(gas.switch_depth(max_ppo2_value, safety_m, salinity))}"
+                                }
+                                button {
+                                    class: "btn gas-toggle",
+                                    r#type: "button",
+                                    title: if gas.enabled { tr.hide_gas } else { tr.show_gas },
+                                    disabled: gas.enabled && switch_locked,
+                                    onclick: move |_| {
+                                        let mut list = gases.write();
+                                        list[index].enabled = !list[index].enabled;
+                                    },
+                                    if gas.enabled { "{tr.hide_gas}" } else { "{tr.show_gas}" }
                                 }
                                 button {
                                     class: "icon-btn",
@@ -1365,7 +1481,7 @@ pub fn PlannerDialog() -> Element {
 
 
                 div { class: "section-title", "{tr.profile}" }
-                DiveProfile { dive: graph_dive, dc_index: 0 }
+                DiveProfile { dive: graph_dive, dc_index: 0, show_all: true, pressure_colors }
 
                 if over_mod {
                     p { class: "warn", "{tr.warn_over_mod}" }
@@ -1420,13 +1536,19 @@ pub fn PlannerDialog() -> Element {
                         table { class: "data-table",
                             thead { tr { th { "{tr.gas_gas}" } th { "{tr.tank_size}" } th { "{tr.start_pressure}" } th { "{tr.used_gas}" } th { "{tr.gas_left}" } } }
                             tbody {
-                                for (name, size, start, used, left) in gas_usage.iter() {
+                                for (name, size, start, used, left, low, color) in gas_usage.iter() {
                                     tr {
-                                        td { "{name}" }
+                                        td {
+                                            span {
+                                                class: "gas-color-dot",
+                                                style: "background: {color};",
+                                            }
+                                            "{name}"
+                                        }
                                         td { "{size:.1} L" }
                                         td { "{start:.0} bar" }
                                         td { "{used:.0} L" }
-                                        td { class: if *left < reserve_value.bar() { "warn" } else { "" }, "{left:.0} bar" }
+                                        td { class: if *low { "warn" } else { "" }, "{left:.0} bar" }
                                     }
                                 }
                             }
@@ -1439,8 +1561,18 @@ pub fn PlannerDialog() -> Element {
                     table { class: "data-table",
                         thead { tr { th { "{tr.time}" } th { "{tr.stop}" } th { "{tr.gas_gas}" } } }
                         tbody {
-                            for (time, depth, gas) in switches.iter() {
-                                tr { td { "{time}" } td { "{depth}" } td { "{gas}" } }
+                            for (time, depth, gas, color) in switches.iter() {
+                                tr {
+                                    td { "{time}" }
+                                    td { "{depth}" }
+                                    td {
+                                        span {
+                                            class: "gas-color-dot",
+                                            style: "background: {color};",
+                                        }
+                                        "{gas}"
+                                    }
+                                }
                             }
                         }
                     }

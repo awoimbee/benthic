@@ -22,7 +22,12 @@ const COLOR_CEILING: &str = "var(--trace-ceiling)";
 /// The plot keeps a vertical scale for every displayed metric: depth on the
 /// left and one colour-coded scale per overlay on the right.
 #[component]
-pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
+pub fn DiveProfile(
+    dive: Dive,
+    dc_index: usize,
+    #[props(default)] show_all: bool,
+    #[props(default)] pressure_colors: Vec<String>,
+) -> Element {
     let state = use_context::<AppState>();
     let prefs = (state.prefs)();
     let tr = i18n::strings(prefs.language);
@@ -37,8 +42,8 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
 
     let mut show_pressure = use_signal(|| has_pressure);
     let mut show_temp = use_signal(|| false);
-    let mut show_ndl = use_signal(|| false);
-    let mut show_tts = use_signal(|| false);
+    let mut show_ndl = use_signal(|| show_all && available.ndl);
+    let mut show_tts = use_signal(|| show_all && available.tts);
     let mut show_heart = use_signal(|| false);
     let mut show_cns = use_signal(|| false);
     let mut show_deco = use_signal(|| has_deco);
@@ -136,18 +141,54 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         win_start,
         win_end,
     );
-    let pressure = series(
-        active.samples.iter().filter_map(|s| {
-            s.pressures
+    // Pressure always uses a zero baseline, so 0 bar lines up with the same
+    // bottom edge as 0 NDL and max depth.
+    let pressure_values: Vec<i32> = active
+        .samples
+        .iter()
+        .flat_map(|s| s.pressures.iter().map(|p| p.pressure.mbar))
+        .collect();
+    let pressure_max = pressure_values.iter().copied().max().unwrap_or(0);
+    let pressure = (pressure_max > 0).then(|| Series {
+        points: String::new(),
+        min: 0,
+        max: pressure_max,
+    });
+    let pressure_sensors: Vec<i16> = {
+        let mut sensors: Vec<i16> = active
+            .samples
+            .iter()
+            .flat_map(|s| s.pressures.iter().map(|p| p.sensor))
+            .collect();
+        sensors.sort_unstable();
+        sensors.dedup();
+        sensors
+    };
+    let pressure_lines: Vec<(String, Option<String>)> = pressure
+        .as_ref()
+        .map(|Series { min, max, .. }| {
+            pressure_sensors
                 .iter()
-                .find(|p| p.sensor == 0)
-                .or_else(|| s.pressures.first())
-                .map(|p| (s.time.seconds, p.pressure.mbar))
-        }),
-        max_t,
-        win_start,
-        win_end,
-    );
+                .filter_map(|sensor| {
+                    let points = series_points(
+                        active.samples.iter().filter_map(|sample| {
+                            sample
+                                .pressures
+                                .iter()
+                                .find(|pressure| pressure.sensor == *sensor)
+                                .map(|pressure| (sample.time.seconds, pressure.pressure.mbar))
+                        }),
+                        *min,
+                        *max,
+                        max_t,
+                        win_start,
+                        win_end,
+                    )?;
+                    Some((points, pressure_colors.get(*sensor as usize).cloned()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let ndl = series(
         active.samples.iter().filter_map(|s| {
             s.ndl
@@ -186,7 +227,6 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
         win_start,
         win_end,
     );
-
     let pressure_on = (show_pressure)();
     let temp_on = (show_temp)();
     let ndl_on = (show_ndl)();
@@ -559,10 +599,11 @@ pub fn DiveProfile(dive: Dive, dc_index: usize) -> Element {
                         }
                     }
                     if pressure_on {
-                        if let Some(Series { points, .. }) = &pressure {
+                        for (index, (points, color)) in pressure_lines.iter().enumerate() {
                             polyline {
+                                key: "pressure-{index}",
                                 points: "{points}",
-                                style: "fill: none; stroke: {COLOR_PRESSURE}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8;",
+                                style: "fill: none; stroke: {color.as_deref().unwrap_or(COLOR_PRESSURE)}; stroke-width: 1.6; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: 0.95;",
                             }
                         }
                     }
@@ -1054,16 +1095,52 @@ fn series(
             let x = (fraction - start) / span * 100.0;
             // A constant series has no range of its own; centre it so it lines
             // up with the single tick its scale draws.
+            // Use the same 5%..95% vertical band as depth so every right-hand
+            // scale starts and ends on the same plot lines.
             let y = if value_span <= 0.0 {
                 50.0
             } else {
-                92.0 - (*v - min) as f64 / value_span * 84.0
+                95.0 - (*v - min) as f64 / value_span * 90.0
             };
             format!("{x:.2},{y:.2}")
         })
         .collect::<Vec<_>>()
         .join(" ");
     Some(Series { points, min, max })
+}
+
+/// Normalize a series to an explicitly supplied value range so several
+/// pressure traces share one axis.
+fn series_points(
+    values: impl Iterator<Item = (i32, i32)>,
+    min: i32,
+    max: i32,
+    max_t: f64,
+    start: f64,
+    end: f64,
+) -> Option<String> {
+    let span = (end - start).max(1e-9);
+    let all: Vec<(f64, i32)> = values.map(|(t, v)| (t as f64 / max_t, v)).collect();
+    if all.is_empty() {
+        return None;
+    }
+    let (lo, hi) = value_window(&all, start, end);
+    let value_span = (max - min) as f64;
+    Some(
+        all[lo..hi]
+            .iter()
+            .map(|(fraction, value)| {
+                let x = (fraction - start) / span * 100.0;
+                let y = if value_span <= 0.0 {
+                    50.0
+                } else {
+                    92.0 - (*value - min) as f64 / value_span * 84.0
+                };
+                format!("{x:.2},{y:.2}")
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
 }
 
 /// A tick is `(y percent, inline style, label)`.
@@ -1101,7 +1178,7 @@ fn value_axis(min: i32, max: i32, color: &str, fmt: impl Fn(i32) -> String) -> V
     [max, middle, min]
         .into_iter()
         .map(|value| {
-            let y = 92.0 - (value - min) as f64 / range * 84.0;
+            let y = 95.0 - (value - min) as f64 / range * 90.0;
             (y, format!("top: {y:.2}%; color: {color};"), fmt(value))
         })
         .collect()

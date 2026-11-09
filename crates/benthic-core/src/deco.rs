@@ -426,6 +426,27 @@ impl Buhlmann {
         }
     }
 
+    /// The NDL capped at `cap`, for chart overlays where very long shallow
+    /// limits would otherwise dominate the axis (and cost time to compute).
+    pub fn ndl_capped(&self, depth: Depth, gas: GasMix, gf: f64, cap: Duration) -> Duration {
+        if self.ceiling_depth(gf).mm > 0 {
+            return Duration::ZERO;
+        }
+        let mut low = 0i32;
+        let mut high = cap.seconds.max(0);
+        while low < high {
+            let mid = (low + high + 1) / 2;
+            let mut probe = self.clone();
+            probe.add_segment(depth, Duration::new(mid), gas);
+            if probe.ceiling_depth(gf).mm > 0 {
+                high = mid - 1;
+            } else {
+                low = mid;
+            }
+        }
+        Duration::new(low)
+    }
+
     /// Run a sequence of constant-depth segments.
     pub fn add_profile(&mut self, segments: &[(Depth, Duration, GasMix)]) {
         for (depth, duration, gas) in segments {
@@ -530,6 +551,25 @@ impl Buhlmann {
         let tissues = self.tissues_at_profile(&plan.points);
         let start_m = plan.points.last().map(|p| p.depth.meters()).unwrap_or(0.0);
         self.schedule_from(tissues, start_m, plan)
+    }
+
+    /// The time needed to reach the surface from an already-loaded tissue
+    /// state, following the schedule's ascent rate, stops and gas switches.
+    pub fn time_to_surface(&self, tissues: &Tissues, start: Depth, plan: &DecoSegment) -> Duration {
+        if start.mm <= 0 {
+            return Duration::ZERO;
+        }
+        let stops = self.schedule_from(tissues.clone(), start.meters(), plan);
+        let rate = plan.ascent_rate.max(0.1);
+        let mut seconds = 0.0;
+        let mut depth = start.meters();
+        for stop in &stops {
+            seconds += (depth - stop.depth.meters()).max(0.0) / rate * 60.0;
+            seconds += stop.duration.seconds as f64;
+            depth = stop.depth.meters();
+        }
+        seconds += depth / rate * 60.0;
+        Duration::new(seconds.round() as i32)
     }
 
     /// Compute the ascent and stops from an already-loaded tissue state.
