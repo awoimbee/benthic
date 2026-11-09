@@ -4,7 +4,6 @@ pub mod csv;
 pub mod gpx;
 pub mod json;
 pub mod ssrf;
-pub mod subsurface_git;
 pub(crate) mod xml;
 
 use crate::model::DiveLog;

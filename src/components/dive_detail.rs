@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 
 use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
-use benthic_core::units::{format_duration, Timestamp, Weight};
+use benthic_core::units::{format_duration, Duration, Timestamp, Weight};
 use benthic_core::{
-    Command, Cylinder, CylinderUse, Dive, DiveSite, Divemode, Location, Picture, WeightSystem,
+    Command, Cylinder, CylinderUse, Dive, DiveSite, Divemode, Event, Location, Picture,
+    WeightSystem,
 };
 
 use crate::actions;
@@ -220,6 +221,56 @@ fn DiveDetailInner(dive: Dive) -> Element {
     };
 
     let on_duplicate = move |_| actions::duplicate_dive(state, dive_id);
+    let on_add_event = move |(computer_index, time): (usize, Duration)| {
+        let Some(before) = (state.log)().dive_by_id(dive_id).cloned() else {
+            return;
+        };
+        let mut after = before.clone();
+        let index = if before.computers.get(computer_index).is_some() {
+            computer_index
+        } else {
+            0
+        };
+        let Some(computer) = after.computers.get_mut(index) else {
+            return;
+        };
+        let exists = computer.events.iter().any(|event| {
+            event.name.eq_ignore_ascii_case("bookmark")
+                && (event.time.seconds - time.seconds).abs() <= 1
+        });
+        if !exists {
+            computer.events.push(Event {
+                time,
+                name: "bookmark".to_string(),
+                value: 1,
+                ..Default::default()
+            });
+            computer.events.sort_by_key(|event| event.time.seconds);
+            state.dispatch(Command::UpdateDive { before, after });
+            state.set_status(tr.bookmark_added);
+        }
+    };
+
+    let on_remove_event = move |(computer_index, event_index): (usize, usize)| {
+        let Some(before) = (state.log)().dive_by_id(dive_id).cloned() else {
+            return;
+        };
+        let mut after = before.clone();
+        let index = if before.computers.get(computer_index).is_some() {
+            computer_index
+        } else {
+            0
+        };
+        let Some(computer) = after.computers.get_mut(index) else {
+            return;
+        };
+        if event_index >= computer.events.len() {
+            return;
+        }
+        computer.events.remove(event_index);
+        state.dispatch(Command::UpdateDive { before, after });
+        state.set_status(tr.bookmark_removed);
+    };
 
     // --- read-only values -------------------------------------------------
 
@@ -436,6 +487,13 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             button { class: "btn primary", onclick: on_save, "{tr.save}" }
                             button { class: "btn", onclick: on_cancel, "{tr.cancel}" }
                         } else {
+                            if dive.trip_id.is_some() {
+                                button {
+                                    class: "btn",
+                                    onclick: move |_| actions::detach_dive(state, dive_id),
+                                    "{tr.detach_from_trip}"
+                                }
+                            }
                             button { class: "btn", onclick: move |_| editing.set(true), "{tr.edit}" }
                             button { class: "btn", onclick: on_duplicate, "{tr.duplicate}" }
                             button {
@@ -466,7 +524,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 }
             }
 
-            DiveProfile { dive: preview_dive, dc_index: preview_dc }
+            DiveProfile { dive: preview_dive, dc_index: preview_dc, on_add_event, on_remove_event }
 
             if is_editing {
                 div { class: "edit-form",

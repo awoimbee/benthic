@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use benthic_core::units::{format_duration, Depth, Duration, Pressure, Temperature};
-use benthic_core::{Dive, DiveComputer, Preferences};
+use benthic_core::{Dive, DiveComputer, DivePlan, Event, Preferences};
 
 use crate::i18n;
 use crate::state::AppState;
@@ -15,6 +15,16 @@ const COLOR_HEART: &str = "var(--trace-heart)";
 const COLOR_CNS: &str = "var(--trace-cns)";
 const COLOR_CEILING: &str = "var(--trace-ceiling)";
 
+#[cfg(target_arch = "wasm32")]
+async fn yield_to_ui() {
+    gloo_timers::future::TimeoutFuture::new(0).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn yield_to_ui() {
+    tokio::time::sleep(std::time::Duration::from_millis(0)).await;
+}
+
 /// An interactive SVG depth profile with overlays, event markers, a scrubber
 /// readout, pan/zoom and (when a dive has several computers) the other
 /// computers' traces.
@@ -27,6 +37,12 @@ pub fn DiveProfile(
     dc_index: usize,
     #[props(default)] show_all: bool,
     #[props(default)] pressure_colors: Vec<String>,
+    #[props(default)] on_add_event: Option<EventHandler<(usize, Duration)>>,
+    #[props(default)] on_remove_event: Option<EventHandler<(usize, usize)>>,
+    #[props(default)] tts_max: Option<Duration>,
+    #[props(default)] tts_plan: Option<DivePlan>,
+    #[props(default)] tts_surface_bar: f64,
+    #[props(default)] tts_salinity: i32,
 ) -> Element {
     let state = use_context::<AppState>();
     let prefs = (state.prefs)();
@@ -39,11 +55,12 @@ pub fn DiveProfile(
     let available = active_opt.map(metric_availability).unwrap_or_default();
     let has_pressure = available.pressure;
     let has_deco = available.ceiling;
+    let has_tts = available.tts || tts_max.is_some_and(|tts| tts.seconds > 0);
 
     let mut show_pressure = use_signal(|| has_pressure);
     let mut show_temp = use_signal(|| false);
     let mut show_ndl = use_signal(|| show_all && available.ndl);
-    let mut show_tts = use_signal(|| show_all && available.tts);
+    let mut show_tts = use_signal(|| show_all && has_tts);
     let mut show_heart = use_signal(|| false);
     let mut show_cns = use_signal(|| false);
     let mut show_deco = use_signal(|| has_deco);
@@ -56,6 +73,56 @@ pub fn DiveProfile(
     let mut plot_left = use_signal(|| 0.0f64);
     let mut touches = use_signal(Vec::<(i32, f64, f64)>::new);
     let mut touch_gesture = use_signal(|| None::<TouchGesture>);
+    let mut selected_event = use_signal(|| None::<usize>);
+    let tts_values = use_signal(Vec::<Option<Duration>>::new);
+    let tts_plan_key = use_signal(|| None::<DivePlan>);
+    let tts_generation = use_signal(|| 0u64);
+    let tts_samples = active_opt
+        .filter(|computer| computer.samples.len() >= 2)
+        .map(|computer| computer.samples.clone())
+        .unwrap_or_default();
+
+    use_effect(use_reactive(
+        (&tts_plan, &tts_surface_bar, &tts_salinity),
+        move |(plan, surface_bar, salinity)| {
+            let mut generation = tts_generation;
+            let current = *generation.peek() + 1;
+            generation.set(current);
+            let mut values = tts_values;
+            values.set(Vec::new());
+            let mut key = tts_plan_key;
+            key.set(plan.clone());
+            let Some(plan) = plan else {
+                return;
+            };
+            let Some(mut calculator) =
+                plan.tts_calculator(surface_bar, salinity, tts_samples.clone())
+            else {
+                return;
+            };
+            let sample_count = tts_samples.len();
+            spawn(async move {
+                while !calculator.is_done() {
+                    if *generation.peek() != current {
+                        break;
+                    }
+                    let batch = calculator.next_batch(1);
+                    {
+                        let mut series = values.write();
+                        if series.len() < sample_count {
+                            series.resize(sample_count, None);
+                        }
+                        for (index, tts) in batch {
+                            if let Some(slot) = series.get_mut(index) {
+                                *slot = tts;
+                            }
+                        }
+                    }
+                    yield_to_ui().await;
+                }
+            });
+        },
+    ));
 
     let Some(active) = active_opt else {
         return rsx! { div { class: "profile empty-hint", "{tr.no_profile}" } };
@@ -189,26 +256,67 @@ pub fn DiveProfile(
                 .collect()
         })
         .unwrap_or_default();
-    let ndl = series(
+    let ndl = series_fixed(
         active.samples.iter().filter_map(|s| {
             s.ndl
                 .filter(|d| d.seconds >= 0)
                 .map(|d| (s.time.seconds, d.seconds))
         }),
+        0,
+        90 * 60,
         max_t,
         win_start,
         win_end,
     );
-    let tts = series(
-        active.samples.iter().filter_map(|s| {
-            s.tts
-                .filter(|d| d.seconds > 0)
-                .map(|d| (s.time.seconds, d.seconds))
-        }),
-        max_t,
-        win_start,
-        win_end,
+    let async_tts = if tts_plan
+        .as_ref()
+        .is_some_and(|plan| (tts_plan_key)().as_ref() == Some(plan))
+    {
+        Some((tts_values)())
+    } else {
+        None
+    };
+    let tts_values: Vec<(i32, i32)> = active
+        .samples
+        .iter()
+        .enumerate()
+        .filter_map(|(index, sample)| {
+            let tts = async_tts
+                .as_ref()
+                .and_then(|values| values.get(index).copied().flatten())
+                .or(sample.tts);
+            tts.filter(|d| d.seconds > 0)
+                .map(|d| (sample.time.seconds, d.seconds))
+        })
+        .collect();
+    // The planner supplies its final/max TTS before the expensive trace has
+    // been computed, so the axis and toggle can appear immediately.
+    let tts_ceiling = tts_max.map(|tts| tts.seconds).unwrap_or(0).max(
+        tts_values
+            .iter()
+            .map(|(_, seconds)| *seconds)
+            .max()
+            .unwrap_or(0),
     );
+    let tts = if tts_ceiling > 0 {
+        series_fixed(
+            tts_values.into_iter(),
+            0,
+            tts_ceiling,
+            max_t,
+            win_start,
+            win_end,
+        )
+        .or_else(|| {
+            Some(Series {
+                points: String::new(),
+                min: 0,
+                max: tts_ceiling,
+            })
+        })
+    } else {
+        None
+    };
     let heart = series(
         active
             .samples
@@ -307,28 +415,86 @@ pub fn DiveProfile(
         ));
     }
 
-    // Event markers within the window, flagging gas switches.
-    let event_marks: Vec<(f64, String, bool)> = active
+    // Event markers within the window. The icon/colour identifies the event
+    // type so gas switches and bookmarks are not just anonymous ticks.
+    let last_sample_seconds = active
+        .samples
+        .last()
+        .map(|sample| sample.time.seconds)
+        .unwrap_or(0);
+    let event_marks: Vec<EventMark> = active
         .events
         .iter()
-        .filter(|e| e.time.seconds >= 0)
-        .filter_map(|e| {
-            let fraction = e.time.seconds as f64 / max_t;
+        .enumerate()
+        .filter(|(_, event)| event.time.seconds >= 0)
+        .filter(|(_, event)| !boundary_gas_switch(event, last_sample_seconds))
+        .filter_map(|(event_index, event)| {
+            let fraction = event.time.seconds as f64 / max_t;
             if fraction < win_start || fraction > win_end {
                 return None;
             }
-            let name = if e.name.is_empty() {
-                "event".to_string()
-            } else {
-                e.name.clone()
-            };
-            Some((
-                (fraction - win_start) / win_span * 100.0,
-                name,
-                e.is_gas_change(),
-            ))
+            let kind = event_kind(event);
+            Some(EventMark {
+                event_index,
+                x: (fraction - win_start) / win_span * 100.0,
+                label: kind.label(tr).to_string(),
+                time: format_duration(event.time),
+                icon: kind.icon(),
+                color: kind.color(),
+                sample_index: sample_index_at(fraction, &active.samples, max_t),
+            })
         })
         .collect();
+    let event_buttons: Vec<Element> = event_marks
+        .iter()
+        .enumerate()
+        .map(|(index, mark)| {
+            let sample_index = mark.sample_index;
+            let x = mark.x;
+            let icon = mark.icon;
+            let color = mark.color;
+            let label = mark.label.clone();
+            let time = mark.time.clone();
+            let event_index = mark.event_index;
+            rsx! {
+                button {
+                    key: "event-{index}",
+                    class: "profile-event",
+                    style: "left: {x:.2}%; --event-color: {color};",
+                    title: "{label} · {time}",
+                    aria_label: "{label} · {time}",
+                    onclick: move |_| {
+                        cursor.set(sample_index);
+                        hover.set(None);
+                        let current = selected_event();
+                        selected_event.set(if current == Some(event_index) {
+                            None
+                        } else {
+                            Some(event_index)
+                        });
+                    },
+                    span { class: "profile-event-icon", "{icon}" }
+                    span { class: "profile-event-tip", "{label} · {time}" }
+                }
+            }
+        })
+        .collect();
+
+    let selected_event_index = (selected_event)();
+    let selected_mark = selected_event_index
+        .and_then(|index| event_marks.iter().find(|mark| mark.event_index == index));
+    let selected_x = selected_mark.map(|mark| mark.x.clamp(9.0, 91.0));
+    let selected_remove_index = selected_mark.map(|mark| mark.event_index);
+    let selected_event_data = selected_event_index.and_then(|index| active.events.get(index));
+    let selected_details = selected_event_data
+        .map(|event| event_details(event, tr))
+        .unwrap_or_default();
+    let selected_icon = selected_event_data.map(|event| event_kind(event).icon());
+    let selected_color = selected_event_data.map(|event| event_kind(event).color());
+    let selected_label = selected_event_data.map(|event| event_kind(event).label(tr));
+    let selected_time = selected_event_data.map(|event| format_duration(event.time));
+    let selected_can_remove = selected_event_data
+        .is_some_and(|event| event_kind(event) == EventKind::Bookmark && on_remove_event.is_some());
 
     // The active point is the hovered sample when the pointer is over the
     // chart, otherwise the scrubber position.
@@ -375,6 +541,7 @@ pub fn DiveProfile(
         readout.push(format!("{} {}", tr.axis_ceiling, prefs.depth(ceiling)));
     }
     let readout = readout.join("  ·  ");
+    let cursor_time = sample.time;
 
     rsx! {
         div { class: "profile",
@@ -385,8 +552,9 @@ pub fn DiveProfile(
                         span { key: "depth-{label}", class: "axis-label", style: "{style}", "{label}" }
                     }
                 }
-                svg {
-                    class: "profile-svg",
+                div { class: "profile-canvas",
+                    svg {
+                        class: "profile-svg",
                     view_box: "0 0 100 100",
                     preserve_aspect_ratio: "none",
                     onmounted: move |evt: MountedEvent| async move {
@@ -660,18 +828,14 @@ pub fn DiveProfile(
                             style: "fill: none; stroke: {COLOR_CEILING}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.9;",
                         }
                     }
-                    for (x, name, gas) in event_marks {
+                    for (index, mark) in event_marks.iter().enumerate() {
                         line {
-                            key: "{name}-{x}",
-                            x1: "{x}",
-                            y1: "4",
-                            x2: "{x}",
-                            y2: "10",
-                            style: if gas {
-                                "stroke: var(--trace-tts); stroke-width: 1.4; vector-effect: non-scaling-stroke;"
-                            } else {
-                                "stroke: var(--trace-ceiling); stroke-width: 1; vector-effect: non-scaling-stroke;"
-                            },
+                            key: "event-line-{index}",
+                            x1: "{mark.x}",
+                            y1: "0",
+                            x2: "{mark.x}",
+                            y2: "100",
+                            style: "stroke: {mark.color}; stroke-width: 0.8; vector-effect: non-scaling-stroke; opacity: 0.32; pointer-events: none;",
                         }
                     }
                     line {
@@ -697,6 +861,64 @@ pub fn DiveProfile(
                             class: "profile-selection",
                         }
                     }
+                    }
+                    div { class: "profile-events",
+                        for button in event_buttons {
+                            {button}
+                        }
+                        if let (
+                            Some(x),
+                            Some(event_index),
+                            Some(icon),
+                            Some(color),
+                            Some(label),
+                            Some(time),
+                        ) = (
+                            selected_x,
+                            selected_remove_index,
+                            selected_icon,
+                            selected_color,
+                            selected_label,
+                            selected_time.as_deref(),
+                        ) {
+                            div {
+                                class: "profile-event-popover",
+                                style: "left: {x:.2}%; --event-color: {color};",
+                                div { class: "profile-event-popover-head",
+                                    span { class: "profile-event-icon", "{icon}" }
+                                    strong { "{label}" }
+                                    button {
+                                        class: "icon-btn",
+                                        r#type: "button",
+                                        title: "{tr.close}",
+                                        aria_label: "{tr.close}",
+                                        onclick: move |_| selected_event.set(None),
+                                        "✕"
+                                    }
+                                }
+                                div { class: "profile-event-popover-meta", "{time}" }
+                                for (detail_label, detail_value) in selected_details.iter() {
+                                    div { class: "profile-event-detail",
+                                        span { class: "muted", "{detail_label}" }
+                                        span { "{detail_value}" }
+                                    }
+                                }
+                                if selected_can_remove {
+                                    if let Some(remove) = on_remove_event {
+                                        button {
+                                            class: "btn danger profile-event-remove",
+                                            r#type: "button",
+                                            onclick: move |_| {
+                                                selected_event.set(None);
+                                                remove.call((dc_index, event_index));
+                                            },
+                                            "{tr.remove_bookmark}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 div { class: "axis-rail axis-right",
                     for (i, (name, name_style, ticks)) in right_axes.iter().enumerate() {
@@ -719,10 +941,19 @@ pub fn DiveProfile(
                 Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: tr.tip_pressure, onclick: move |_| show_pressure.set(!pressure_on) }
                 Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: tr.tip_temperature, onclick: move |_| show_temp.set(!temp_on) }
                 Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: tr.tip_ndl_toggle, onclick: move |_| show_ndl.set(!ndl_on) }
-                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !available.tts, title: tr.tip_tts, onclick: move |_| show_tts.set(!tts_on) }
+                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !has_tts, title: tr.tip_tts, onclick: move |_| show_tts.set(!tts_on) }
                 Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: tr.tip_heart, onclick: move |_| show_heart.set(!heart_on) }
                 Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: tr.tip_cns, onclick: move |_| show_cns.set(!cns_on) }
                 Toggle { label: tr.deco, color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: tr.tip_deco_toggle, onclick: move |_| show_deco.set(!deco_on) }
+                if let Some(add_event) = on_add_event {
+                    button {
+                        class: "btn profile-add-event",
+                        title: "{tr.add_bookmark}",
+                        aria_label: "{tr.add_bookmark}",
+                        onclick: move |_| add_event.call((dc_index, cursor_time)),
+                        "+"
+                    }
+                }
                 if zoom_value > 1.01 {
                     button {
                         class: "btn",
@@ -841,6 +1072,108 @@ fn metric_availability(dc: &DiveComputer) -> Availability {
             .iter()
             .any(|s| s.stop_depth.is_some_and(|d| d.mm > 0)),
     }
+}
+
+/// A marker rendered above the profile for one dive event.
+struct EventMark {
+    event_index: usize,
+    x: f64,
+    label: String,
+    time: String,
+    icon: &'static str,
+    color: &'static str,
+    sample_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EventKind {
+    GasChange,
+    Bookmark,
+    Marker,
+    ModeChange,
+    Deco,
+    Alarm,
+    Other,
+}
+
+impl EventKind {
+    fn label(self, tr: &'static i18n::Strings) -> &'static str {
+        match self {
+            EventKind::GasChange => tr.event_gas_change,
+            EventKind::Bookmark => tr.event_bookmark,
+            EventKind::Marker => tr.event_marker,
+            EventKind::ModeChange => tr.event_mode_change,
+            EventKind::Deco => tr.event_deco,
+            EventKind::Alarm => tr.event_alarm,
+            EventKind::Other => tr.event_other,
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            EventKind::GasChange => "⇄",
+            EventKind::Bookmark => "★",
+            EventKind::Marker => "◆",
+            EventKind::ModeChange => "↻",
+            EventKind::Deco => "↑",
+            EventKind::Alarm => "!",
+            EventKind::Other => "•",
+        }
+    }
+
+    fn color(self) -> &'static str {
+        match self {
+            EventKind::GasChange => COLOR_TTS,
+            EventKind::Bookmark => COLOR_CNS,
+            EventKind::Marker => COLOR_DEPTH,
+            EventKind::ModeChange => COLOR_HEART,
+            EventKind::Deco => COLOR_CEILING,
+            EventKind::Alarm => "var(--speed-toofast)",
+            EventKind::Other => "var(--muted)",
+        }
+    }
+}
+
+fn event_kind(event: &Event) -> EventKind {
+    if event.is_gas_change() {
+        return EventKind::GasChange;
+    }
+    if event.is_divemode_change() || event.divemode.is_some() {
+        return EventKind::ModeChange;
+    }
+    let name = event.name.to_ascii_lowercase();
+    if name.contains("bookmark") {
+        EventKind::Bookmark
+    } else if name.contains("marker") {
+        EventKind::Marker
+    } else if name.contains("deco") || name.contains("ceiling") || name.contains("stop") {
+        EventKind::Deco
+    } else if name.contains("alarm") || name.contains("violation") || name.contains("warning") {
+        EventKind::Alarm
+    } else {
+        EventKind::Other
+    }
+}
+
+/// Gas switches at the very start or end of a recording are bookkeeping:
+/// they just mark the initial gas and the final switch back to it.
+fn boundary_gas_switch(event: &Event, last_sample_seconds: i32) -> bool {
+    event.is_gas_change()
+        && (event.time.seconds <= 0 || event.time.seconds >= last_sample_seconds.saturating_sub(5))
+}
+
+fn event_details(event: &Event, tr: &'static i18n::Strings) -> Vec<(String, String)> {
+    let mut details = Vec::new();
+    if let Some((cylinder, gas)) = event.gas {
+        details.push((tr.cyl_gas.to_string(), gas.name()));
+        if cylinder >= 0 {
+            details.push((tr.cyl_cylinder.to_string(), format!("#{}", cylinder + 1)));
+        }
+    }
+    if let Some(mode) = event.divemode {
+        details.push((tr.dive_mode.to_string(), mode.label().to_string()));
+    }
+    details
 }
 
 /// A normalized overlay series: the SVG point string plus the value range, so
@@ -1109,6 +1442,40 @@ fn series(
     Some(Series { points, min, max })
 }
 
+/// Normalize a series to a fixed value range, using the same 5%..95% band as
+/// the axis ticks so the trace and its labels line up.
+fn series_fixed(
+    values: impl Iterator<Item = (i32, i32)>,
+    min: i32,
+    max: i32,
+    max_t: f64,
+    start: f64,
+    end: f64,
+) -> Option<Series> {
+    let span = (end - start).max(1e-9);
+    let all: Vec<(f64, i32)> = values.map(|(t, v)| (t as f64 / max_t, v)).collect();
+    if all.is_empty() {
+        return None;
+    }
+    let (lo, hi) = value_window(&all, start, end);
+    let value_span = (max - min) as f64;
+    let points = all[lo..hi]
+        .iter()
+        .map(|(fraction, value)| {
+            let x = (fraction - start) / span * 100.0;
+            let value = (*value).clamp(min, max);
+            let y = if value_span <= 0.0 {
+                50.0
+            } else {
+                95.0 - (value - min) as f64 / value_span * 90.0
+            };
+            format!("{x:.2},{y:.2}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(Series { points, min, max })
+}
+
 /// Normalize a series to an explicitly supplied value range so several
 /// pressure traces share one axis.
 fn series_points(
@@ -1194,4 +1561,77 @@ fn nice_step(max: f64) -> f64 {
         .into_iter()
         .find(|step| *step >= ideal)
         .unwrap_or(500.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use benthic_core::gas::AIR;
+    use benthic_core::Divemode;
+
+    #[test]
+    fn recognises_event_types() {
+        let gas = Event {
+            gas: Some((0, AIR)),
+            ..Default::default()
+        };
+        assert_eq!(event_kind(&gas), EventKind::GasChange);
+        assert_eq!(
+            event_kind(&Event {
+                name: "bookmark".into(),
+                ..Default::default()
+            }),
+            EventKind::Bookmark
+        );
+        assert_eq!(
+            event_kind(&Event {
+                name: "Marker".into(),
+                ..Default::default()
+            }),
+            EventKind::Marker
+        );
+        assert_eq!(
+            event_kind(&Event {
+                name: "modechange".into(),
+                divemode: Some(Divemode::Ccr),
+                ..Default::default()
+            }),
+            EventKind::ModeChange
+        );
+        assert_eq!(
+            event_kind(&Event {
+                name: "deco stop".into(),
+                ..Default::default()
+            }),
+            EventKind::Deco
+        );
+        assert_eq!(
+            event_kind(&Event {
+                name: "alarm".into(),
+                ..Default::default()
+            }),
+            EventKind::Alarm
+        );
+    }
+    #[test]
+    fn boundary_gas_switches_are_not_markers() {
+        use benthic_core::units::Duration;
+        let gas = Event {
+            gas: Some((0, AIR)),
+            ..Default::default()
+        };
+        assert!(boundary_gas_switch(&gas, 1800));
+        let mut end = gas.clone();
+        end.time = Duration::new(1800);
+        assert!(boundary_gas_switch(&end, 1800));
+        let mut mid = gas.clone();
+        mid.time = Duration::new(900);
+        assert!(!boundary_gas_switch(&mid, 1800));
+        let bookmark = Event {
+            time: Duration::new(1800),
+            name: "bookmark".into(),
+            ..Default::default()
+        };
+        assert!(!boundary_gas_switch(&bookmark, 1800));
+    }
 }

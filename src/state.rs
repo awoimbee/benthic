@@ -7,6 +7,28 @@ use benthic_core::{Command, DiveFilter, DiveLog, FilterPreset, History, Preferen
 use crate::i18n::{self, Strings};
 use crate::routing::Route;
 
+/// How a reviewed import should be applied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImportMode {
+    Open,
+    Merge,
+    #[allow(dead_code)]
+    Download,
+}
+
+/// A parsed file waiting for the user to choose which dives to import.
+#[derive(Clone, PartialEq)]
+pub struct PendingImport {
+    pub log: DiveLog,
+    pub file_name: String,
+    pub mode: ImportMode,
+    /// Incoming dive ids that already exist in the current log.
+    pub duplicates: std::collections::BTreeSet<u32>,
+    /// Device fingerprint to remember only after a complete review.
+    pub fingerprint: Option<(String, Vec<u8>)>,
+    pub nonce: u64,
+}
+
 /// Signals shared across the app. `Signal` is `Copy`, so this whole struct is
 /// cheap to pass around and to provide as context.
 #[derive(Clone, Copy)]
@@ -53,6 +75,8 @@ pub struct AppState {
     pub show_compare: Signal<bool>,
     /// Whether the bulk-delete confirmation is open.
     pub confirm_delete_selected: Signal<bool>,
+    /// A parsed file awaiting per-dive import selection.
+    pub import_review: Signal<Option<PendingImport>>,
     /// The trip currently shown in the trip view, if any.
     pub show_trip: Signal<Option<u32>>,
     /// Narrow screens only: whether the detail screen is showing rather than

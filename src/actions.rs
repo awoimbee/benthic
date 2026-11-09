@@ -7,7 +7,7 @@ use benthic_core::{Command, Dive, DivePlan, DiveTrip};
 use dioxus::prelude::WritableExt;
 
 use crate::i18n;
-use crate::state::AppState;
+use crate::state::{AppState, ImportMode, PendingImport};
 
 /// The example logbook shipped inside the binary, so the app can offer sample
 /// data without a file dialog.
@@ -118,23 +118,28 @@ pub fn delete_selected(state: AppState) {
 
 /// Create a trip from the ticked dives and assign them to it.
 pub fn create_trip_from_selection(state: AppState) {
-    let ids: Vec<u32> = (state.selection)().iter().copied().collect();
-    if ids.is_empty() {
-        return;
-    }
+    let _ = create_trip_with_selection(state, "");
+}
+
+/// Create a trip, optionally using the current selection. An empty name falls
+/// back to the first selected dive's site, or a generated trip label.
+pub fn create_trip_with_selection(state: AppState, name: &str) -> Option<u32> {
     let log = (state.log)();
+    let ids: std::collections::BTreeSet<u32> = (state.selection)().iter().copied().collect();
     let selected: Vec<&Dive> = log.dives.iter().filter(|d| ids.contains(&d.id)).collect();
-    if selected.is_empty() {
-        return;
-    }
 
     let id = log.next_trip_id();
     let date = selected.iter().map(|d| d.when).min();
-    let location = selected
-        .first()
-        .and_then(|d| log.site_name_of(d))
-        .unwrap_or("")
-        .to_string();
+    let location = if !name.trim().is_empty() {
+        name.trim().to_string()
+    } else {
+        selected
+            .first()
+            .and_then(|d| log.site_name_of(d))
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| i18n::t1(state.strings().trip_fallback, id))
+    };
 
     let mut commands = vec![Command::AddTrip {
         trip: DiveTrip {
@@ -154,10 +159,57 @@ pub fn create_trip_from_selection(state: AppState) {
     }
 
     let count = commands.len() - 1;
-    state.dispatch_all(state.strings().undo_create_trip, commands);
     let mut selection = state.selection;
     selection.write().clear();
+    state.dispatch_all(state.strings().undo_create_trip, commands);
     state.set_status(i18n::t1(state.strings().created_trip, count));
+    Some(id)
+}
+
+/// Move the selected dives into `trip_id`; `None` detaches them.
+pub fn move_selection_to_trip(mut state: AppState, trip_id: Option<u32>) {
+    let ids: std::collections::BTreeSet<u32> = (state.selection)().iter().copied().collect();
+    assign_dives_to_trip(state, &ids, trip_id);
+    state.selection.write().clear();
+}
+
+/// Detach one dive from its trip.
+pub fn detach_dive(state: AppState, dive_id: u32) {
+    assign_dives_to_trip(state, &std::collections::BTreeSet::from([dive_id]), None);
+}
+
+fn assign_dives_to_trip(
+    state: AppState,
+    ids: &std::collections::BTreeSet<u32>,
+    trip_id: Option<u32>,
+) {
+    if ids.is_empty() {
+        return;
+    }
+    let log = (state.log)();
+    let mut commands = Vec::new();
+    for dive in log.dives.iter().filter(|d| ids.contains(&d.id)) {
+        if dive.trip_id == trip_id {
+            continue;
+        }
+        let mut after = dive.clone();
+        after.trip_id = trip_id;
+        commands.push(Command::UpdateDive {
+            before: dive.clone(),
+            after,
+        });
+    }
+    if commands.is_empty() {
+        return;
+    }
+    let count = commands.len();
+    state.dispatch_all(state.strings().undo_move_dives, commands);
+    let status = if trip_id.is_some() {
+        i18n::t1(state.strings().moved_dives, count)
+    } else {
+        i18n::t1(state.strings().detached_dives, count)
+    };
+    state.set_status(status);
 }
 
 /// Rename a trip (no-op when unchanged).
@@ -324,39 +376,96 @@ pub fn toggle_autogroup(state: AppState) {
     state.set_status(message);
 }
 
-/// Merge dives downloaded from a dive computer, skipping any already present
-/// (matched by start time and computer model). Returns `(added, skipped)`.
-#[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
-pub fn merge_downloaded(state: AppState, dives: Vec<Dive>) -> (usize, usize) {
-    let log = (state.log)();
-    let key_of = |dive: &Dive| {
-        (
-            dive.when,
-            dive.primary_computer()
-                .map(|c| c.model.clone())
-                .unwrap_or_default(),
-        )
+/// Whether a downloaded dive already exists in the log.
+///
+/// Exact start-time/model matches are the common case. Subsurface XML stores
+/// wall-clock times while downloaded dives are UTC, so also accept the same
+/// model/profile shifted by the recorded UTC offset. This keeps imported
+/// Subsurface logs from being duplicated without treating unrelated dives as
+/// the same entry.
+#[cfg_attr(
+    not(any(feature = "divecomputer", target_arch = "wasm32")),
+    allow(dead_code)
+)]
+fn same_downloaded_dive(existing: &Dive, incoming: &Dive) -> bool {
+    let model = |dive: &Dive| {
+        dive.primary_computer()
+            .map(|computer| computer.model.clone())
+            .unwrap_or_default()
     };
-    let existing: std::collections::BTreeSet<(i64, String)> =
-        log.dives.iter().map(key_of).collect();
-    let mut fresh = Vec::new();
-    let mut skipped = 0;
-    for dive in dives {
-        if existing.contains(&key_of(&dive)) {
-            skipped += 1;
-        } else {
-            fresh.push(dive);
-        }
+    if model(existing) != model(incoming) {
+        return false;
     }
-    let added = fresh.len();
-    if added > 0 {
-        let incoming = benthic_core::DiveLog {
-            dives: fresh,
-            ..Default::default()
-        };
-        merge_log(state, incoming);
+    if existing.when == incoming.when {
+        return true;
     }
-    (added, skipped)
+    let Some(offset) = incoming
+        .utc_offset_seconds()
+        .or_else(|| existing.utc_offset_seconds())
+    else {
+        return false;
+    };
+    let delta = (existing.when - incoming.when).abs();
+    if (delta - offset.unsigned_abs() as i64).abs() > 2 {
+        return false;
+    }
+    existing.duration().is_some()
+        && existing.duration() == incoming.duration()
+        && existing.max_depth().is_some()
+        && existing.max_depth() == incoming.max_depth()
+}
+
+/// Incoming dive ids that already exist in `existing`, using the same
+/// time/model/profile matching as dive-computer downloads.
+pub fn duplicate_dive_ids(
+    existing: &benthic_core::DiveLog,
+    incoming: &benthic_core::DiveLog,
+) -> std::collections::BTreeSet<u32> {
+    incoming
+        .dives
+        .iter()
+        .filter(|dive| {
+            existing
+                .dives
+                .iter()
+                .any(|candidate| same_downloaded_dive(candidate, dive))
+        })
+        .map(|dive| dive.id)
+        .collect()
+}
+
+/// Queue downloaded dives for per-dive review instead of adding them directly.
+#[cfg_attr(
+    not(any(feature = "divecomputer", target_arch = "wasm32")),
+    allow(dead_code)
+)]
+pub fn review_downloaded(
+    state: AppState,
+    mut dives: Vec<Dive>,
+    source: impl Into<String>,
+    fingerprint: Option<(String, Vec<u8>)>,
+) -> usize {
+    // Downloaded dives arrive without log ids; the review dialog uses ids as
+    // its selection keys, so give each one a distinct id first.
+    for (index, dive) in dives.iter_mut().enumerate() {
+        dive.id = index as u32 + 1;
+    }
+    let incoming = benthic_core::DiveLog {
+        dives,
+        ..Default::default()
+    };
+    let duplicates = duplicate_dive_ids(&(state.log)(), &incoming);
+    let count = incoming.dives.len();
+    let mut import_review = state.import_review;
+    import_review.set(Some(PendingImport {
+        log: incoming,
+        file_name: source.into(),
+        mode: ImportMode::Download,
+        duplicates,
+        fingerprint,
+        nonce: crate::platform::now_secs() as u64,
+    }));
+    count
 }
 
 /// Replace the entire log with an imported one as a single undoable step.
@@ -412,4 +521,40 @@ pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize
         after: Box::new(after),
     });
     (dives, sites)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use benthic_core::units::{Depth, Duration};
+    use benthic_core::DiveComputer;
+
+    fn dive(when: i64, offset: Option<i32>) -> Dive {
+        Dive {
+            when,
+            duration: Some(Duration::from_minutes(30)),
+            max_depth: Some(Depth::from_meters(20.0)),
+            computers: vec![DiveComputer {
+                model: "Seac Screen".to_string(),
+                timezone_offset: offset,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn downloaded_dives_match_subsurface_wall_clock_times() {
+        let imported = dive(1_000_000, Some(3600));
+        let downloaded = dive(1_000_000 - 3600, Some(3600));
+        assert!(same_downloaded_dive(&imported, &downloaded));
+    }
+
+    #[test]
+    fn different_profiles_are_not_duplicates() {
+        let imported = dive(1_000_000, Some(3600));
+        let mut downloaded = dive(1_000_000 - 3600, Some(3600));
+        downloaded.max_depth = Some(Depth::from_meters(25.0));
+        assert!(!same_downloaded_dive(&imported, &downloaded));
+    }
 }

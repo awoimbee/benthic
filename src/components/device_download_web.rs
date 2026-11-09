@@ -3,6 +3,8 @@
 #![cfg(target_arch = "wasm32")]
 
 use dioxus::prelude::*;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 use benthic_core::Dive;
 
@@ -27,6 +29,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
     let mut transport = use_signal(|| divecomputer_web::TRANSPORT_SERIAL);
     let mut connected = use_signal(|| false);
     let mut busy = use_signal(|| false);
+    let mut progress = use_signal(|| None::<(u32, u32)>);
     let mut message = use_signal(|| Option::<String>::None);
 
     // Load the model table once the on-demand wasm module has come up.
@@ -43,14 +46,30 @@ pub fn DeviceDownloadWebDialog() -> Element {
             transport.set(divecomputer_web::TRANSPORT_BLE);
         }
         match divecomputer_web::descriptors().await {
-            Ok(list) => models.set(list),
+            Ok(mut list) => {
+                list.insert(
+                    0,
+                    WebModel {
+                        vendor: divecomputer::MOCK_VENDOR.to_string(),
+                        product: divecomputer::MOCK_PRODUCT.to_string(),
+                        transports: divecomputer_web::TRANSPORT_SERIAL
+                            | divecomputer_web::TRANSPORT_BLE,
+                    },
+                );
+                models.set(list);
+            }
             Err(error) => message.set(Some(i18n::t1(tr.dc_could_not_load, error))),
         }
     });
 
     let on_connect = move |_| {
-        if (selected)().is_none() {
+        let Some(model) = (selected)() else {
             message.set(Some(tr.dc_choose_model.to_string()));
+            return;
+        };
+        if divecomputer::is_mock(&model.vendor, &model.product) {
+            connected.set(true);
+            message.set(Some(tr.dc_mock_ready.to_string()));
             return;
         }
         let transport_now = (transport)();
@@ -69,12 +88,39 @@ pub fn DeviceDownloadWebDialog() -> Element {
         });
     };
 
+    let on_forget_history = move |_| {
+        let Some(model) = (selected)() else {
+            message.set(Some(tr.dc_choose_model.to_string()));
+            return;
+        };
+        if divecomputer::is_mock(&model.vendor, &model.product) {
+            return;
+        }
+        let link = if (transport)() == divecomputer_web::TRANSPORT_BLE {
+            "bluetooth"
+        } else {
+            "serial"
+        };
+        let key = divecomputer::fingerprint_key(&model.vendor, &model.product, link);
+        divecomputer::save_fingerprint(&key, &[]);
+        message.set(Some(tr.dc_history_cleared.to_string()));
+    };
+
     let on_download = move |_| {
         let Some(model) = (selected)() else {
             return;
         };
+        if divecomputer::is_mock(&model.vendor, &model.product) {
+            let dives = divecomputer::mock_dives();
+            let source = model.name();
+            show.set(false);
+            actions::review_downloaded(state, dives, source, None);
+            connected.set(false);
+            return;
+        }
         let transport_now = (transport)();
         busy.set(true);
+        progress.set(None);
         message.set(Some(tr.dc_downloading.to_string()));
         spawn(async move {
             let link = if transport_now == divecomputer_web::TRANSPORT_BLE {
@@ -85,28 +131,54 @@ pub fn DeviceDownloadWebDialog() -> Element {
             let key = divecomputer::fingerprint_key(&model.vendor, &model.product, link);
             let fingerprint = divecomputer::load_fingerprint(&key);
             let hex = divecomputer::to_hex(&fingerprint);
-            match divecomputer_web::download(&model.vendor, &model.product, transport_now, &hex)
-                .await
-            {
+            let mut progress_signal = progress;
+            let callback_closure = Closure::<dyn FnMut(JsValue)>::new(move |value: JsValue| {
+                let event = js_sys::Reflect::get(&value, &JsValue::from_str("event"))
+                    .ok()
+                    .and_then(|event| event.as_string());
+                if event.as_deref() != Some("progress") {
+                    return;
+                }
+                let current = js_sys::Reflect::get(&value, &JsValue::from_str("current"))
+                    .ok()
+                    .and_then(|value| value.as_f64())
+                    .unwrap_or(0.0) as u32;
+                let maximum = js_sys::Reflect::get(&value, &JsValue::from_str("maximum"))
+                    .ok()
+                    .and_then(|value| value.as_f64())
+                    .unwrap_or(0.0) as u32;
+                if maximum > 0 {
+                    progress_signal.set(Some((current, maximum)));
+                }
+            });
+            let callback_function: &js_sys::Function = callback_closure.as_ref().unchecked_ref();
+            let result = divecomputer_web::download(
+                &model.vendor,
+                &model.product,
+                transport_now,
+                &hex,
+                Some(callback_function),
+            )
+            .await;
+            drop(callback_closure);
+            match result {
                 Ok(result) => {
                     if let Some(error) = result.error {
                         message.set(Some(i18n::t1(tr.dc_download_failed, error)));
                     } else {
                         let latest = divecomputer::from_hex(&result.fingerprint);
-                        if !latest.is_empty() {
-                            divecomputer::save_fingerprint(&key, &latest);
-                        }
+                        let fingerprint = (!latest.is_empty()).then(|| (key.clone(), latest));
                         let dives: Vec<Dive> =
                             result.dives.iter().map(|raw| raw.to_dive()).collect();
-                        let count = dives.len();
-                        let (added, skipped) = actions::merge_downloaded(state, dives);
-                        state.set_status(i18n::t1(state.strings().downloading_dc, added));
-                        message.set(Some(i18n::t3(tr.dc_read_summary, count, added, skipped)));
+                        let source = model.name();
+                        show.set(false);
+                        actions::review_downloaded(state, dives, source, fingerprint);
                         connected.set(false);
                     }
                 }
                 Err(error) => message.set(Some(i18n::t1(tr.dc_download_failed, error))),
             }
+            progress.set(None);
             busy.set(false);
         });
     };
@@ -117,21 +189,39 @@ pub fn DeviceDownloadWebDialog() -> Element {
     let models_now = (models)();
     let model_buttons = models_now
         .iter()
-        .filter(|model| model.transports & transport_now != 0)
         .filter(|model| query.is_empty() || model.name().to_lowercase().contains(&query))
-        .take(200)
         .map(|model| {
             let click_model = model.clone();
             let is_selected = selected_now.as_ref() == Some(model);
+            let compatible = model.transports & transport_now != 0;
+            let serial = model.transports & divecomputer_web::TRANSPORT_SERIAL != 0;
+            let bluetooth = model.transports & divecomputer_web::TRANSPORT_BLE != 0;
+            let connection = match (serial, bluetooth) {
+                (true, true) => format!("{} + {}", tr.dc_usb_serial, tr.dc_bluetooth),
+                (true, false) => tr.dc_usb_serial.to_string(),
+                (false, true) => tr.dc_bluetooth.to_string(),
+                (false, false) => String::new(),
+            };
+            let class = match (compatible, is_selected) {
+                (false, _) => "device-model unavailable",
+                (true, true) => "device-model selected",
+                (true, false) => "device-model",
+            };
             rsx! {
                 button {
-                    class: if is_selected { "device-model selected" } else { "device-model" },
+                    class: "{class}",
+                    disabled: !compatible,
+                    title: if compatible { "" } else { tr.dc_transport_unavailable },
                     onclick: move |_| {
+                        let mock = divecomputer::is_mock(&click_model.vendor, &click_model.product);
                         selected.set(Some(click_model.clone()));
-                        connected.set(false);
-                        message.set(None);
+                        connected.set(mock);
+                        message.set(mock.then(|| tr.dc_mock_ready.to_string()));
                     },
                     span { "{model.vendor} {model.product}" }
+                    if !connection.is_empty() {
+                        span { class: "muted", "{connection}" }
+                    }
                 }
             }
         });
@@ -192,10 +282,22 @@ pub fn DeviceDownloadWebDialog() -> Element {
                     }
                     div { class: "device-models", {model_buttons} }
                 }
+                if let Some((current, maximum)) = (progress)() {
+                    div { class: "download-progress",
+                        progress { value: "{current}", max: "{maximum}" }
+                        span { class: "muted", "{current} / {maximum}" }
+                    }
+                }
                 if let Some(text) = (message)() {
                     p { class: "muted", "{text}" }
                 }
                 div { class: "detail-actions",
+                    button {
+                        class: "btn",
+                        disabled: (busy)() || (selected)().is_none(),
+                        onclick: on_forget_history,
+                        "{tr.dc_forget_history}"
+                    }
                     button {
                         class: "btn",
                         disabled: (busy)() || (selected)().is_none(),

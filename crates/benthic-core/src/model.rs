@@ -208,6 +208,18 @@ pub struct DiveComputer {
 }
 
 impl DiveComputer {
+    /// UTC offset in seconds, from the structured field or Subsurface's
+    /// `Time offset from UTC [s]` extra data.
+    pub fn utc_offset_seconds(&self) -> Option<i32> {
+        self.timezone_offset.or_else(|| {
+            self.extra_data.iter().find_map(|(key, value)| {
+                (key == "Time offset from UTC [s]")
+                    .then(|| value.trim().parse::<i32>().ok())
+                    .flatten()
+            })
+        })
+    }
+
     /// Duration inferred from the last sample if not explicitly stored.
     pub fn duration_or_last_sample(&self) -> Option<Duration> {
         self.duration
@@ -382,6 +394,13 @@ impl Dive {
     /// The primary dive computer, if any.
     pub fn primary_computer(&self) -> Option<&DiveComputer> {
         self.computers.first()
+    }
+
+    /// UTC offset in seconds reported by any of the dive computers.
+    pub fn utc_offset_seconds(&self) -> Option<i32> {
+        self.computers
+            .iter()
+            .find_map(DiveComputer::utc_offset_seconds)
     }
 
     /// A specific dive computer by index.

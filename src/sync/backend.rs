@@ -16,8 +16,6 @@ use benthic_core::sync::RemoteFile;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-#[cfg(not(target_arch = "wasm32"))]
-use super::subsurface_cloud;
 use super::{gdrive, github};
 
 /// Per-backend settings, kept as a JSON object so a backend can persist
@@ -177,34 +175,13 @@ pub trait Backend: Send + Sync {
 pub const GDRIVE_ENABLED: bool = cfg!(debug_assertions);
 
 /// Every registered backend, in the order shown to the user.
-///
-/// The Subsurface cloud server does not send CORS headers, so browsers cannot
-/// talk to it directly. The backend is therefore offered in desktop builds,
-/// where reqwest is not subject to the same-origin policy.
 pub fn all() -> &'static [&'static dyn Backend] {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        static DEV: &[&dyn Backend] = &[
-            &github::GITHUB,
-            &subsurface_cloud::SUBSURFACE_CLOUD,
-            &gdrive::GDRIVE,
-        ];
-        static PROD: &[&dyn Backend] = &[&github::GITHUB, &subsurface_cloud::SUBSURFACE_CLOUD];
-        if GDRIVE_ENABLED {
-            DEV
-        } else {
-            PROD
-        }
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        static DEV: &[&dyn Backend] = &[&github::GITHUB, &gdrive::GDRIVE];
-        static PROD: &[&dyn Backend] = &[&github::GITHUB];
-        if GDRIVE_ENABLED {
-            DEV
-        } else {
-            PROD
-        }
+    static DEV: &[&dyn Backend] = &[&github::GITHUB, &gdrive::GDRIVE];
+    static PROD: &[&dyn Backend] = &[&github::GITHUB];
+    if GDRIVE_ENABLED {
+        DEV
+    } else {
+        PROD
     }
 }
 

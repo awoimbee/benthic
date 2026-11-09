@@ -17,20 +17,6 @@ pub struct Response {
     pub body: String,
 }
 
-/// A binary response, used by the git smart-HTTP transport.
-#[cfg(not(target_arch = "wasm32"))]
-pub struct RawResponse {
-    pub status: u16,
-    pub body: Vec<u8>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl RawResponse {
-    pub fn ok(&self) -> bool {
-        (200..300).contains(&self.status)
-    }
-}
-
 impl Response {
     pub fn ok(&self) -> bool {
         (200..300).contains(&self.status)
@@ -45,19 +31,6 @@ pub async fn request(
     body: Option<&str>,
 ) -> Result<Response, String> {
     imp::request(method, url, headers, body).await
-}
-
-/// Perform a binary request. `content_type` defaults to JSON when a body is
-/// present.
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn request_raw(
-    method: Method,
-    url: &str,
-    headers: &[(&str, &str)],
-    body: Option<&[u8]>,
-    content_type: Option<&str>,
-) -> Result<RawResponse, String> {
-    imp::request_raw(method, url, headers, body, content_type).await
 }
 
 /// A short, service-tagged message for a non-2xx response.
@@ -131,49 +104,5 @@ mod imp {
         let status = response.status().as_u16();
         let body = response.text().await.map_err(|error| error.to_string())?;
         Ok(Response { status, body })
-    }
-
-    pub async fn request_raw(
-        method: Method,
-        url: &str,
-        headers: &[(&str, &str)],
-        body: Option<&[u8]>,
-        content_type: Option<&str>,
-    ) -> Result<super::RawResponse, String> {
-        let method = match method {
-            Method::Get => reqwest::Method::GET,
-            Method::Post => reqwest::Method::POST,
-            Method::Put => reqwest::Method::PUT,
-            Method::Patch => reqwest::Method::PATCH,
-        };
-        let client = reqwest::Client::new();
-        let mut request = client.request(method, url);
-        for (name, value) in headers {
-            request = request.header(*name, *value);
-        }
-        if let Some(bytes) = body {
-            if !headers
-                .iter()
-                .any(|(name, _)| name.eq_ignore_ascii_case("content-type"))
-            {
-                request =
-                    request.header("Content-Type", content_type.unwrap_or("application/json"));
-            }
-            request = request.body(bytes.to_vec());
-        }
-        let mut response = request.send().await.map_err(|error| error.to_string())?;
-        let status = response.status().as_u16();
-        // Stream the body instead of using `bytes()`: the Subsurface cloud
-        // server returns chunked binary responses that reqwest's aggregate
-        // helper can reject on some versions.
-        let mut body = Vec::new();
-        loop {
-            match response.chunk().await {
-                Ok(Some(chunk)) => body.extend_from_slice(&chunk),
-                Ok(None) => break,
-                Err(error) => return Err(error.to_string()),
-            }
-        }
-        Ok(super::RawResponse { status, body })
     }
 }

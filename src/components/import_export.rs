@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::actions;
 use crate::i18n;
-use crate::state::AppState;
+use crate::state::{AppState, ImportMode, PendingImport};
 
 /// Open (replace the log from a file), import (merge a file into the log) and
 /// export (SSRF) controls. Formats are auto-detected from the file name.
@@ -12,9 +12,8 @@ pub fn ImportExport() -> Element {
     let t = i18n::strings((state.prefs)().language);
 
     let on_import = move |evt: Event<FormData>| {
-        let state = state;
+        let mut state = state;
         async move {
-            let mut selected = state.selected;
             let mut status = state.status;
 
             let Some(file) = evt.files().into_iter().next() else {
@@ -25,12 +24,15 @@ pub fn ImportExport() -> Element {
             match file.read_string().await {
                 Ok(text) => match benthic_core::io::parse_named(&name, &text) {
                     Ok(incoming) => {
-                        let (dives, sites) = actions::merge_log(state, incoming);
-                        if selected().is_none() {
-                            let first = (state.log)().dives_recent_first().first().map(|d| d.id);
-                            selected.set(first);
-                        }
-                        status.set(i18n::t3(t.imported, dives, sites, name));
+                        let duplicates = actions::duplicate_dive_ids(&(state.log)(), &incoming);
+                        state.import_review.set(Some(PendingImport {
+                            log: incoming,
+                            file_name: name,
+                            mode: ImportMode::Merge,
+                            duplicates,
+                            fingerprint: None,
+                            nonce: crate::platform::now_secs() as u64,
+                        }));
                     }
                     Err(e) => status.set(i18n::t1(t.import_failed, e)),
                 },
@@ -40,9 +42,8 @@ pub fn ImportExport() -> Element {
     };
 
     let on_open = move |evt: Event<FormData>| {
-        let state = state;
+        let mut state = state;
         async move {
-            let mut selected = state.selected;
             let mut status = state.status;
 
             let Some(file) = evt.files().into_iter().next() else {
@@ -53,9 +54,14 @@ pub fn ImportExport() -> Element {
             match file.read_string().await {
                 Ok(text) => match benthic_core::io::parse_named(&name, &text) {
                     Ok(incoming) => {
-                        let (dives, sites) = actions::open_log(state, incoming);
-                        selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
-                        status.set(i18n::t3(t.opened_file, dives, sites, name));
+                        state.import_review.set(Some(PendingImport {
+                            log: incoming,
+                            file_name: name,
+                            mode: ImportMode::Open,
+                            duplicates: Default::default(),
+                            fingerprint: None,
+                            nonce: crate::platform::now_secs() as u64,
+                        }));
                     }
                     Err(e) => status.set(i18n::t1(t.open_failed, e)),
                 },

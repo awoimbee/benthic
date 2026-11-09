@@ -111,7 +111,7 @@ pub async fn supported() -> bool {
         return false;
     }
     let Ok(api) = api() else { return false };
-    let Ok(function) = Reflect::get(&api, &JsValue::from_str("supported")) else {
+    let Ok(function) = Reflect::get(&api, &JsValue::from_str("serialSupported")) else {
         return false;
     };
     let Ok(function): Result<Function, _> = function.dyn_into() else {
@@ -163,18 +163,21 @@ pub async fn download(
     product: &str,
     transport: u32,
     fingerprint_hex: &str,
+    event_callback: Option<&Function>,
 ) -> Result<WebDownload, String> {
     ensure_loaded().await?;
-    let text = call_string(
-        "downloadJson",
-        &[
-            JsValue::from_str(vendor),
-            JsValue::from_str(product),
-            JsValue::from_f64(transport as f64),
-            JsValue::from_str(fingerprint_hex),
-        ],
-    )
-    .await?;
+    let mut arguments = vec![
+        JsValue::from_str(vendor),
+        JsValue::from_str(product),
+        JsValue::from_f64(transport as f64),
+        JsValue::from_str(fingerprint_hex),
+    ];
+    arguments.push(
+        event_callback
+            .map(|callback| JsValue::from(callback.clone()))
+            .unwrap_or(JsValue::NULL),
+    );
+    let text = call_string("downloadJson", &arguments).await?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 

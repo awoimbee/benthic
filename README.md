@@ -11,8 +11,7 @@ ideas.
 
 * Runs in the browser and on the desktop from one Rust/Dioxus codebase.
 * Local-first: no account, no server, automatic persistence, explicit
-  import/export, optional GitHub sync (web or desktop) or Subsurface cloud
-  sync (desktop).
+  import/export, and optional GitHub sync (web or desktop).
 * Reads and writes Subsurface-compatible XML (`.ssrf`).
 * Deployed from `main` to <https://awoimbee.github.io/benthic/>.
 
@@ -50,6 +49,9 @@ D-Bus (`libdbus-1-dev` / `dbus-1-devel`).
 dx serve                      # web app at http://localhost:8080
 dx serve --platform desktop   # desktop app
 ```
+
+The web dev profile keeps only line-table debug info, which roughly halves
+the wasm binary and speeds up the link/wasm-bindgen step of each rebuild.
 
 Use **Files → Open example logbook** to load the bundled logbook (French wrecks
 such as Le Donator, Le Rubis and U-171, with nitrox, trimix, rebreather and

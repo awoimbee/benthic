@@ -133,15 +133,6 @@ GitHub uses the repository-contents API (the base URL is configurable, so Gitea
 and enterprise hosts work), needs only a personal access token, and is the
 backend offered in production builds.
 
-Subsurface cloud is a normal bare git repository per account, served over smart
-HTTP with Basic auth. The user's email is both the repository and branch name.
-`src/sync/git.rs` implements the small part of the git protocol needed to fetch
-a shallow tip and push one commit; `benthic_core::io::subsurface_git` translates
-Subsurface's text-blob tree to the model. Files benthic does not understand
-(such as filter presets) are carried over unchanged on push. The cloud server
-does not send CORS headers, so this backend is only offered in the desktop
-build; the web build keeps GitHub (and, in development, Google Drive).
-
 Google Drive stores the log in the app's private `appDataFolder` (scope
 `drive.appdata`). It is **only offered in local/development builds**: publishing
 an OAuth app that uses it requires verifying ownership of the registrable

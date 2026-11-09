@@ -5,8 +5,9 @@ use dioxus::prelude::*;
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
-    CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar, MapDialog, PlannerDialog,
-    PreferencesDialog, SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
+    CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar, ImportReviewDialog, MapDialog,
+    PlannerDialog, PreferencesDialog, SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog,
+    WelcomeDialog,
 };
 use crate::routing::{self, Route};
 use crate::state::AppState;
@@ -49,6 +50,7 @@ pub fn App() -> Element {
     let download_available = use_signal(|| true);
     let show_compare = use_signal(|| initial_route == Route::Compare);
     let mut confirm_delete_selected = use_signal(|| false);
+    let import_review = use_signal(|| None::<crate::state::PendingImport>);
     let show_trip = use_signal(|| match initial_route {
         Route::Trip(id) => Some(id),
         _ => None,
@@ -87,6 +89,7 @@ pub fn App() -> Element {
         download_available,
         show_compare,
         confirm_delete_selected,
+        import_review,
         show_trip,
         mobile_detail,
         route,
@@ -316,6 +319,7 @@ pub fn App() -> Element {
         || (show_planner)()
         || (show_compare)()
         || (confirm_delete_selected)()
+        || (import_review)().is_some()
         || (show_sync)()
         || (show_download)();
 
@@ -399,6 +403,9 @@ pub fn App() -> Element {
                 },
                 on_cancel: move |_| confirm_delete_selected.set(false),
             }
+        }
+        if let Some(pending) = (import_review)() {
+            ImportReviewDialog { key: "{pending.nonce}", pending }
         }
         if (show_sync)() {
             SyncDialog {}

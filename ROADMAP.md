@@ -107,8 +107,6 @@ list below).
 - [x] GPX import (dive sites from waypoints and tracks)
 - [ ] Additional importers: UDDF, DL7, Cobalt, Shearwater, Suunto,
       Diving Log, SeaBear, Cochran, ...
-- [x] Subsurface cloud storage (email/password + git smart HTTP)
-- [x] Subsurface git-backed logs (the cloud tree format, read and written)
 - [ ] CSV/HTML/JSON bulk export; Subsurface-compatible export options
 
 ## Phase 4 — Visualization, media and statistics

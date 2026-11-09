@@ -1,7 +1,7 @@
 //! External photo and album links attached to a dive.
 //!
 //! Subsurface stores pictures as filenames. We reuse that field for public
-//! URLs so the links survive SSRF and Subsurface cloud round-trips. Image URLs
+//! URLs so the links survive SSRF round-trips. Image URLs
 //! are rendered inline; Google Photos and iCloud shared albums get an embedded
 //! viewer with an always-available external link because providers may refuse
 //! to be framed.

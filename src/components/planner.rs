@@ -994,13 +994,14 @@ pub fn PlannerDialog() -> Element {
     let has_stops = !stops.is_empty();
     let gas_needed: f64 = plan.gas_uses.iter().map(|gas| gas.used_liters).sum();
 
-    let graph_samples = plan.graph_samples(SURFACE_PRESSURE_MBAR / 1000.0, salinity, rmv_value);
+    let graph_samples =
+        plan.graph_samples_without_tts(SURFACE_PRESSURE_MBAR / 1000.0, salinity, rmv_value);
     let pressure_colors: Vec<String> = plan
         .gas_uses
         .iter()
         .map(|gas| gas_color(&gas_forms, gas.gas).to_string())
         .collect();
-
+    let tts_max = plan.max_tts();
     let graph_dive = Dive {
         max_depth: Some(max_depth),
         duration: Some(plan.total_time()),
@@ -1481,7 +1482,16 @@ pub fn PlannerDialog() -> Element {
 
 
                 div { class: "section-title", "{tr.profile}" }
-                DiveProfile { dive: graph_dive, dc_index: 0, show_all: true, pressure_colors }
+                DiveProfile {
+                    dive: graph_dive,
+                    dc_index: 0,
+                    show_all: true,
+                    pressure_colors,
+                    tts_max: Some(tts_max),
+                    tts_plan: Some(plan.clone()),
+                    tts_surface_bar: SURFACE_PRESSURE_MBAR / 1000.0,
+                    tts_salinity: salinity,
+                }
 
                 if over_mod {
                     p { class: "warn", "{tr.warn_over_mod}" }

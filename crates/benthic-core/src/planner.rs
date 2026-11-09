@@ -11,6 +11,49 @@ use crate::model::{
 };
 use crate::units::*;
 
+/// Upper bound on chart samples, including the planner's waypoints and stops.
+/// Very long or pathological plans are sampled at a coarser interval instead
+/// of emitting one point per minute for hours.
+pub const MAX_GRAPH_SAMPLES: usize = 100;
+
+/// Expand a profile to a bounded number of points, preserving every original
+/// waypoint/stop and adding interpolated points at a common interval.
+fn densify_samples(base: Vec<Sample>, max_samples: usize) -> Vec<Sample> {
+    let Some(first) = base.first().cloned() else {
+        return Vec::new();
+    };
+    let span = base
+        .last()
+        .map(|sample| sample.time.seconds - first.time.seconds)
+        .unwrap_or(0);
+    let budget = max_samples.saturating_sub(base.len());
+    let interval = if budget == 0 || span <= 0 {
+        i32::MAX
+    } else {
+        ((span as f64 / budget as f64).ceil() as i32).max(60)
+    };
+
+    let mut samples = vec![first];
+    for window in base.windows(2) {
+        let (t0, d0) = (window[0].time.seconds, window[0].depth.mm);
+        let (t1, d1) = (window[1].time.seconds, window[1].depth.mm);
+        if t1 - t0 > interval && t1 > t0 {
+            let mut time = t0 + interval;
+            while time < t1 {
+                let fraction = (time - t0) as f64 / (t1 - t0) as f64;
+                samples.push(Sample {
+                    time: Duration::new(time),
+                    depth: Depth::new((d0 as f64 + (d1 - d0) as f64 * fraction).round() as i32),
+                    ..Default::default()
+                });
+                time += interval;
+            }
+        }
+        samples.push(window[1].clone());
+    }
+    samples
+}
+
 /// A gas cylinder the planner may breathe from.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GasSupply {
@@ -68,6 +111,93 @@ pub struct DivePlan {
     /// Per-cylinder gas consumption, when the plan was built from supplies.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gas_uses: Vec<GasUse>,
+}
+
+/// Incremental Bühlmann TTS computation for interactive charts.
+pub struct TtsCalculator {
+    samples: Vec<Sample>,
+    segment: DecoSegment,
+    bottom_mode: BreathingMode,
+    model: Buhlmann,
+    previous_time: i32,
+    previous_depth: f64,
+    next_index: usize,
+    bottom_seconds: i32,
+    total_seconds: i32,
+}
+
+impl TtsCalculator {
+    fn new(plan: &DivePlan, samples: Vec<Sample>, surface_bar: f64, salinity: i32) -> Option<Self> {
+        let DecoModel::Buhlmann { gf_low, gf_high } = plan.deco_model else {
+            return None;
+        };
+        let segment = DecoSegment {
+            points: plan.points.clone(),
+            gf_low,
+            gf_high,
+            stop_step: plan.stop_step,
+            ascent_rate: plan.ascent_rate,
+            gas_switches: plan
+                .gas_switches
+                .iter()
+                .map(|switch| (switch.depth, BreathingMode::OpenCircuit(switch.gas)))
+                .collect(),
+            ..Default::default()
+        };
+        Some(Self {
+            samples,
+            segment,
+            bottom_mode: plan.bottom_mode(),
+            model: Buhlmann::new(surface_bar, salinity),
+            previous_time: 0,
+            previous_depth: 0.0,
+            next_index: 0,
+            bottom_seconds: plan.bottom_time().seconds,
+            total_seconds: plan.total_time().seconds,
+        })
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.next_index >= self.samples.len()
+    }
+
+    /// Compute the next `count` TTS values. The caller can yield between
+    /// batches to keep the UI responsive.
+    pub fn next_batch(&mut self, count: usize) -> Vec<(usize, Option<Duration>)> {
+        let end = self
+            .next_index
+            .saturating_add(count)
+            .min(self.samples.len());
+        let mut out = Vec::with_capacity(end.saturating_sub(self.next_index));
+        for index in self.next_index..end {
+            let time = self.samples[index].time.seconds;
+            let depth = self.samples[index].depth;
+            let elapsed = (time - self.previous_time) as f64 / 60.0;
+            if elapsed > 0.0 {
+                let avg_depth = (self.previous_depth + depth.meters()) / 2.0;
+                self.model.add_segment_mode(
+                    Depth::from_meters(avg_depth),
+                    elapsed,
+                    self.bottom_mode,
+                );
+            }
+            let tts = if depth.mm > 0 {
+                Some(if time >= self.bottom_seconds {
+                    Duration::new((self.total_seconds - time).max(0))
+                } else {
+                    self.model
+                        .time_to_surface(&self.model.tissues, depth, &self.segment)
+                })
+            } else {
+                Some(Duration::ZERO)
+            };
+            out.push((index, tts));
+            self.previous_time = time;
+            self.previous_depth = depth.meters();
+        }
+        self.next_index = end;
+        out
+    }
 }
 
 /// The no-decompression limit for a depth and breathing mode under the chosen
@@ -680,33 +810,15 @@ impl DivePlan {
         samples
     }
 
-    /// Samples for the planner chart, densified to at most one-minute
-    /// intervals and carrying NDL, TTS and decompression-ceiling overlays.
-    pub fn graph_samples(
+    /// Samples for the planner chart without the expensive, tissue-based
+    /// Bühlmann TTS series. NDL, stop depths and pressures are still present.
+    pub fn graph_samples_without_tts(
         &self,
         surface_bar: f64,
         salinity: i32,
         rmv_l_per_min: f64,
     ) -> Vec<Sample> {
-        let base = self.samples();
-        let mut samples = vec![base[0].clone()];
-        for window in base.windows(2) {
-            let (t0, d0) = (window[0].time.seconds, window[0].depth.mm);
-            let (t1, d1) = (window[1].time.seconds, window[1].depth.mm);
-            if t1 - t0 > 60 && t1 > t0 {
-                let mut time = t0 + 60;
-                while time < t1 {
-                    let fraction = (time - t0) as f64 / (t1 - t0) as f64;
-                    samples.push(Sample {
-                        time: Duration::new(time),
-                        depth: Depth::new((d0 as f64 + (d1 - d0) as f64 * fraction).round() as i32),
-                        ..Default::default()
-                    });
-                    time += 60;
-                }
-            }
-            samples.push(window[1].clone());
-        }
+        let mut samples = densify_samples(self.samples(), MAX_GRAPH_SAMPLES);
 
         // Mark the generated stops so the ceiling overlay has data.
         let mut stop_time = self
@@ -732,9 +844,6 @@ impl DivePlan {
 
         match self.deco_model {
             DecoModel::Buhlmann { gf_high, .. } => {
-                let bottom_seconds = self.bottom_time().seconds;
-                let total_seconds = self.total_time().seconds;
-                let ascent_tts = (total_seconds - bottom_seconds).max(0);
                 let mut model = Buhlmann::new(surface_bar, salinity);
                 let mut previous_time = 0;
                 let mut previous_depth = 0.0f64;
@@ -754,17 +863,6 @@ impl DivePlan {
                             gf_high,
                             Duration::new(99 * 60),
                         ));
-                        // During the bottom this is the planned ascent+deco
-                        // time; once ascent starts it counts down through the
-                        // generated schedule.
-                        sample.tts =
-                            Some(Duration::new(if sample.time.seconds >= bottom_seconds {
-                                (total_seconds - sample.time.seconds).max(0)
-                            } else {
-                                ascent_tts
-                            }));
-                    } else {
-                        sample.tts = Some(Duration::ZERO);
                     }
                     previous_time = sample.time.seconds;
                     previous_depth = sample.depth.meters();
@@ -842,6 +940,48 @@ impl DivePlan {
             }
         }
         samples
+    }
+
+    /// Full chart samples including the synchronously computed Bühlmann TTS.
+    /// Prefer [`Self::graph_samples_without_tts`] plus [`Self::tts_calculator`]
+    /// in interactive UIs so the expensive TTS series can be filled in chunks.
+    pub fn graph_samples(
+        &self,
+        surface_bar: f64,
+        salinity: i32,
+        rmv_l_per_min: f64,
+    ) -> Vec<Sample> {
+        let mut samples = self.graph_samples_without_tts(surface_bar, salinity, rmv_l_per_min);
+        if let Some(mut calculator) = self.tts_calculator(surface_bar, salinity, samples.clone()) {
+            while !calculator.is_done() {
+                for (index, tts) in calculator.next_batch(256) {
+                    if let Some(sample) = samples.get_mut(index) {
+                        sample.tts = tts;
+                    }
+                }
+            }
+        }
+        samples
+    }
+
+    /// The largest TTS in the plan. The bottom-time end is where the
+    /// decompression obligation peaks, so it can be shown before the full
+    /// time series is calculated.
+    pub fn max_tts(&self) -> Duration {
+        Duration::new((self.total_time().seconds - self.bottom_time().seconds).max(0))
+    }
+
+    /// Build an incremental TTS calculator for interactive charts.
+    ///
+    /// Returns `None` for VPM-B, whose graph samples already carry a cheap
+    /// ascent-time approximation.
+    pub fn tts_calculator(
+        &self,
+        surface_bar: f64,
+        salinity: i32,
+        samples: Vec<Sample>,
+    ) -> Option<TtsCalculator> {
+        TtsCalculator::new(self, samples, surface_bar, salinity)
     }
 
     fn ascent_mode_at(&self, seconds: i32) -> BreathingMode {
@@ -1581,6 +1721,45 @@ mod tests {
     }
 
     #[test]
+    fn incremental_tts_matches_the_full_graph() {
+        let plan = DivePlan::square(
+            Depth::from_meters(45.0),
+            Duration::from_minutes(15),
+            oc(),
+            DecoModel::Buhlmann {
+                gf_low: 0.85,
+                gf_high: 0.85,
+            },
+            1.01325,
+            EN13319_SALINITY,
+        );
+        let base = plan.graph_samples_without_tts(1.01325, EN13319_SALINITY, 18.0);
+        assert!(base.iter().all(|sample| sample.tts.is_none()));
+        let full = plan.graph_samples(1.01325, EN13319_SALINITY, 18.0);
+        let mut incremental = base;
+        let mut calculator = plan
+            .tts_calculator(1.01325, EN13319_SALINITY, incremental.clone())
+            .expect("Bühlmann calculator");
+        while !calculator.is_done() {
+            for (index, tts) in calculator.next_batch(3) {
+                incremental[index].tts = tts;
+            }
+        }
+        let full_tts: Vec<_> = full.iter().map(|sample| sample.tts).collect();
+        let incremental_tts: Vec<_> = incremental.iter().map(|sample| sample.tts).collect();
+        assert_eq!(incremental_tts, full_tts);
+        assert_eq!(
+            plan.max_tts().seconds,
+            full_tts
+                .into_iter()
+                .flatten()
+                .map(|tts| tts.seconds)
+                .max()
+                .unwrap_or(0)
+        );
+    }
+
+    #[test]
     fn gas_usage_series_is_monotonic_and_matches_the_total() {
         let plan = DivePlan::square(
             Depth::from_meters(30.0),
@@ -1656,5 +1835,57 @@ mod tests {
             .ndl(1.01325, EN13319_SALINITY)
         };
         assert_eq!(make(10), make(40));
+    }
+
+    #[test]
+    fn long_profiles_are_bounded_and_keep_their_endpoints() {
+        let base = vec![
+            Sample {
+                time: Duration::ZERO,
+                ..Default::default()
+            },
+            Sample {
+                time: Duration::new(36_000),
+                depth: Depth::from_meters(30.0),
+                ..Default::default()
+            },
+            Sample {
+                time: Duration::new(72_000),
+                ..Default::default()
+            },
+        ];
+        let samples = densify_samples(base, MAX_GRAPH_SAMPLES);
+        assert!(samples.len() <= MAX_GRAPH_SAMPLES);
+        assert_eq!(samples.first().unwrap().time, Duration::ZERO);
+        assert_eq!(samples.last().unwrap().time, Duration::new(72_000));
+    }
+
+    #[test]
+    fn tts_grows_during_the_bottom() {
+        let plan = DivePlan::square(
+            Depth::from_meters(45.0),
+            Duration::from_minutes(15),
+            oc(),
+            DecoModel::Buhlmann {
+                gf_low: 0.85,
+                gf_high: 0.85,
+            },
+            1.01325,
+            EN13319_SALINITY,
+        );
+        let samples = plan.graph_samples(1.01325, EN13319_SALINITY, 18.0);
+        let at = |seconds| {
+            samples
+                .iter()
+                .find(|sample| sample.time.seconds >= seconds)
+                .and_then(|sample| sample.tts)
+                .expect("TTS")
+        };
+        let early = at(300);
+        let late = at(900);
+        assert!(
+            late.seconds > early.seconds + 300,
+            "TTS should grow through the bottom: {early:?} -> {late:?}"
+        );
     }
 }

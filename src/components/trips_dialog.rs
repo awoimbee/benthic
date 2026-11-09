@@ -55,6 +55,8 @@ pub fn TripsDialog() -> Element {
         .collect();
 
     let empty = trips.is_empty();
+    let selected_count = (state.selection)().len();
+    let mut new_trip_name = use_signal(String::new);
 
     rsx! {
         div {
@@ -69,6 +71,27 @@ pub fn TripsDialog() -> Element {
                 aria_label: "{tr.manage_trips}",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "{tr.manage_trips}" }
+                div { class: "trip-edit-row trip-new-row",
+                    input {
+                        class: "field",
+                        placeholder: "{tr.trip_name_placeholder}",
+                        value: "{new_trip_name}",
+                        oninput: move |evt| new_trip_name.set(evt.value()),
+                    }
+                    button {
+                        class: "btn primary",
+                        onclick: move |_| {
+                            actions::create_trip_with_selection(state, &new_trip_name());
+                            new_trip_name.set(String::new());
+                        },
+                        "{tr.create_trip}"
+                    }
+                    if selected_count > 0 {
+                        span { class: "muted trip-edit-meta",
+                            "{selected_count}"
+                        }
+                    }
+                }
                 if empty {
                     div { class: "muted", "{tr.trips_empty}" }
                 }
@@ -94,6 +117,15 @@ pub fn TripsDialog() -> Element {
                                 option { key: "{id}", value: "{id}", "{name}" }
                             }
                         }
+                        if selected_count > 0 {
+                            button {
+                                class: "btn trip-move-btn",
+                                onclick: move |_| {
+                                    actions::move_selection_to_trip(state, Some(trip.id));
+                                },
+                                "{tr.move_selected_here}"
+                            }
+                        }
                         button {
                             class: "icon-btn",
                             title: "{tr.delete_trip}",
@@ -103,6 +135,13 @@ pub fn TripsDialog() -> Element {
                     }
                 }
                 div { class: "detail-actions",
+                    if selected_count > 0 {
+                        button {
+                            class: "btn",
+                            onclick: move |_| actions::move_selection_to_trip(state, None),
+                            "{tr.detach_from_trip}"
+                        }
+                    }
                     button {
                         class: "btn primary",
                         onclick: move |_| show_trips.set(false),

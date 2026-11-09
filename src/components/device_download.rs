@@ -32,8 +32,21 @@ pub fn DeviceDownloadDialog() -> Element {
     let state = use_context::<AppState>();
     let mut show = state.show_download;
 
-    // The model table is static; enumerate it once.
-    let models = use_signal(|| descriptors().unwrap_or_default());
+    // The model table is static; enumerate it once, with the mock source first.
+    let models = use_signal(|| {
+        let mut list = descriptors().unwrap_or_default();
+        list.insert(
+            0,
+            DeviceDescriptor {
+                vendor: crate::divecomputer::MOCK_VENDOR.to_string(),
+                product: crate::divecomputer::MOCK_PRODUCT.to_string(),
+                family: 0,
+                model: 0,
+                transports: Transport::Serial.bit() | Transport::Ble.bit(),
+            },
+        );
+        list
+    });
     let mut search = use_signal(String::new);
     let mut selected = use_signal(|| None::<DeviceDescriptor>);
     let mut transport = use_signal(|| Transport::Serial);
@@ -75,6 +88,7 @@ pub fn DeviceDownloadDialog() -> Element {
                                 latest_fingerprint,
                                 ..
                             } = downloaded;
+                            let mut review_fingerprint = None;
                             if let (Some(descriptor), Some(device)) = (
                                 (selected)(),
                                 (selected_device)()
@@ -86,20 +100,15 @@ pub fn DeviceDownloadDialog() -> Element {
                                         &descriptor.product,
                                         &device.id.address(),
                                     );
-                                    crate::divecomputer::save_fingerprint(
-                                        &key,
-                                        &latest_fingerprint,
-                                    );
+                                    review_fingerprint = Some((key, latest_fingerprint));
                                 }
                             }
                             let dives: Vec<Dive> = dives.into_iter().map(|d| d.dive).collect();
-                            let (added, skipped) = actions::merge_downloaded(state, dives);
-                            state.set_status(format!(
-                                "Downloaded {added} new dive(s) from the dive computer"
-                            ));
-                            message.set(Some(format!(
-                                "Added {added} dive(s); skipped {skipped} already in the log"
-                            )));
+                            let source = (selected)()
+                                .map(|descriptor| descriptor.name())
+                                .unwrap_or_else(|| "Dive computer".to_string());
+                            show.set(false);
+                            actions::review_downloaded(state, dives, source, review_fingerprint);
                         }
                         Err(error) => message.set(Some(format!("Download failed: {error}"))),
                     }
@@ -113,6 +122,15 @@ pub fn DeviceDownloadDialog() -> Element {
             message.set(Some("Choose a dive computer model first".to_string()));
             return;
         };
+        if crate::divecomputer::is_mock(&descriptor.vendor, &descriptor.product) {
+            devices.set(vec![mock_device()]);
+            selected_device.set(Some(0));
+            message.set(Some(
+                "Mock dive computer ready: 5 generated dives".to_string(),
+            ));
+            scanning.set(false);
+            return;
+        }
         let transport = (transport)();
         scanning.set(true);
         devices.set(Vec::new());
@@ -151,6 +169,13 @@ pub fn DeviceDownloadDialog() -> Element {
             message.set(Some("Choose a dive computer model first".to_string()));
             return;
         };
+        if crate::divecomputer::is_mock(&descriptor.vendor, &descriptor.product) {
+            let dives = crate::divecomputer::mock_dives();
+            let source = descriptor.name();
+            show.set(false);
+            actions::review_downloaded(state, dives, source, None);
+            return;
+        }
         let Some(device) = (selected_device)().and_then(|index| (devices)().get(index).cloned())
         else {
             message.set(Some("Scan and choose a device first".to_string()));
@@ -196,7 +221,6 @@ pub fn DeviceDownloadDialog() -> Element {
     let model_buttons = models_now
         .iter()
         .filter(|model| query.is_empty() || model.name().to_lowercase().contains(&query))
-        .take(200)
         .map(|model| {
             let click_model = model.clone();
             let is_selected = selected_now.as_ref() == Some(model);
@@ -215,15 +239,50 @@ pub fn DeviceDownloadDialog() -> Element {
                         if !supported.contains(&(transport)()) {
                             transport.set(supported.first().copied().unwrap_or(Transport::Serial));
                         }
-                        devices.set(Vec::new());
-                        selected_device.set(None);
-                        message.set(None);
+                        if crate::divecomputer::is_mock(
+                            &click_model.vendor,
+                            &click_model.product,
+                        ) {
+                            devices.set(vec![mock_device()]);
+                            selected_device.set(Some(0));
+                            message.set(Some(
+                                "Mock dive computer ready: 5 generated dives".to_string(),
+                            ));
+                        } else {
+                            devices.set(Vec::new());
+                            selected_device.set(None);
+                            message.set(None);
+                        }
                     },
                     span { "{model.vendor} {model.product}" }
                     span { class: "muted", "{transports}" }
                 }
             }
         });
+
+    let on_forget_history = move |_| {
+        let Some(descriptor) = (selected)() else {
+            message.set(Some("Choose a dive computer model first".to_string()));
+            return;
+        };
+        if crate::divecomputer::is_mock(&descriptor.vendor, &descriptor.product) {
+            return;
+        }
+        let Some(device) = (selected_device)().and_then(|index| (devices)().get(index).cloned())
+        else {
+            message.set(Some("Scan and choose a device first".to_string()));
+            return;
+        };
+        let key = crate::divecomputer::fingerprint_key(
+            &descriptor.vendor,
+            &descriptor.product,
+            &device.id.address(),
+        );
+        crate::divecomputer::save_fingerprint(&key, &[]);
+        message.set(Some(
+            "Download history cleared. Download again to fetch all dives.".to_string(),
+        ));
+    };
 
     let devices_now = (devices)();
     let device_buttons = devices_now.iter().enumerate().map(|(index, device)| {
@@ -300,6 +359,12 @@ pub fn DeviceDownloadDialog() -> Element {
                 }
                 div { class: "detail-actions",
                     button {
+                        class: "btn",
+                        disabled: (downloading)() || (selected)().is_none() || (selected_device)().is_none(),
+                        onclick: on_forget_history,
+                        "Forget download history"
+                    }
+                    button {
                         class: "btn primary",
                         disabled: (downloading)() || (selected)().is_none() || (selected_device)().is_none(),
                         onclick: on_download,
@@ -312,6 +377,13 @@ pub fn DeviceDownloadDialog() -> Element {
                 }
             }
         }
+    }
+}
+
+fn mock_device() -> DiscoveredDevice {
+    DiscoveredDevice {
+        id: DeviceId::Serial("MOCK".to_string()),
+        name: crate::divecomputer::MOCK_PRODUCT.to_string(),
     }
 }
 
