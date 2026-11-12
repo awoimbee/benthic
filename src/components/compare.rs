@@ -12,7 +12,6 @@ use crate::state::AppState;
 #[component]
 pub fn CompareDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show_compare = state.show_compare;
     let log = (state.log)();
     let prefs = (state.prefs)();
     let tr = i18n::strings(prefs.language);
@@ -27,7 +26,7 @@ pub fn CompareDialog() -> Element {
         return rsx! {
             div {
                 class: "modal-backdrop",
-                onclick: move |_| show_compare.set(false),
+                onclick: move |_| state.close_dialog(),
                 div {
                     class: "modal",
                     role: "dialog",
@@ -38,7 +37,7 @@ pub fn CompareDialog() -> Element {
                     h2 { "{tr.compare_dives}" }
                     p { class: "muted", "{tr.compare_hint}" }
                     div { class: "detail-actions",
-                        button { class: "btn primary", onclick: move |_| show_compare.set(false), "{tr.close}" }
+                        button { class: "btn primary", onclick: move |_| state.close_dialog(), "{tr.close}" }
                     }
                 }
             }
@@ -89,7 +88,7 @@ pub fn CompareDialog() -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| show_compare.set(false),
+            onclick: move |_| state.close_dialog(),
             div {
                 class: "modal wide",
                 role: "dialog",
@@ -133,7 +132,7 @@ pub fn CompareDialog() -> Element {
                     }
                 }
                 div { class: "detail-actions",
-                    button { class: "btn primary", onclick: move |_| show_compare.set(false), "{tr.close}" }
+                    button { class: "btn primary", onclick: move |_| state.close_dialog(), "{tr.close}" }
                 }
             }
         }

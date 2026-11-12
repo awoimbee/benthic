@@ -142,11 +142,7 @@ pub fn ImportReviewDialog(pending: PendingImport) -> Element {
         let file_name = pending.file_name.clone();
         let (dives, sites) = actions::merge_log(state, pending.log);
         if (state.selected)().is_none() {
-            let first = (state.log)()
-                .dives_recent_first()
-                .first()
-                .map(|dive| dive.id);
-            state.selected.set(first);
+            state.selected.set((state.log)().newest_dive_id());
         }
         #[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
         if let Some((key, value)) = fingerprint {

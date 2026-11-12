@@ -282,7 +282,6 @@ struct SiteRow {
 #[component]
 pub fn MapDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show_map = state.show_map;
     let mut selected = state.selected;
     let mut mobile_detail = state.mobile_detail;
     let mut selected_site = use_signal(|| None::<u32>);
@@ -314,7 +313,7 @@ pub fn MapDialog() -> Element {
         if let Some(id) = dive_id {
             selected.set(Some(id));
             mobile_detail.set(true);
-            show_map.set(false);
+            state.close_dialog();
             state.set_status(t.opened_from_map);
         } else {
             state.set_status(t.no_dives_at_site);
@@ -342,7 +341,7 @@ pub fn MapDialog() -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| show_map.set(false),
+            onclick: move |_| state.close_dialog(),
             div {
                 class: "modal map-modal",
                 role: "dialog",
@@ -411,7 +410,7 @@ pub fn MapDialog() -> Element {
                 div { class: "detail-actions",
                     button {
                         class: "btn",
-                        onclick: move |_| show_map.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{tr.close}"
                     }
                 }

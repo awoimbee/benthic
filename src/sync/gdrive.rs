@@ -119,19 +119,7 @@ impl GoogleDrive {
             "{}/drive/v3/files?spaces=appDataFolder&q=name%3D'benthic.json'&fields=files(id,version)",
             self.api_base(settings)
         );
-        let authorization = format!("Bearer {}", settings.text("access_token"));
-        let response = http::request(
-            Method::Get,
-            &url,
-            &[("Authorization", authorization.as_str())],
-            None,
-        )
-        .await?;
-        if !response.ok() {
-            return Err(http::error_message("Google Drive", &response));
-        }
-        let body: serde_json::Value =
-            serde_json::from_str(&response.body).map_err(|error| error.to_string())?;
+        let body = json_body(&self.request(settings, Method::Get, &url, None).await?)?;
         let Some(file) = body["files"].as_array().and_then(|files| files.first()) else {
             return Ok(None);
         };
@@ -139,6 +127,33 @@ impl GoogleDrive {
         let version = file["version"].as_str().unwrap_or_default().to_string();
         Ok(Some((id, version)))
     }
+
+    /// Send an authorized Drive request and return the body of a successful
+    /// response.
+    async fn request(
+        &self,
+        settings: &Settings,
+        method: Method,
+        url: &str,
+        body: Option<&str>,
+    ) -> Result<String, String> {
+        let authorization = format!("Bearer {}", settings.text("access_token"));
+        let response = http::request(
+            method,
+            url,
+            &[("Authorization", authorization.as_str())],
+            body,
+        )
+        .await?;
+        if !response.ok() {
+            return Err(http::error_message("Google Drive", &response));
+        }
+        Ok(response.body)
+    }
+}
+
+fn json_body(body: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(body).map_err(|error| error.to_string())
 }
 
 #[async_trait(?Send)]
@@ -234,19 +249,9 @@ impl Backend for GoogleDrive {
             self.api_base(settings),
             id
         );
-        let authorization = format!("Bearer {}", settings.text("access_token"));
-        let response = http::request(
-            Method::Get,
-            &url,
-            &[("Authorization", authorization.as_str())],
-            None,
-        )
-        .await?;
-        if !response.ok() {
-            return Err(http::error_message("Google Drive", &response));
-        }
+        let content = self.request(settings, Method::Get, &url, None).await?;
         Ok(Some(RemoteFile {
-            content: response.body,
+            content,
             revision: version,
         }))
     }
@@ -270,19 +275,10 @@ impl Backend for GoogleDrive {
                     "name": "benthic.json",
                     "parents": ["appDataFolder"],
                 });
-                let authorization = format!("Bearer {}", settings.text("access_token"));
-                let response = http::request(
-                    Method::Post,
-                    &url,
-                    &[("Authorization", authorization.as_str())],
-                    Some(&metadata.to_string()),
-                )
-                .await?;
-                if !response.ok() {
-                    return Err(http::error_message("Google Drive", &response));
-                }
-                let body: serde_json::Value =
-                    serde_json::from_str(&response.body).map_err(|error| error.to_string())?;
+                let response = self
+                    .request(settings, Method::Post, &url, Some(&metadata.to_string()))
+                    .await?;
+                let body = json_body(&response)?;
                 body["id"].as_str().unwrap_or_default().to_string()
             }
         };
@@ -291,19 +287,10 @@ impl Backend for GoogleDrive {
             self.api_base(settings),
             id
         );
-        let authorization = format!("Bearer {}", settings.text("access_token"));
-        let response = http::request(
-            Method::Patch,
-            &url,
-            &[("Authorization", authorization.as_str())],
-            Some(content),
-        )
-        .await?;
-        if !response.ok() {
-            return Err(http::error_message("Google Drive", &response));
-        }
-        let body: serde_json::Value =
-            serde_json::from_str(&response.body).map_err(|error| error.to_string())?;
+        let response = self
+            .request(settings, Method::Patch, &url, Some(content))
+            .await?;
+        let body = json_body(&response)?;
         let version = body["version"].as_str().unwrap_or_default().to_string();
         Ok(RemoteFile {
             content: content.to_string(),

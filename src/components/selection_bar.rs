@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::actions;
 use crate::i18n;
-use crate::state::AppState;
+use crate::state::{AppState, Dialog};
 
 /// The bulk-action bar shown while dives are ticked: a thumb-reachable bottom
 /// bar on phones and a floating bar on wide screens. Keeping the actions here
@@ -41,8 +41,7 @@ pub fn SelectionBar() -> Element {
             button {
                 class: "btn danger",
                 onclick: move |_| {
-                    let mut confirm = state.confirm_delete_selected;
-                    confirm.set(true);
+                    state.open(Dialog::ConfirmDeleteSelected);
                 },
                 {i18n::t1(t.delete_selected_count, selected_count)}
             }

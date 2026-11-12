@@ -4,6 +4,8 @@ mod compare;
 mod confirm;
 #[cfg(feature = "divecomputer")]
 mod device_download;
+#[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
+mod device_download_common;
 #[cfg(target_arch = "wasm32")]
 mod device_download_web;
 mod dive_detail;

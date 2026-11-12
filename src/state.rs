@@ -15,6 +15,56 @@ pub enum ImportMode {
     Download,
 }
 
+/// A modal dialog. Dialogs with a slug also have a URL (see `routing`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dialog {
+    Preferences,
+    Ai,
+    Trips,
+    Map,
+    People,
+    Planner,
+    Sync,
+    Download,
+    Compare,
+    BatchEdit,
+    ConfirmDeleteSelected,
+}
+
+impl Dialog {
+    pub const ROUTABLE: [Dialog; 8] = [
+        Dialog::Preferences,
+        Dialog::Trips,
+        Dialog::Map,
+        Dialog::People,
+        Dialog::Planner,
+        Dialog::Sync,
+        Dialog::Download,
+        Dialog::Compare,
+    ];
+
+    /// The URL path segment, for dialogs that have an address.
+    pub fn slug(self) -> Option<&'static str> {
+        Some(match self {
+            Dialog::Preferences => "preferences",
+            Dialog::Trips => "trips",
+            Dialog::Map => "map",
+            Dialog::People => "people",
+            Dialog::Planner => "planner",
+            Dialog::Sync => "sync",
+            Dialog::Download => "download",
+            Dialog::Compare => "compare",
+            Dialog::Ai | Dialog::BatchEdit | Dialog::ConfirmDeleteSelected => return None,
+        })
+    }
+
+    pub fn from_slug(slug: &str) -> Option<Dialog> {
+        Dialog::ROUTABLE
+            .into_iter()
+            .find(|dialog| dialog.slug() == Some(slug))
+    }
+}
+
 /// A parsed file waiting for the user to choose which dives to import.
 #[derive(Clone, PartialEq)]
 pub struct PendingImport {
@@ -50,36 +100,15 @@ pub struct AppState {
     pub show_filters: Signal<bool>,
     /// Display preferences (units, ...).
     pub prefs: Signal<Preferences>,
-    /// Whether the preferences dialog is open.
-    pub show_prefs: Signal<bool>,
-    /// Whether the AI assistant dialog is open.
-    pub show_ai: Signal<bool>,
-    /// Whether the trips manager is open.
-    pub show_trips: Signal<bool>,
-    /// Whether the dive-site map is open.
-    pub show_map: Signal<bool>,
-    /// Whether the people & gear manager is open.
-    pub show_people: Signal<bool>,
+    /// The open modal dialog, if any. Only one is open at a time.
+    pub dialog: Signal<Option<Dialog>>,
     /// Coordinates the site map should centre on when it opens, if any.
     pub map_focus: Signal<Option<(f64, f64)>>,
-    /// Whether the dive planner is open.
-    pub show_planner: Signal<bool>,
-    /// Whether the remote-sync dialog is open.
-    pub show_sync: Signal<bool>,
-    /// Whether the dive-computer download dialog is open.
-    #[cfg_attr(not(feature = "divecomputer"), allow(dead_code))]
-    pub show_download: Signal<bool>,
     /// Whether this platform can talk to a dive computer at all (Web
     /// Serial/Bluetooth detected, or a native build). Drives whether the
     /// Download button is offered.
     #[allow(dead_code)]
     pub download_available: Signal<bool>,
-    /// Whether the two-dive comparison is open.
-    pub show_compare: Signal<bool>,
-    /// Whether the bulk-delete confirmation is open.
-    pub confirm_delete_selected: Signal<bool>,
-    /// Whether the batch-edit dialog is open.
-    pub show_batch_edit: Signal<bool>,
     /// A parsed file awaiting per-dive import selection.
     pub import_review: Signal<Option<PendingImport>>,
     /// The trip currently shown in the trip view, if any.
@@ -117,35 +146,23 @@ impl AppState {
 
     /// Undo the most recent command, if any.
     pub fn undo(&self) {
-        if !self.can_undo() {
-            return;
-        }
-        let mut log = self.log;
-        let mut history = self.history;
-        let mut status = self.status;
-        let mut snapshot = log();
-        let mut pending = history();
-        if let Some(label) = pending.undo(&mut snapshot) {
-            log.set(snapshot);
-            history.set(pending);
-            status.set(format!("Undid: {label}"));
-        }
+        self.step_history(History::undo, self.strings().undid);
     }
 
     /// Redo the most recently undone command, if any.
     pub fn redo(&self) {
-        if !self.can_redo() {
-            return;
-        }
+        self.step_history(History::redo, self.strings().redid);
+    }
+
+    fn step_history(&self, step: fn(&mut History, &mut DiveLog) -> Option<String>, template: &str) {
         let mut log = self.log;
         let mut history = self.history;
-        let mut status = self.status;
         let mut snapshot = log();
         let mut pending = history();
-        if let Some(label) = pending.redo(&mut snapshot) {
+        if let Some(label) = step(&mut pending, &mut snapshot) {
             log.set(snapshot);
             history.set(pending);
-            status.set(format!("Redid: {label}"));
+            self.set_status(i18n::t1(template, label));
         }
     }
 
@@ -157,15 +174,19 @@ impl AppState {
         (self.history)().can_redo()
     }
 
-    /// Snapshot of the currently selected dive.
-    #[allow(dead_code)]
-    pub fn selected_dive(&self) -> Option<benthic_core::Dive> {
-        let id = (self.selected)()?;
-        (self.log)().dive_by_id(id).cloned()
+    /// Open `dialog`, replacing any open one.
+    pub fn open(&self, dialog: Dialog) {
+        let mut open = self.dialog;
+        open.set(Some(dialog));
+    }
+
+    /// Close the open dialog.
+    pub fn close_dialog(&self) {
+        let mut open = self.dialog;
+        open.set(None);
     }
 
     /// Replace the status message.
-    #[allow(dead_code)]
     pub fn set_status(&self, message: impl Into<String>) {
         let mut status = self.status;
         status.set(message.into());

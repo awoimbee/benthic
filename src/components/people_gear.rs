@@ -21,7 +21,6 @@ enum Tab {
 #[component]
 pub fn PeopleGearDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show_people = state.show_people;
     let log = (state.log)();
     let prefs = (state.prefs)();
     let tr = i18n::strings(prefs.language);
@@ -65,7 +64,7 @@ pub fn PeopleGearDialog() -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| show_people.set(false),
+            onclick: move |_| state.close_dialog(),
             div {
                 class: "modal wide",
                 role: "dialog",
@@ -215,7 +214,7 @@ pub fn PeopleGearDialog() -> Element {
                 div { class: "detail-actions",
                     button {
                         class: "btn primary",
-                        onclick: move |_| show_people.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{tr.done}"
                     }
                 }

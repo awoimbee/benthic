@@ -57,13 +57,13 @@ pub fn DiveProfile(
     let has_deco = available.ceiling;
     let has_tts = available.tts || tts_max.is_some_and(|tts| tts.seconds > 0);
 
-    let mut show_pressure = use_signal(|| has_pressure);
-    let mut show_temp = use_signal(|| false);
-    let mut show_ndl = use_signal(|| show_all && available.ndl);
-    let mut show_tts = use_signal(|| show_all && has_tts);
-    let mut show_heart = use_signal(|| false);
-    let mut show_cns = use_signal(|| false);
-    let mut show_deco = use_signal(|| has_deco);
+    let mut overlays_on = use_signal(|| Overlays {
+        pressure: has_pressure,
+        ndl: show_all && available.ndl,
+        tts: show_all && has_tts,
+        deco: has_deco,
+        ..Default::default()
+    });
     let mut cursor = use_signal(|| 0usize);
     let mut zoom = use_signal(|| 1.0f64);
     let mut pan = use_signal(|| 0.5f64);
@@ -335,13 +335,15 @@ pub fn DiveProfile(
         win_start,
         win_end,
     );
-    let pressure_on = (show_pressure)();
-    let temp_on = (show_temp)();
-    let ndl_on = (show_ndl)();
-    let tts_on = (show_tts)();
-    let heart_on = (show_heart)();
-    let cns_on = (show_cns)();
-    let deco_on = (show_deco)();
+    let Overlays {
+        pressure: pressure_on,
+        temp: temp_on,
+        ndl: ndl_on,
+        tts: tts_on,
+        heart: heart_on,
+        cns: cns_on,
+        deco: deco_on,
+    } = overlays_on();
 
     // Vertical scales: depth on the left, one column per active overlay on the
     // right. Each tick is `(y percent, style, label)`.
@@ -894,31 +896,17 @@ pub fn DiveProfile(
                         }
                     }
                 }
-                div { class: "axis-rail axis-right",
-                    for (i, (name, name_style, ticks)) in right_axes.iter().enumerate() {
-                        div { key: "axis-{i}", class: "axis-scale",
-                            span { class: "axis-name", style: "{name_style}", "{name}" }
-                            for (j, (_, style, label)) in ticks.iter().enumerate() {
-                                span {
-                                    key: "tick-{i}-{j}",
-                                    class: "axis-label",
-                                    style: "{style}",
-                                    "{label}"
-                                }
-                            }
-                        }
-                    }
-                }
+                AxisRail { axes: right_axes }
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: tr.tip_pressure, onclick: move |_| show_pressure.set(!pressure_on) }
-                Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: tr.tip_temperature, onclick: move |_| show_temp.set(!temp_on) }
-                Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: tr.tip_ndl_toggle, onclick: move |_| show_ndl.set(!ndl_on) }
-                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !has_tts, title: tr.tip_tts, onclick: move |_| show_tts.set(!tts_on) }
-                Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: tr.tip_heart, onclick: move |_| show_heart.set(!heart_on) }
-                Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: tr.tip_cns, onclick: move |_| show_cns.set(!cns_on) }
-                Toggle { label: tr.deco, color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: tr.tip_deco_toggle, onclick: move |_| show_deco.set(!deco_on) }
+                Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: tr.tip_pressure, onclick: move |_| overlays_on.write().pressure ^= true }
+                Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: tr.tip_temperature, onclick: move |_| overlays_on.write().temp ^= true }
+                Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: tr.tip_ndl_toggle, onclick: move |_| overlays_on.write().ndl ^= true }
+                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !has_tts, title: tr.tip_tts, onclick: move |_| overlays_on.write().tts ^= true }
+                Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: tr.tip_heart, onclick: move |_| overlays_on.write().heart ^= true }
+                Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: tr.tip_cns, onclick: move |_| overlays_on.write().cns ^= true }
+                Toggle { label: tr.deco, color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: tr.tip_deco_toggle, onclick: move |_| overlays_on.write().deco ^= true }
                 if let Some(add_event) = on_add_event {
                     button {
                         class: "btn profile-add-event",
@@ -985,6 +973,40 @@ pub fn DiveProfile(
                         drag.set(None);
                         hover.set(None);
                     },
+                }
+            }
+        }
+    }
+}
+
+/// Which overlays are shown on the profile.
+#[derive(Clone, Copy, Default, PartialEq)]
+struct Overlays {
+    pressure: bool,
+    temp: bool,
+    ndl: bool,
+    tts: bool,
+    heart: bool,
+    cns: bool,
+    deco: bool,
+}
+
+/// One colour-coded value scale per active overlay, right of the plot.
+#[component]
+fn AxisRail(axes: Vec<(&'static str, String, Vec<Tick>)>) -> Element {
+    rsx! {
+        div { class: "axis-rail axis-right",
+            for (i, (name, name_style, ticks)) in axes.iter().enumerate() {
+                div { key: "axis-{i}", class: "axis-scale",
+                    span { class: "axis-name", style: "{name_style}", "{name}" }
+                    for (j, (_, style, label)) in ticks.iter().enumerate() {
+                        span {
+                            key: "tick-{i}-{j}",
+                            class: "axis-label",
+                            style: "{style}",
+                            "{label}"
+                        }
+                    }
                 }
             }
         }

@@ -56,12 +56,7 @@ pub fn DiveList() -> Element {
     let mut freedive_days: std::collections::BTreeMap<String, Vec<&benthic_core::Dive>> =
         Default::default();
     for dive in &filtered {
-        if dive.is_freedive() {
-            let day = benthic_core::format_timestamp_utc(dive.when)
-                .split(' ')
-                .next()
-                .unwrap_or("")
-                .to_string();
+        if let Some(day) = freedive_day(dive) {
             freedive_days.entry(day).or_default().push(dive);
         }
     }
@@ -114,17 +109,7 @@ pub fn DiveList() -> Element {
     let mut rows: Vec<Row> = Vec::new();
     let mut seen_trips: std::collections::HashSet<u32> = Default::default();
     for (index, dive) in filtered.iter().enumerate() {
-        let day = if dive.is_freedive() {
-            Some(
-                benthic_core::format_timestamp_utc(dive.when)
-                    .split(' ')
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
-            )
-        } else {
-            None
-        };
+        let day = freedive_day(dive);
         if let Some(day) = day.as_ref().filter(|day| grouped_days.contains(*day)) {
             if seen_freedive_days.insert(day.clone()) {
                 let dives = &freedive_days[day];
@@ -391,4 +376,13 @@ pub fn DiveList() -> Element {
             }
         }
     }
+}
+
+/// The UTC calendar day (`YYYY-MM-DD`) of a freedive, used to group a day's
+/// freedives into one row; `None` for other dives.
+fn freedive_day(dive: &benthic_core::Dive) -> Option<String> {
+    dive.is_freedive().then(|| {
+        let stamp = benthic_core::format_timestamp_utc(dive.when);
+        stamp.split(' ').next().unwrap_or("").to_string()
+    })
 }

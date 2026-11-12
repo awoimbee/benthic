@@ -107,11 +107,21 @@ async fn call_string(method: &str, args: &[JsValue]) -> Result<String, String> {
 
 /// Whether the browser exposes WebSerial.
 pub async fn supported() -> bool {
+    probe("serialSupported").await
+}
+
+/// Whether the browser exposes Web Bluetooth.
+pub async fn bluetooth_supported() -> bool {
+    probe("bluetoothSupported").await
+}
+
+/// Call a synchronous, argument-less feature probe on the JS API.
+async fn probe(method: &str) -> bool {
     if ensure_loaded().await.is_err() {
         return false;
     }
     let Ok(api) = api() else { return false };
-    let Ok(function) = Reflect::get(&api, &JsValue::from_str("serialSupported")) else {
+    let Ok(function) = Reflect::get(&api, &JsValue::from_str(method)) else {
         return false;
     };
     let Ok(function): Result<Function, _> = function.dyn_into() else {
@@ -128,24 +138,6 @@ pub async fn descriptors() -> Result<Vec<WebModel>, String> {
     ensure_loaded().await?;
     let text = call_string("descriptorsJson", &[]).await?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
-}
-
-/// Whether the browser exposes Web Bluetooth.
-pub async fn bluetooth_supported() -> bool {
-    if ensure_loaded().await.is_err() {
-        return false;
-    }
-    let Ok(api) = api() else { return false };
-    let Ok(function) = Reflect::get(&api, &JsValue::from_str("bluetoothSupported")) else {
-        return false;
-    };
-    let Ok(function): Result<Function, _> = function.dyn_into() else {
-        return false;
-    };
-    function
-        .call0(&api)
-        .map(|value| value.is_truthy())
-        .unwrap_or(false)
 }
 
 /// Prompt the user to choose a device (must run from a user gesture).

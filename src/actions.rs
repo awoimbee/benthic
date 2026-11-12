@@ -7,7 +7,7 @@ use benthic_core::{Command, Dive, DivePlan, DiveTrip, GearItem, GearKind, Person
 use dioxus::prelude::WritableExt;
 
 use crate::i18n;
-use crate::state::{AppState, ImportMode, PendingImport};
+use crate::state::{AppState, Dialog, ImportMode, PendingImport};
 
 /// The example logbook shipped inside the binary, so the app can offer sample
 /// data without a file dialog.
@@ -20,66 +20,39 @@ pub const AUTOGROUP_MAX_GAP_DAYS: i64 = 3;
 /// duplicates.
 pub const SITE_DEDUP_RADIUS_M: f64 = 500.0;
 
-/// Seed the people/gear catalog from dive history.
-///
-/// Runs once per log (and for freshly imported files), so names from older
-/// versions or Subsurface XML show up in the global lists without resurrecting
-/// entries the user deleted afterwards.
-pub fn seed_catalog(log: &mut benthic_core::DiveLog) {
-    if log.catalog_version >= benthic_core::CATALOG_VERSION {
-        return;
-    }
-    log.adopt_untracked_entries();
-    log.catalog_version = benthic_core::CATALOG_VERSION;
+/// Append `dive` with a fresh id and number as one undo step, and select it.
+fn add_and_select(state: AppState, mut dive: Dive, status: &str) {
+    let log = (state.log)();
+    dive.id = log.next_id();
+    dive.number = log.next_number();
+    let id = dive.id;
+    state.dispatch(Command::AddDive {
+        dive,
+        index: log.dives.len(),
+    });
+    let mut selected = state.selected;
+    selected.set(Some(id));
+    let mut show_trip = state.show_trip;
+    show_trip.set(None);
+    state.set_status(status);
 }
 
 /// Create an empty, manually-entered dive, select it, and open the editor.
 pub fn new_dive(state: AppState) {
-    let log = (state.log)();
     let mut dive = Dive::manual(crate::platform::now_secs());
-    dive.id = log.next_id();
-    dive.number = log.dives.iter().map(|d| d.number).max().unwrap_or(0) + 1;
     dive.salinity = Some((state.prefs)().default_salinity.value());
-    let index = log.dives.len();
-    state.dispatch(Command::AddDive {
-        dive: dive.clone(),
-        index,
-    });
-    let mut selected = state.selected;
-    selected.set(Some(dive.id));
-    let mut show_trip = state.show_trip;
-    show_trip.set(None);
-    state.set_status(state.strings().added_dive);
+    add_and_select(state, dive, state.strings().added_dive);
 }
 
 /// Duplicate a dive, assigning it a fresh id and number.
 pub fn duplicate_dive(state: AppState, id: u32) {
-    let log = (state.log)();
-    let Some(original) = log.dive_by_id(id).cloned() else {
+    let Some(mut copy) = (state.log)().dive_by_id(id).cloned() else {
         return;
     };
-    let mut copy = original;
-    copy.id = log.next_id();
-    copy.number = log.dives.iter().map(|d| d.number).max().unwrap_or(0) + 1;
-    copy.computers = copy
-        .computers
-        .iter()
-        .map(|dc| {
-            let mut dc = dc.clone();
-            dc.dive_id = 0;
-            dc
-        })
-        .collect();
-    let index = log.dives.len();
-    state.dispatch(Command::AddDive {
-        dive: copy.clone(),
-        index,
-    });
-    let mut selected = state.selected;
-    selected.set(Some(copy.id));
-    let mut show_trip = state.show_trip;
-    show_trip.set(None);
-    state.set_status(state.strings().duplicated_dive);
+    for computer in &mut copy.computers {
+        computer.dive_id = 0;
+    }
+    add_and_select(state, copy, state.strings().duplicated_dive);
 }
 
 /// Delete a dive and select a neighbour.
@@ -124,7 +97,7 @@ pub fn delete_selected(state: AppState) {
 
     let mut selected = state.selected;
     if selected().is_some_and(|id| ids.contains(&id)) {
-        selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
+        selected.set((state.log)().newest_dive_id());
     }
     state.set_status(i18n::t1(state.strings().deleted_dives, ids.len()));
 }
@@ -160,16 +133,14 @@ pub fn open_batch_edit(state: AppState) {
     if (state.selection)().is_empty() {
         return;
     }
-    let mut show = state.show_batch_edit;
-    show.set(true);
+    state.open(Dialog::BatchEdit);
 }
 
 /// Apply a batch edit to every ticked dive as one undo step.
 pub fn apply_batch_edit(state: AppState, edit: BatchEdit) {
     let ids: std::collections::BTreeSet<u32> = (state.selection)().iter().copied().collect();
     if ids.is_empty() || edit.is_empty() {
-        let mut show = state.show_batch_edit;
-        show.set(false);
+        state.close_dialog();
         return;
     }
     let log = (state.log)();
@@ -209,16 +180,14 @@ pub fn apply_batch_edit(state: AppState, edit: BatchEdit) {
         }
     }
     if commands.is_empty() {
-        let mut show = state.show_batch_edit;
-        show.set(false);
+        state.close_dialog();
         return;
     }
     let count = commands.len();
     state.dispatch_all(i18n::t1(state.strings().undo_batch_edit, count), commands);
     let mut selection = state.selection;
     selection.write().clear();
-    let mut show = state.show_batch_edit;
-    show.set(false);
+    state.close_dialog();
     state.set_status(i18n::t1(state.strings().edited_dives, count));
 }
 
@@ -374,14 +343,8 @@ pub fn restore_backup(state: AppState) {
         return;
     };
     match benthic_core::io::parse_auto(&text) {
-        Ok(mut parsed) => {
-            parsed.number_missing_dives();
-            let before = (state.log)();
-            state.dispatch(Command::Snapshot {
-                label: state.strings().undo_restore_backup.into(),
-                before: Box::new(before),
-                after: Box::new(parsed),
-            });
+        Ok(parsed) => {
+            replace_log(state, parsed, state.strings().undo_restore_backup);
             state.set_status(state.strings().restored_backup);
         }
         Err(e) => state.set_status(i18n::t1(state.strings().backup_unreadable, e)),
@@ -400,14 +363,12 @@ pub fn export_ssrf(state: AppState) {
 
 /// Open the preferences dialog.
 pub fn open_preferences(state: AppState) {
-    let mut show = state.show_prefs;
-    show.set(true);
+    state.open(Dialog::Preferences);
 }
 
 /// Open the trips manager dialog.
 pub fn open_trips(state: AppState) {
-    let mut show = state.show_trips;
-    show.set(true);
+    state.open(Dialog::Trips);
 }
 
 /// Add a person to the global list. Empty and duplicate names are ignored.
@@ -509,33 +470,19 @@ pub fn delete_gear(state: AppState, id: u32) {
 
 /// Open the dive planner dialog.
 pub fn open_planner(state: AppState) {
-    let mut show = state.show_planner;
-    show.set(true);
+    state.open(Dialog::Planner);
 }
 
 /// Open the two-dive comparison dialog.
 pub fn open_compare(state: AppState) {
-    let mut show = state.show_compare;
-    show.set(true);
+    state.open(Dialog::Compare);
 }
 
 /// Save a computed plan as a new dive.
 pub fn save_plan(state: AppState, plan: DivePlan) {
-    let log = (state.log)();
     let salinity = (state.prefs)().default_salinity.value();
-    let mut dive = plan.to_dive(crate::platform::now_secs(), salinity);
-    dive.id = log.next_id();
-    dive.number = log.dives.iter().map(|d| d.number).max().unwrap_or(0) + 1;
-    let index = log.dives.len();
-    state.dispatch(Command::AddDive {
-        dive: dive.clone(),
-        index,
-    });
-    let mut selected = state.selected;
-    selected.set(Some(dive.id));
-    let mut show_trip = state.show_trip;
-    show_trip.set(None);
-    state.set_status(state.strings().saved_plan);
+    let dive = plan.to_dive(crate::platform::now_secs(), salinity);
+    add_and_select(state, dive, state.strings().saved_plan);
 }
 
 /// Merge the `remove` trip into the `keep` trip as one undo step.
@@ -672,40 +619,46 @@ pub fn review_downloaded(
     count
 }
 
-/// Replace the entire log with an imported one as a single undoable step.
+/// Replace the whole log as one undoable step and select its newest dive.
 ///
-/// This backs the "open" action: the current log (and the autosaved copy,
-/// which is rewritten on the next autosave) is discarded in favour of the
-/// file's contents. The previous log stays on the undo stack and in the
-/// automatic backup, so an accidental open is recoverable.
-pub fn open_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {
-    incoming.fixup_all();
-    incoming.number_missing_dives();
-    seed_catalog(&mut incoming);
+/// Backs "open file", the example logbook, backup restore and sync pull. The
+/// previous log stays on the undo stack and in the automatic backup, so an
+/// accidental replace is recoverable.
+pub fn replace_log(
+    state: AppState,
+    mut incoming: benthic_core::DiveLog,
+    label: impl Into<String>,
+) -> usize {
+    incoming.prepare();
     let dives = incoming.dives.len();
-    let sites = incoming.sites.len();
+    let newest = incoming.newest_dive_id();
     let before = (state.log)();
     let mut filter = state.filter;
     let mut selection = state.selection;
+    let mut selected = state.selected;
     filter.set(benthic_core::DiveFilter::default());
     selection.write().clear();
     state.dispatch(Command::Snapshot {
-        label: i18n::t2(state.strings().undo_open, dives, sites),
+        label: label.into(),
         before: Box::new(before),
         after: Box::new(incoming),
     });
-    (dives, sites)
+    selected.set(newest);
+    dives
 }
 
-/// Replace the log with the bundled example logbook as one undoable step, and
-/// select the most recent dive.
+/// Replace the log with an opened file. Returns the dive and site counts.
+pub fn open_log(state: AppState, incoming: benthic_core::DiveLog) -> (usize, usize) {
+    let sites = incoming.sites.len();
+    let label = i18n::t2(state.strings().undo_open, incoming.dives.len(), sites);
+    (replace_log(state, incoming, label), sites)
+}
+
+/// Replace the log with the bundled example logbook.
 pub fn open_example_log(state: AppState) {
     match benthic_core::io::parse_auto(EXAMPLE_LOG) {
         Ok(parsed) => {
-            let dives = parsed.dives.len();
-            open_log(state, parsed);
-            let mut selected = state.selected;
-            selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
+            let (dives, _) = open_log(state, parsed);
             state.set_status(i18n::t1(state.strings().loaded_demo, dives));
         }
         Err(error) => state.set_status(i18n::t1(state.strings().demo_failed, error)),
@@ -716,14 +669,13 @@ pub fn open_example_log(state: AppState) {
 /// Returns the number of dives and sites added.
 pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {
     incoming.fixup_all();
-    seed_catalog(&mut incoming);
+    incoming.seed_catalog();
     let dives = incoming.dives.len();
     let sites = incoming.sites.len();
     let before = (state.log)();
     let mut after = before.clone();
     after.merge(incoming);
-    after.number_missing_dives();
-    seed_catalog(&mut after);
+    after.prepare();
     state.dispatch(Command::Snapshot {
         label: i18n::t2(state.strings().undo_import, dives, sites),
         before: Box::new(before),

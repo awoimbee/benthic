@@ -12,7 +12,6 @@ use crate::state::AppState;
 #[component]
 pub fn BatchEditDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show = state.show_batch_edit;
     let log = (state.log)();
     let tr = i18n::strings((state.prefs)().language);
     let count = (state.selection)().len();
@@ -63,7 +62,7 @@ pub fn BatchEditDialog() -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| show.set(false),
+            onclick: move |_| state.close_dialog(),
             div {
                 class: "modal wide",
                 role: "dialog",
@@ -147,7 +146,7 @@ pub fn BatchEditDialog() -> Element {
                     button {
                         class: "btn",
                         r#type: "button",
-                        onclick: move |_| show.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{tr.cancel}"
                     }
                 }

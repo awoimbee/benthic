@@ -35,7 +35,8 @@ use backend::Settings;
 /// Settings are kept per backend so switching between services never discards
 /// the other's tokens. The file name and revision bookkeeping are separate
 /// ([`SyncState`]) because they are backend-independent.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SyncConfig {
     /// Id of the selected backend (see [`backend::all`]).
     pub provider: String,
@@ -78,121 +79,17 @@ impl SyncConfig {
     }
 }
 
-// `SyncConfig` is deserialized by hand so old flat configs keep working.
-impl<'de> Deserialize<'de> for SyncConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        Ok(from_value(value))
-    }
-}
-
-/// True for the provider names used before the backend registry existed.
-fn is_legacy_provider(provider: &str) -> bool {
-    matches!(provider, "GitHub" | "GoogleDrive")
-}
-
-fn from_value(value: serde_json::Value) -> SyncConfig {
-    let provider = value.get("provider").and_then(|p| p.as_str()).unwrap_or("");
-    if is_legacy_provider(provider) {
-        if let Ok(legacy) = serde_json::from_value::<LegacyConfig>(value.clone()) {
-            return legacy.into();
-        }
-    }
-    #[derive(Deserialize)]
-    struct Fresh {
-        #[serde(default)]
-        provider: String,
-        #[serde(default)]
-        settings: BTreeMap<String, Settings>,
-    }
-    let fresh: Fresh = serde_json::from_value(value).unwrap_or(Fresh {
-        provider: String::new(),
-        settings: BTreeMap::new(),
-    });
-    let mut config = SyncConfig {
-        provider: fresh.provider,
-        settings: fresh.settings,
-    };
+/// The stored sync configuration, or the default.
+pub fn load_config() -> SyncConfig {
+    let mut config: SyncConfig = crate::storage::load_sync()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    // Fall back when the stored backend is not offered by this build (Drive
+    // is development-only).
     if backend::all().iter().all(|b| b.id() != config.provider) {
-        config.provider = backend::all()[0].id().to_string();
+        config.provider = SyncConfig::default().provider;
     }
     config
-}
-
-/// The configuration format used before the backend registry.
-#[derive(Debug, Default, Deserialize)]
-struct LegacyConfig {
-    #[serde(default)]
-    provider: String,
-    #[serde(default)]
-    base_url: String,
-    #[serde(default)]
-    repo: String,
-    #[serde(default)]
-    path: String,
-    #[serde(default)]
-    branch: String,
-    #[serde(default)]
-    token: String,
-    #[serde(default)]
-    client_id: String,
-    #[serde(default)]
-    token_expiry: i64,
-    #[serde(default)]
-    file_id: String,
-}
-
-impl From<LegacyConfig> for SyncConfig {
-    fn from(legacy: LegacyConfig) -> Self {
-        let mut config = SyncConfig::default();
-        if legacy.provider == "GoogleDrive" {
-            config.provider = "gdrive".to_string();
-            let settings = config.settings_mut();
-            if !legacy.client_id.is_empty() {
-                settings.set("client_id", legacy.client_id);
-            }
-            if !legacy.token.is_empty() {
-                settings.set("access_token", legacy.token);
-            }
-            if legacy.token_expiry != 0 {
-                settings.set("expires_at", legacy.token_expiry);
-            }
-            if !legacy.file_id.is_empty() {
-                settings.set("file_id", legacy.file_id);
-            }
-            if !legacy.base_url.is_empty() {
-                settings.set("base_url", legacy.base_url);
-            }
-        } else {
-            config.provider = "github".to_string();
-            let settings = config.settings_mut();
-            if !legacy.repo.is_empty() {
-                settings.set("repo", legacy.repo);
-            }
-            if !legacy.path.is_empty() {
-                settings.set("path", legacy.path);
-            }
-            if !legacy.branch.is_empty() {
-                settings.set("branch", legacy.branch);
-            }
-            if !legacy.token.is_empty() {
-                settings.set("token", legacy.token);
-            }
-            if !legacy.base_url.is_empty() {
-                settings.set("base_url", legacy.base_url);
-            }
-        }
-        config
-    }
-}
-
-pub fn load_config() -> SyncConfig {
-    crate::storage::load_sync()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
 }
 
 pub fn save_config(config: &SyncConfig) {
@@ -256,7 +153,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn round_trips_the_new_format() {
+    fn round_trips() {
         let mut config = SyncConfig {
             provider: "gdrive".to_string(),
             ..SyncConfig::default()
@@ -264,34 +161,5 @@ mod tests {
         config.settings_mut().set("file_id", "abc");
         let text = serde_json::to_string(&config).unwrap();
         assert_eq!(serde_json::from_str::<SyncConfig>(&text).unwrap(), config);
-    }
-
-    #[test]
-    fn migrates_a_legacy_github_config() {
-        let legacy = r#"{"provider":"GitHub","base_url":"","repo":"me/dives","path":"benthic.json","branch":"main","token":"tok","client_id":"","token_expiry":0,"file_id":""}"#;
-        let config: SyncConfig = serde_json::from_str(legacy).unwrap();
-        assert_eq!(config.provider, "github");
-        let settings = config.settings();
-        assert_eq!(settings.text("repo"), "me/dives");
-        assert_eq!(settings.text("token"), "tok");
-        assert_eq!(settings.text("branch"), "main");
-    }
-
-    #[test]
-    fn migrates_a_legacy_drive_config() {
-        let legacy = r#"{"provider":"GoogleDrive","base_url":"","repo":"","path":"","branch":"","token":"access","client_id":"cid","token_expiry":123,"file_id":"fid"}"#;
-        let config: SyncConfig = serde_json::from_str(legacy).unwrap();
-        assert_eq!(config.provider, "gdrive");
-        let settings = config.settings();
-        assert_eq!(settings.text("client_id"), "cid");
-        assert_eq!(settings.text("access_token"), "access");
-        assert_eq!(settings.i64("expires_at"), 123);
-        assert_eq!(settings.text("file_id"), "fid");
-    }
-
-    #[test]
-    fn unknown_providers_fall_back_to_the_first_backend() {
-        let config: SyncConfig = serde_json::from_str(r#"{"provider":"ftp"}"#).unwrap();
-        assert_eq!(config.provider, backend::all()[0].id());
     }
 }

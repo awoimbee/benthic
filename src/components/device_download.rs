@@ -16,7 +16,11 @@ use benthic_divecomputer::{
     Download, Transport,
 };
 
-use crate::actions;
+use super::device_download_common::{
+    finish, DownloadFrame, DownloadStatus, ModelEntry, ModelPicker,
+};
+use crate::divecomputer::{self as dc, MOCK_PRODUCT, MOCK_VENDOR};
+use crate::i18n;
 use crate::state::AppState;
 
 /// Messages from the worker thread back to the UI.
@@ -30,7 +34,7 @@ enum Task {
 #[component]
 pub fn DeviceDownloadDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show = state.show_download;
+    let tr = state.strings();
 
     // The model table is static; enumerate it once, with the mock source first.
     let models = use_signal(|| {
@@ -38,8 +42,8 @@ pub fn DeviceDownloadDialog() -> Element {
         list.insert(
             0,
             DeviceDescriptor {
-                vendor: crate::divecomputer::MOCK_VENDOR.to_string(),
-                product: crate::divecomputer::MOCK_PRODUCT.to_string(),
+                vendor: MOCK_VENDOR.to_string(),
+                product: MOCK_PRODUCT.to_string(),
                 family: 0,
                 model: 0,
                 transports: Transport::Serial.bit() | Transport::Ble.bit(),
@@ -47,7 +51,7 @@ pub fn DeviceDownloadDialog() -> Element {
         );
         list
     });
-    let mut search = use_signal(String::new);
+    let search = use_signal(String::new);
     let mut selected = use_signal(|| None::<DeviceDescriptor>);
     let mut transport = use_signal(|| Transport::Serial);
     let mut devices = use_signal(Vec::<DiscoveredDevice>::new);
@@ -57,6 +61,18 @@ pub fn DeviceDownloadDialog() -> Element {
     let mut progress = use_signal(|| None::<(u32, u32)>);
     let mut message = use_signal(|| Option::<String>::None);
     let mut cancel = use_signal(|| None::<Arc<AtomicBool>>);
+
+    // The chosen model and device, if both are set.
+    let current = move || {
+        let descriptor = (selected)()?;
+        let device = (devices)().get((selected_device)()?)?.clone();
+        Some((descriptor, device))
+    };
+    let mut show_mock = move || {
+        devices.set(vec![mock_device()]);
+        selected_device.set(Some(0));
+        message.set(Some(tr.dc_mock_ready.to_string()));
+    };
 
     let task = use_coroutine(move |mut rx: UnboundedReceiver<Task>| async move {
         while let Some(task) = rx.next().await {
@@ -68,9 +84,9 @@ pub fn DeviceDownloadDialog() -> Element {
                             let count = found.len();
                             selected_device.set((!found.is_empty()).then_some(0));
                             devices.set(found);
-                            message.set(Some(format!("Found {count} device(s)")));
+                            message.set(Some(i18n::t1(tr.dc_found_devices, count)));
                         }
-                        Err(error) => message.set(Some(format!("Scan failed: {error}"))),
+                        Err(error) => message.set(Some(i18n::t1(tr.dc_scan_failed, error))),
                     }
                 }
                 Task::Event(DeviceEvent::Progress { current, maximum }) => {
@@ -88,29 +104,16 @@ pub fn DeviceDownloadDialog() -> Element {
                                 latest_fingerprint,
                                 ..
                             } = downloaded;
-                            let mut review_fingerprint = None;
-                            if let (Some(descriptor), Some(device)) = (
-                                (selected)(),
-                                (selected_device)()
-                                    .and_then(|index| (devices)().get(index).cloned()),
-                            ) {
-                                if !latest_fingerprint.is_empty() {
-                                    let key = crate::divecomputer::fingerprint_key(
-                                        &descriptor.vendor,
-                                        &descriptor.product,
-                                        &device.id.address(),
-                                    );
-                                    review_fingerprint = Some((key, latest_fingerprint));
-                                }
-                            }
+                            let Some((descriptor, device)) = current() else {
+                                continue;
+                            };
+                            let fingerprint = (!latest_fingerprint.is_empty()).then(|| {
+                                (fingerprint_key(&descriptor, &device), latest_fingerprint)
+                            });
                             let dives: Vec<Dive> = dives.into_iter().map(|d| d.dive).collect();
-                            let source = (selected)()
-                                .map(|descriptor| descriptor.name())
-                                .unwrap_or_else(|| "Dive computer".to_string());
-                            show.set(false);
-                            actions::review_downloaded(state, dives, source, review_fingerprint);
+                            finish(state, dives, descriptor.name(), fingerprint);
                         }
-                        Err(error) => message.set(Some(format!("Download failed: {error}"))),
+                        Err(error) => message.set(Some(i18n::t1(tr.dc_download_failed, error))),
                     }
                 }
             }
@@ -119,23 +122,18 @@ pub fn DeviceDownloadDialog() -> Element {
 
     let on_scan = move |_| {
         let Some(descriptor) = (selected)() else {
-            message.set(Some("Choose a dive computer model first".to_string()));
+            message.set(Some(tr.dc_choose_model.to_string()));
             return;
         };
-        if crate::divecomputer::is_mock(&descriptor.vendor, &descriptor.product) {
-            devices.set(vec![mock_device()]);
-            selected_device.set(Some(0));
-            message.set(Some(
-                "Mock dive computer ready: 5 generated dives".to_string(),
-            ));
-            scanning.set(false);
+        if dc::is_mock(&descriptor.vendor, &descriptor.product) {
+            show_mock();
             return;
         }
         let transport = (transport)();
         scanning.set(true);
         devices.set(Vec::new());
         selected_device.set(None);
-        message.set(Some("Scanning…".to_string()));
+        message.set(Some(tr.dc_scanning.to_string()));
         let sender = task.tx();
         std::thread::spawn(move || {
             let result = if transport == Transport::Ble {
@@ -166,33 +164,24 @@ pub fn DeviceDownloadDialog() -> Element {
 
     let on_download = move |_| {
         let Some(descriptor) = (selected)() else {
-            message.set(Some("Choose a dive computer model first".to_string()));
+            message.set(Some(tr.dc_choose_model.to_string()));
             return;
         };
-        if crate::divecomputer::is_mock(&descriptor.vendor, &descriptor.product) {
-            let dives = crate::divecomputer::mock_dives();
-            let source = descriptor.name();
-            show.set(false);
-            actions::review_downloaded(state, dives, source, None);
+        if dc::is_mock(&descriptor.vendor, &descriptor.product) {
+            finish(state, dc::mock_dives(), descriptor.name(), None);
             return;
         }
-        let Some(device) = (selected_device)().and_then(|index| (devices)().get(index).cloned())
-        else {
-            message.set(Some("Scan and choose a device first".to_string()));
+        let Some((descriptor, device)) = current() else {
+            message.set(Some(tr.dc_choose_device.to_string()));
             return;
         };
         let id = device.id.clone();
-        let fingerprint =
-            crate::divecomputer::load_fingerprint(&crate::divecomputer::fingerprint_key(
-                &descriptor.vendor,
-                &descriptor.product,
-                &device.id.address(),
-            ));
+        let fingerprint = dc::load_fingerprint(&fingerprint_key(&descriptor, &device));
         let flag = Arc::new(AtomicBool::new(false));
         cancel.set(Some(flag.clone()));
         downloading.set(true);
         progress.set(None);
-        message.set(Some("Downloading…".to_string()));
+        message.set(Some(tr.dc_downloading.to_string()));
         let sender = task.tx();
         std::thread::spawn(move || {
             let result = download(&descriptor, &id, &fingerprint, flag, |event| {
@@ -207,7 +196,7 @@ pub fn DeviceDownloadDialog() -> Element {
         if let Some(flag) = (cancel)() {
             flag.store(true, Ordering::Relaxed);
         }
-        message.set(Some("Cancelling…".to_string()));
+        message.set(Some(tr.dc_cancelling.to_string()));
     };
 
     let selected_now = (selected)();
@@ -216,72 +205,50 @@ pub fn DeviceDownloadDialog() -> Element {
         .map(|d| d.transport_list())
         .unwrap_or_else(|| Transport::ALL.to_vec());
 
-    let query = (search)().to_lowercase();
     let models_now = (models)();
-    let model_buttons = models_now
+    let entries: Vec<ModelEntry> = models_now
         .iter()
-        .filter(|model| query.is_empty() || model.name().to_lowercase().contains(&query))
-        .map(|model| {
-            let click_model = model.clone();
-            let is_selected = selected_now.as_ref() == Some(model);
-            let transports = model
+        .map(|model| ModelEntry {
+            label: model.name(),
+            detail: model
                 .transport_list()
                 .iter()
                 .map(|t| t.label())
                 .collect::<Vec<_>>()
-                .join(", ");
-            rsx! {
-                button {
-                    class: if is_selected { "device-model selected" } else { "device-model" },
-                    onclick: move |_| {
-                        selected.set(Some(click_model.clone()));
-                        let supported = click_model.transport_list();
-                        if !supported.contains(&(transport)()) {
-                            transport.set(supported.first().copied().unwrap_or(Transport::Serial));
-                        }
-                        if crate::divecomputer::is_mock(
-                            &click_model.vendor,
-                            &click_model.product,
-                        ) {
-                            devices.set(vec![mock_device()]);
-                            selected_device.set(Some(0));
-                            message.set(Some(
-                                "Mock dive computer ready: 5 generated dives".to_string(),
-                            ));
-                        } else {
-                            devices.set(Vec::new());
-                            selected_device.set(None);
-                            message.set(None);
-                        }
-                    },
-                    span { "{model.vendor} {model.product}" }
-                    span { class: "muted", "{transports}" }
-                }
-            }
-        });
+                .join(", "),
+            selected: selected_now.as_ref() == Some(model),
+            unavailable: None,
+        })
+        .collect();
+    let on_pick = move |index: usize| {
+        let Some(model) = (models)().get(index).cloned() else {
+            return;
+        };
+        let supported = model.transport_list();
+        if !supported.contains(&(transport)()) {
+            transport.set(supported.first().copied().unwrap_or(Transport::Serial));
+        }
+        let mock = dc::is_mock(&model.vendor, &model.product);
+        selected.set(Some(model));
+        if mock {
+            show_mock();
+        } else {
+            devices.set(Vec::new());
+            selected_device.set(None);
+            message.set(None);
+        }
+    };
 
     let on_forget_history = move |_| {
-        let Some(descriptor) = (selected)() else {
-            message.set(Some("Choose a dive computer model first".to_string()));
+        let Some((descriptor, device)) = current() else {
+            message.set(Some(tr.dc_choose_device.to_string()));
             return;
         };
-        if crate::divecomputer::is_mock(&descriptor.vendor, &descriptor.product) {
+        if dc::is_mock(&descriptor.vendor, &descriptor.product) {
             return;
         }
-        let Some(device) = (selected_device)().and_then(|index| (devices)().get(index).cloned())
-        else {
-            message.set(Some("Scan and choose a device first".to_string()));
-            return;
-        };
-        let key = crate::divecomputer::fingerprint_key(
-            &descriptor.vendor,
-            &descriptor.product,
-            &device.id.address(),
-        );
-        crate::divecomputer::save_fingerprint(&key, &[]);
-        message.set(Some(
-            "Download history cleared. Download again to fetch all dives.".to_string(),
-        ));
+        dc::save_fingerprint(&fingerprint_key(&descriptor, &device), &[]);
+        message.set(Some(tr.dc_history_cleared.to_string()));
     };
 
     let devices_now = (devices)();
@@ -297,84 +264,57 @@ pub fn DeviceDownloadDialog() -> Element {
         }
     });
 
+    let ready = !(downloading)() && current().is_some();
+
     rsx! {
-        div { class: "modal-backdrop", onclick: move |_| show.set(false),
-            div { class: "modal wide",
-                role: "dialog",
-            tabindex: "-1",
-            autofocus: true,
-                aria_modal: "true",
-                aria_label: "Download from a dive computer",
-                onclick: move |evt| evt.stop_propagation(),
-                h2 { "Download from a dive computer" }
-                p { class: "muted",
-                    "Choose a model, scan the bus, then download the dives that are not in the log yet. Nothing is imported twice."
+        DownloadFrame { intro: tr.dc_intro_desktop,
+            div { class: "device-columns",
+                div { class: "device-column",
+                    ModelPicker { search, models: entries, on_pick }
                 }
-                div { class: "device-columns",
-                    div { class: "device-column",
-                        label { class: "field-label", "Model"
-                            input {
-                                class: "field",
-                                r#type: "search",
-                                placeholder: "Search models…",
-                                value: "{search}",
-                                oninput: move |evt| search.set(evt.value()),
-                            }
-                        }
-                        div { class: "device-models", {model_buttons} }
-                    }
-                    div { class: "device-column",
-                        label { class: "field-label", "Transport"
-                            select {
-                                class: "field",
-                                onchange: move |evt| transport.set(transport_from_label(&evt.value())),
-                                for option in supported {
-                                    option {
-                                        value: "{option.label()}",
-                                        selected: option == (transport)(),
-                                        "{option.label()}"
-                                    }
+                div { class: "device-column",
+                    label { class: "field-label", "{tr.dc_transport}"
+                        select {
+                            class: "field",
+                            onchange: move |evt| transport.set(transport_from_label(&evt.value())),
+                            for option in supported {
+                                option {
+                                    value: "{option.label()}",
+                                    selected: option == (transport)(),
+                                    "{option.label()}"
                                 }
                             }
                         }
-                        div { class: "device-actions",
-                            button {
-                                class: "btn",
-                                disabled: (scanning)() || (downloading)() || (selected)().is_none(),
-                                onclick: on_scan,
-                                if (scanning)() { "Scanning…" } else { "Scan" }
-                            }
+                    }
+                    div { class: "device-actions",
+                        button {
+                            class: "btn",
+                            disabled: (scanning)() || (downloading)() || (selected)().is_none(),
+                            onclick: on_scan,
+                            if (scanning)() { "{tr.dc_scanning}" } else { "{tr.dc_scan}" }
                         }
-                        div { class: "device-devices", {device_buttons} }
                     }
+                    div { class: "device-devices", {device_buttons} }
                 }
-                if let Some((current, maximum)) = (progress)() {
-                    div { class: "download-progress",
-                        progress { value: "{current}", max: "{maximum}" }
-                        span { class: "muted", "{current} / {maximum}" }
-                    }
+            }
+            DownloadStatus { progress: (progress)(), message: (message)() }
+            div { class: "detail-actions",
+                button {
+                    class: "btn",
+                    disabled: !ready,
+                    onclick: on_forget_history,
+                    "{tr.dc_forget_history}"
                 }
-                if let Some(text) = (message)() {
-                    p { class: "muted", "{text}" }
+                button {
+                    class: "btn primary",
+                    disabled: !ready,
+                    onclick: on_download,
+                    if (downloading)() { "{tr.dc_downloading}" } else { "{tr.dc_download}" }
                 }
-                div { class: "detail-actions",
-                    button {
-                        class: "btn",
-                        disabled: (downloading)() || (selected)().is_none() || (selected_device)().is_none(),
-                        onclick: on_forget_history,
-                        "Forget download history"
-                    }
-                    button {
-                        class: "btn primary",
-                        disabled: (downloading)() || (selected)().is_none() || (selected_device)().is_none(),
-                        onclick: on_download,
-                        if (downloading)() { "Downloading…" } else { "Download" }
-                    }
-                    if (downloading)() {
-                        button { class: "btn danger", onclick: on_cancel, "Cancel" }
-                    }
-                    button { class: "btn", onclick: move |_| show.set(false), "Close" }
+                if (downloading)() {
+                    button { class: "btn danger", onclick: on_cancel, "{tr.cancel}" }
                 }
+                button { class: "btn", onclick: move |_| state.close_dialog(), "{tr.close}" }
             }
         }
     }
@@ -383,8 +323,16 @@ pub fn DeviceDownloadDialog() -> Element {
 fn mock_device() -> DiscoveredDevice {
     DiscoveredDevice {
         id: DeviceId::Serial("MOCK".to_string()),
-        name: crate::divecomputer::MOCK_PRODUCT.to_string(),
+        name: MOCK_PRODUCT.to_string(),
     }
+}
+
+fn fingerprint_key(descriptor: &DeviceDescriptor, device: &DiscoveredDevice) -> String {
+    dc::fingerprint_key(
+        &descriptor.vendor,
+        &descriptor.product,
+        &device.id.address(),
+    )
 }
 
 fn transport_from_label(label: &str) -> Transport {

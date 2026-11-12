@@ -8,7 +8,9 @@ use wasm_bindgen::JsCast;
 
 use benthic_core::Dive;
 
-use crate::actions;
+use super::device_download_common::{
+    finish, DownloadFrame, DownloadStatus, ModelEntry, ModelPicker,
+};
 use crate::divecomputer;
 use crate::divecomputer_web::{self, WebModel};
 use crate::i18n;
@@ -19,12 +21,11 @@ use crate::state::AppState;
 pub fn DeviceDownloadWebDialog() -> Element {
     let state = use_context::<AppState>();
     let tr = i18n::strings((state.prefs)().language);
-    let mut show = state.show_download;
 
     let mut serial_ok = use_signal(|| false);
     let mut bluetooth_ok = use_signal(|| false);
     let mut models = use_signal(Vec::<WebModel>::new);
-    let mut search = use_signal(String::new);
+    let search = use_signal(String::new);
     let mut selected = use_signal(|| None::<WebModel>);
     let mut transport = use_signal(|| divecomputer_web::TRANSPORT_SERIAL);
     let mut connected = use_signal(|| false);
@@ -96,13 +97,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
         if divecomputer::is_mock(&model.vendor, &model.product) {
             return;
         }
-        let link = if (transport)() == divecomputer_web::TRANSPORT_BLE {
-            "bluetooth"
-        } else {
-            "serial"
-        };
-        let key = divecomputer::fingerprint_key(&model.vendor, &model.product, link);
-        divecomputer::save_fingerprint(&key, &[]);
+        divecomputer::save_fingerprint(&fingerprint_key(&model, (transport)()), &[]);
         message.set(Some(tr.dc_history_cleared.to_string()));
     };
 
@@ -111,11 +106,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
             return;
         };
         if divecomputer::is_mock(&model.vendor, &model.product) {
-            let dives = divecomputer::mock_dives();
-            let source = model.name();
-            show.set(false);
-            actions::review_downloaded(state, dives, source, None);
-            connected.set(false);
+            finish(state, divecomputer::mock_dives(), model.name(), None);
             return;
         }
         let transport_now = (transport)();
@@ -123,12 +114,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
         progress.set(None);
         message.set(Some(tr.dc_downloading.to_string()));
         spawn(async move {
-            let link = if transport_now == divecomputer_web::TRANSPORT_BLE {
-                "bluetooth"
-            } else {
-                "serial"
-            };
-            let key = divecomputer::fingerprint_key(&model.vendor, &model.product, link);
+            let key = fingerprint_key(&model, transport_now);
             let fingerprint = divecomputer::load_fingerprint(&key);
             let hex = divecomputer::to_hex(&fingerprint);
             let mut progress_signal = progress;
@@ -170,10 +156,7 @@ pub fn DeviceDownloadWebDialog() -> Element {
                         let fingerprint = (!latest.is_empty()).then(|| (key.clone(), latest));
                         let dives: Vec<Dive> =
                             result.dives.iter().map(|raw| raw.to_dive()).collect();
-                        let source = model.name();
-                        show.set(false);
-                        actions::review_downloaded(state, dives, source, fingerprint);
-                        connected.set(false);
+                        finish(state, dives, model.name(), fingerprint);
                     }
                 }
                 Err(error) => message.set(Some(i18n::t1(tr.dc_download_failed, error))),
@@ -183,62 +166,42 @@ pub fn DeviceDownloadWebDialog() -> Element {
         });
     };
 
-    let query = (search)().to_lowercase();
     let selected_now = (selected)();
     let transport_now = (transport)();
     let models_now = (models)();
-    let model_buttons = models_now
+    let entries: Vec<ModelEntry> = models_now
         .iter()
-        .filter(|model| query.is_empty() || model.name().to_lowercase().contains(&query))
         .map(|model| {
-            let click_model = model.clone();
-            let is_selected = selected_now.as_ref() == Some(model);
-            let compatible = model.transports & transport_now != 0;
             let serial = model.transports & divecomputer_web::TRANSPORT_SERIAL != 0;
             let bluetooth = model.transports & divecomputer_web::TRANSPORT_BLE != 0;
-            let connection = match (serial, bluetooth) {
-                (true, true) => format!("{} + {}", tr.dc_usb_serial, tr.dc_bluetooth),
-                (true, false) => tr.dc_usb_serial.to_string(),
-                (false, true) => tr.dc_bluetooth.to_string(),
-                (false, false) => String::new(),
-            };
-            let class = match (compatible, is_selected) {
-                (false, _) => "device-model unavailable",
-                (true, true) => "device-model selected",
-                (true, false) => "device-model",
-            };
-            rsx! {
-                button {
-                    class: "{class}",
-                    disabled: !compatible,
-                    title: if compatible { "" } else { tr.dc_transport_unavailable },
-                    onclick: move |_| {
-                        let mock = divecomputer::is_mock(&click_model.vendor, &click_model.product);
-                        selected.set(Some(click_model.clone()));
-                        connected.set(mock);
-                        message.set(mock.then(|| tr.dc_mock_ready.to_string()));
-                    },
-                    span { "{model.vendor} {model.product}" }
-                    if !connection.is_empty() {
-                        span { class: "muted", "{connection}" }
-                    }
-                }
+            ModelEntry {
+                label: model.name(),
+                detail: match (serial, bluetooth) {
+                    (true, true) => format!("{} + {}", tr.dc_usb_serial, tr.dc_bluetooth),
+                    (true, false) => tr.dc_usb_serial.to_string(),
+                    (false, true) => tr.dc_bluetooth.to_string(),
+                    (false, false) => String::new(),
+                },
+                selected: selected_now.as_ref() == Some(model),
+                unavailable: (model.transports & transport_now == 0)
+                    .then_some(tr.dc_transport_unavailable),
             }
-        });
+        })
+        .collect();
+    let on_pick = move |index: usize| {
+        let Some(model) = (models)().get(index).cloned() else {
+            return;
+        };
+        let mock = divecomputer::is_mock(&model.vendor, &model.product);
+        selected.set(Some(model));
+        connected.set(mock);
+        message.set(mock.then(|| tr.dc_mock_ready.to_string()));
+    };
 
     let any_supported = (serial_ok)() || (bluetooth_ok)();
 
     rsx! {
-        div { class: "modal-backdrop", onclick: move |_| show.set(false),
-            div { class: "modal wide",
-                role: "dialog",
-            tabindex: "-1",
-            autofocus: true,
-                aria_modal: "true",
-                aria_label: "{tr.dc_title}",
-                onclick: move |evt| evt.stop_propagation(),
-                h2 { "{tr.dc_title}" }
-                p { class: "muted", "{tr.dc_intro}" }
+        DownloadFrame { intro: tr.dc_intro,
                 if !any_supported {
                     p { class: "warn", "{tr.dc_no_transport}" }
                 } else {
@@ -271,26 +234,9 @@ pub fn DeviceDownloadWebDialog() -> Element {
                     } else {
                         p { class: "muted", "{tr.dc_using_serial}" }
                     }
-                    label { class: "field-label", "{tr.dc_model}"
-                        input {
-                            class: "field",
-                            r#type: "search",
-                            placeholder: "{tr.dc_search_models}",
-                            value: "{search}",
-                            oninput: move |evt| search.set(evt.value()),
-                        }
-                    }
-                    div { class: "device-models", {model_buttons} }
+                    ModelPicker { search, models: entries, on_pick }
                 }
-                if let Some((current, maximum)) = (progress)() {
-                    div { class: "download-progress",
-                        progress { value: "{current}", max: "{maximum}" }
-                        span { class: "muted", "{current} / {maximum}" }
-                    }
-                }
-                if let Some(text) = (message)() {
-                    p { class: "muted", "{text}" }
-                }
+                DownloadStatus { progress: (progress)(), message: (message)() }
                 div { class: "detail-actions",
                     button {
                         class: "btn",
@@ -312,11 +258,20 @@ pub fn DeviceDownloadWebDialog() -> Element {
                     }
                     button {
                         class: "btn",
-                        onclick: move |_| show.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{tr.close}"
                     }
                 }
-            }
         }
     }
+}
+
+/// The fingerprint key for a model over a web transport.
+fn fingerprint_key(model: &WebModel, transport: u32) -> String {
+    let link = if transport == divecomputer_web::TRANSPORT_BLE {
+        "bluetooth"
+    } else {
+        "serial"
+    };
+    divecomputer::fingerprint_key(&model.vendor, &model.product, link)
 }

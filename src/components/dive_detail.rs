@@ -3,8 +3,8 @@ use dioxus::prelude::*;
 use benthic_core::equipment::{apply_preset, cylinder_preset, is_preset, CYLINDER_PRESETS};
 use benthic_core::units::{format_duration, Duration, Timestamp, Weight};
 use benthic_core::{
-    Command, Cylinder, CylinderUse, Dive, DiveSite, Divemode, Event, Location, Picture,
-    WeightSystem,
+    Command, Cylinder, CylinderUse, Dive, DiveComputer, DiveSite, Divemode, Event, Location,
+    Picture, WeightSystem,
 };
 
 use crate::actions;
@@ -13,7 +13,7 @@ use crate::components::{
     MediaGallery, ProfileEditorDialog,
 };
 use crate::i18n;
-use crate::state::AppState;
+use crate::state::{AppState, Dialog};
 
 #[component]
 pub fn DiveDetail() -> Element {
@@ -226,24 +226,36 @@ fn DiveDetailInner(dive: Dive) -> Element {
     };
 
     let on_duplicate = move |_| actions::duplicate_dive(state, dive_id);
+    // Edit one dive computer of this dive as a single undo step. Falls back
+    // to the first computer when the index is stale. The closure returns the
+    // status to show, or `None` when nothing changed.
+    let edit_computer =
+        move |computer_index: usize, edit: &dyn Fn(&mut DiveComputer) -> Option<&'static str>| {
+            let Some(before) = (state.log)().dive_by_id(dive_id).cloned() else {
+                return;
+            };
+            let mut after = before.clone();
+            let index = if computer_index < after.computers.len() {
+                computer_index
+            } else {
+                0
+            };
+            let Some(status) = after.computers.get_mut(index).and_then(edit) else {
+                return;
+            };
+            state.dispatch(Command::UpdateDive { before, after });
+            state.set_status(status);
+        };
+
     let on_add_event = move |(computer_index, time): (usize, Duration)| {
-        let Some(before) = (state.log)().dive_by_id(dive_id).cloned() else {
-            return;
-        };
-        let mut after = before.clone();
-        let index = if before.computers.get(computer_index).is_some() {
-            computer_index
-        } else {
-            0
-        };
-        let Some(computer) = after.computers.get_mut(index) else {
-            return;
-        };
-        let exists = computer.events.iter().any(|event| {
-            event.name.eq_ignore_ascii_case("bookmark")
-                && (event.time.seconds - time.seconds).abs() <= 1
-        });
-        if !exists {
+        edit_computer(computer_index, &|computer| {
+            let exists = computer.events.iter().any(|event| {
+                event.name.eq_ignore_ascii_case("bookmark")
+                    && (event.time.seconds - time.seconds).abs() <= 1
+            });
+            if exists {
+                return None;
+            }
             computer.events.push(Event {
                 time,
                 name: "bookmark".to_string(),
@@ -251,33 +263,20 @@ fn DiveDetailInner(dive: Dive) -> Element {
                 ..Default::default()
             });
             computer.events.sort_by_key(|event| event.time.seconds);
-            state.dispatch(Command::UpdateDive { before, after });
-            state.set_status(tr.bookmark_added);
-        }
+            Some(tr.bookmark_added)
+        });
     };
 
     let on_remove_event = move |(computer_index, event_index): (usize, usize)| {
-        let Some(before) = (state.log)().dive_by_id(dive_id).cloned() else {
-            return;
-        };
-        let mut after = before.clone();
-        let index = if before.computers.get(computer_index).is_some() {
-            computer_index
-        } else {
-            0
-        };
-        let Some(computer) = after.computers.get_mut(index) else {
-            return;
-        };
-        if event_index >= computer.events.len() {
-            return;
-        }
-        computer.events.remove(event_index);
-        state.dispatch(Command::UpdateDive { before, after });
-        state.set_status(tr.bookmark_removed);
+        edit_computer(computer_index, &|computer| {
+            (event_index < computer.events.len()).then(|| {
+                computer.events.remove(event_index);
+                tr.bookmark_removed
+            })
+        });
     };
 
-    // --- read-only values -------------------------------------------------
+    // --- header values ---------------------------------------------------
 
     let title = crate::format::dive_title(&dive, &log);
     let site_name = site
@@ -297,74 +296,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
         })
         .unwrap_or_else(|| "—".to_string());
     let when = prefs.timestamp(dive.when);
-    let duration = dive
-        .duration()
-        .map(format_duration)
-        .unwrap_or_else(|| "—".to_string());
-    let max_depth = dive
-        .max_depth()
-        .map(|d| prefs.depth(d))
-        .unwrap_or_else(|| "—".to_string());
-    let water_temp = dive
-        .water_temp
-        .or_else(|| dive.primary_computer().and_then(|dc| dc.water_temp))
-        .map(|t| prefs.temperature(t))
-        .unwrap_or_else(|| "—".to_string());
-    let air_temp = dive
-        .air_temp
-        .or_else(|| dive.primary_computer().and_then(|dc| dc.air_temp))
-        .map(|t| prefs.temperature(t))
-        .unwrap_or_else(|| "—".to_string());
-    let computer = {
-        let index = (active_dc)();
-        let model = dive
-            .computers
-            .get(index)
-            .map(|dc| dc.model.clone())
-            .filter(|m| !m.is_empty())
-            .unwrap_or_else(|| "—".to_string());
-        if dive.computers.len() > 1 {
-            format!("{model} ({}/{})", index + 1, dive.computers.len())
-        } else {
-            model
-        }
-    };
-    let dive_mode = match dive
-        .primary_computer()
-        .map(|computer| computer.divemode)
-        .unwrap_or_default()
-    {
-        Divemode::OpenCircuit => tr.oc_label,
-        Divemode::Ccr => tr.ccr_label,
-        Divemode::Pscr => tr.pscr_label,
-        Divemode::Freedive => tr.freedive_label,
-    };
-    let salinity = salinity_label(
-        dive.salinity
-            .unwrap_or_else(|| prefs.default_salinity.value()),
-    );
-    let salinity_value = dive
-        .salinity
-        .unwrap_or_else(|| prefs.default_salinity.value());
-    let avg_depth = dive
-        .average_depth()
-        .map(|d| prefs.depth(d))
-        .unwrap_or_else(|| "—".to_string());
-    let rmv = dive
-        .rmv_l_per_min()
-        .map(|v| format!("{v:.1} L/min"))
-        .unwrap_or_else(|| "—".to_string());
 
-    // --- edit-form values -------------------------------------------------
-
-    let f = (form)();
-    let when_value = benthic_core::datetime_local(f.when);
-    // The profile can be edited by hand only when it is not a dive-computer
-    // recording; imported traces are left untouched.
-    let profile_editable = dive
-        .primary_computer()
-        .map(|dc| dc.samples.is_empty() || dc.model == benthic_core::MANUAL_COMPUTER_MODEL)
-        .unwrap_or(true);
     let profile_samples: Option<Vec<benthic_core::Sample>> = (edited_samples)();
     let (profile_max, profile_time) = match &profile_samples {
         Some(samples) => profile_bounds(samples),
@@ -410,6 +342,121 @@ fn DiveDetailInner(dive: Dive) -> Element {
     } else {
         (active_dc)()
     };
+
+    rsx! {
+        section { class: "detail",
+            header { class: "detail-head",
+                div { class: "detail-title-row",
+                    button {
+                        class: "btn back-btn",
+                        title: "{tr.back_to_list}",
+                        onclick: move |_| mobile_detail.set(false),
+                        "‹ {tr.cat_dives}"
+                    }
+                    h1 { "{title}" }
+                    div { class: "detail-actions",
+                        if is_editing {
+                            button { class: "btn primary", onclick: on_save, "{tr.save}" }
+                            button { class: "btn", onclick: on_cancel, "{tr.cancel}" }
+                        } else {
+                            if dive.trip_id.is_some() {
+                                button {
+                                    class: "btn",
+                                    onclick: move |_| actions::detach_dive(state, dive_id),
+                                    "{tr.detach_from_trip}"
+                                }
+                            }
+                            button { class: "btn", onclick: move |_| editing.set(true), "{tr.edit}" }
+                            button { class: "btn", onclick: on_duplicate, "{tr.duplicate}" }
+                            button {
+                                class: if is_confirming { "btn danger" } else { "btn" },
+                                onclick: on_delete,
+                                if is_confirming { "{tr.confirm_delete}" } else { "{tr.delete}" }
+                            }
+                        }
+                    }
+                }
+                p { class: "muted", "{when} · {site_name} · {trip_name}" }
+            }
+
+            if dive.computers.len() > 1 {
+                div { class: "dc-tabs",
+                    for (index, computer) in dive.computers.iter().enumerate() {
+                        button {
+                            key: "{index}",
+                            class: if (active_dc)() == index { "dc-tab active" } else { "dc-tab" },
+                            onclick: move |_| active_dc.set(index),
+                            if computer.model.is_empty() {
+                                {i18n::t1(tr.computer_n, index + 1)}
+                            } else {
+                                "{computer.model}"
+                            }
+                        }
+                    }
+                }
+            }
+
+            DiveProfile { dive: preview_dive, dc_index: preview_dc, on_add_event, on_remove_event }
+
+            if is_editing {
+                DiveEditForm {
+                    dive: dive.clone(),
+                    form,
+                    profile_summary,
+                    show_profile,
+                    show_picker,
+                }
+            } else {
+                DiveFacts { dive: dive.clone(), active_dc: (active_dc)() }
+            }
+
+            if (show_picker)() {
+                LocationPickerDialog {
+                    on_choose: move |(lat, lon)| {
+                        form.write().site_gps = format!("{lat:.6}, {lon:.6}");
+                        show_picker.set(false);
+                    },
+                    on_close: move |_| show_picker.set(false),
+                }
+            }
+
+            if (show_profile)() {
+                ProfileEditorDialog {
+                    initial: (edited_samples)()
+                        .or_else(|| dive.primary_computer().map(|dc| dc.samples.clone()))
+                        .unwrap_or_default(),
+                    on_save: move |samples| {
+                        edited_samples.set(Some(samples));
+                        show_profile.set(false);
+                    },
+                    on_close: move |_| show_profile.set(false),
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn DiveEditForm(
+    dive: Dive,
+    form: Signal<DiveForm>,
+    profile_summary: String,
+    show_profile: Signal<bool>,
+    show_picker: Signal<bool>,
+) -> Element {
+    let state = use_context::<AppState>();
+    let log = (state.log)();
+    let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
+
+    let f = (form)();
+    let when_value = benthic_core::datetime_local(f.when);
+    // The profile can be edited by hand only when it is not a dive-computer
+    // recording; imported traces are left untouched.
+    let profile_editable = dive
+        .primary_computer()
+        .map(|dc| dc.samples.is_empty() || dc.model == benthic_core::MANUAL_COMPUTER_MODEL)
+        .unwrap_or(true);
     // Catalog entries ordered by most recent use, so autocomplete and the
     // quick-pick chips lead with what the diver actually uses.
     let person_usage = log.person_usage();
@@ -500,6 +547,551 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .collect();
     let current_trip = f.trip_id.map(|id| id.to_string()).unwrap_or_default();
 
+    let profile_computer_model = dive
+        .primary_computer()
+        .map(|computer| computer.model.clone())
+        .filter(|model| !model.is_empty())
+        .unwrap_or_else(|| "—".to_string());
+
+    rsx! {
+        div { class: "edit-form",
+            // Native autocomplete for the fields divers retype every
+            // trip. The datalists are invisible; they feed the inputs
+            // below on desktop and mobile alike.
+            datalist { id: "buddy-list",
+                for value in buddy_options.clone() {
+                    option { value: "{value}" }
+                }
+            }
+            datalist { id: "divemaster-list",
+                for value in divemaster_options.clone() {
+                    option { value: "{value}" }
+                }
+            }
+            datalist { id: "suit-list",
+                for value in suit_options.clone() {
+                    option { value: "{value}" }
+                }
+            }
+            datalist { id: "tag-list",
+                for value in tag_options.clone() {
+                    option { value: "{value}" }
+                }
+            }
+            if let Some(previous) = previous_dive.clone() {
+                div { class: "field-label full",
+                    button {
+                        class: "btn",
+                        r#type: "button",
+                        onclick: move |_| {
+                            let mut w = form.write();
+                            if !previous.buddy.is_empty() {
+                                w.buddy.clone_from(&previous.buddy);
+                            }
+                            if !previous.diveguide.is_empty() {
+                                w.divemaster.clone_from(&previous.diveguide);
+                            }
+                            if !previous.suit.is_empty() {
+                                w.suit.clone_from(&previous.suit);
+                            }
+                        },
+                        "{tr.copy_previous}"
+                    }
+                }
+            }
+            label { class: "field-label", "{tr.field_date_time}"
+                input {
+                    class: "field",
+                    r#type: "datetime-local",
+                    value: "{when_value}",
+                    oninput: move |evt| {
+                        if let Some(when) = benthic_core::parse_datetime_local(&evt.value()) {
+                            form.write().when = when;
+                        }
+                    },
+                }
+            }
+            div { class: "field-label full",
+                span { class: "label-row", "{tr.profile}" }
+                div { class: "muted", "{profile_summary}" }
+                div { class: "detail-actions",
+                    if profile_editable {
+                        button {
+                            class: "btn",
+                            r#type: "button",
+                            onclick: move |_| show_profile.set(true),
+                            "{tr.edit_profile}"
+                        }
+                    } else {
+                        span { class: "muted",
+                            {i18n::t1(tr.profile_from_computer, &profile_computer_model)}
+                        }
+                    }
+                }
+            }
+            label { class: "field-label", "{tr.dive_mode}"
+                select {
+                    class: "field",
+                    value: match f.divemode {
+                        Divemode::OpenCircuit => "oc",
+                        Divemode::Ccr => "ccr",
+                        Divemode::Pscr => "pscr",
+                        Divemode::Freedive => "freedive",
+                    },
+                    onchange: move |evt| {
+                        form.write().divemode = match evt.value().as_str() {
+                            "ccr" => Divemode::Ccr,
+                            "pscr" => Divemode::Pscr,
+                            "freedive" => Divemode::Freedive,
+                            _ => Divemode::OpenCircuit,
+                        };
+                    },
+                    option { value: "oc", "{tr.oc_label}" }
+                    option { value: "ccr", "{tr.ccr_label}" }
+                    option { value: "pscr", "{tr.pscr_label}" }
+                    option { value: "freedive", "{tr.freedive_label}" }
+                }
+            }
+            label { class: "field-label", "{tr.field_number}"
+                input {
+                    class: "field",
+                    r#type: "number",
+                    value: "{f.number}",
+                    oninput: move |evt| form.write().number = evt.value().parse().unwrap_or(0),
+                }
+            }
+            label { class: "field-label", "{tr.field_rating}"
+                div { class: "stars",
+                    for (star, class) in stars {
+                        button {
+                            key: "{star}",
+                            class: "{class}",
+                            aria_label: i18n::t1(tr.rate_stars, star),
+                            onclick: move |_| form.write().rating = star,
+                            "★"
+                        }
+                    }
+                }
+            }
+            label { class: "field-label", "{tr.field_buddy}"
+                input {
+                    class: "field",
+                    list: "buddy-list",
+                    value: "{f.buddy}",
+                    oninput: move |evt| form.write().buddy = evt.value(),
+                }
+                if !buddy_options.is_empty() {
+                    div { class: "tag-suggest",
+                        for name in buddy_options.iter().take(6) {
+                            button {
+                                key: "{name}",
+                                class: "tag tag-add",
+                                r#type: "button",
+                                onclick: {
+                                    let name = name.to_string();
+                                    move |_| {
+                                        let mut form = form;
+                                        let current = form.read().buddy.clone();
+                                        form.write().buddy = toggle_name(&current, &name);
+                                    }
+                                },
+                                "{name}"
+                            }
+                        }
+                    }
+                }
+            }
+            label { class: "field-label", "{tr.field_dive_master}"
+                input {
+                    class: "field",
+                    list: "divemaster-list",
+                    value: "{f.divemaster}",
+                    oninput: move |evt| form.write().divemaster = evt.value(),
+                }
+                if !divemaster_options.is_empty() {
+                    div { class: "tag-suggest",
+                        for name in divemaster_options.iter().take(6) {
+                            button {
+                                key: "{name}",
+                                class: "tag tag-add",
+                                r#type: "button",
+                                onclick: {
+                                    let name = name.to_string();
+                                    move |_| form.write().divemaster = name.clone()
+                                },
+                                "{name}"
+                            }
+                        }
+                    }
+                }
+            }
+            label { class: "field-label", "{tr.field_suit}"
+                input {
+                    class: "field",
+                    list: "suit-list",
+                    value: "{f.suit}",
+                    oninput: move |evt| form.write().suit = evt.value(),
+                }
+                if !suit_options.is_empty() {
+                    div { class: "tag-suggest",
+                        for name in suit_options.iter().take(6) {
+                            button {
+                                key: "{name}",
+                                class: "tag tag-add",
+                                r#type: "button",
+                                onclick: {
+                                    let name = name.to_string();
+                                    move |_| form.write().suit = name.clone()
+                                },
+                                "{name}"
+                            }
+                        }
+                    }
+                }
+            }
+            label { class: "field-label", "{tr.field_trip}"
+                select {
+                    class: "field",
+                    value: "{current_trip}",
+                    onchange: move |evt| {
+                        let value = evt.value();
+                        form.write().trip_id = if value.is_empty() { None } else { value.parse().ok() };
+                    },
+                    option { value: "", selected: f.trip_id.is_none(), "{tr.no_trip}" }
+                    for (id, label) in trips {
+                        option {
+                            key: "{id}",
+                            value: "{id}",
+                            selected: f.trip_id == Some(id),
+                            "{label}"
+                        }
+                    }
+                }
+            }
+            label { class: "field-label", "{tr.field_site_name}"
+                input {
+                    class: "field",
+                    value: "{f.site_name}",
+                    oninput: move |evt| form.write().site_name = evt.value(),
+                }
+            }
+            label { class: "field-label", "{tr.field_site_gps}"
+                div { class: "gps-row",
+                    input {
+                        class: "field",
+                        inputmode: "decimal",
+                        placeholder: "28.572100, 34.536700",
+                        value: "{f.site_gps}",
+                        oninput: move |evt| form.write().site_gps = evt.value(),
+                    }
+                    {location_button}
+                    button {
+                        class: "btn",
+                        r#type: "button",
+                        title: "{tr.choose_on_map}",
+                        onclick: move |_| show_picker.set(true),
+                        "{tr.map}"
+                    }
+                }
+            }
+            label { class: "field-label full", "{tr.field_tags}"
+                input {
+                    class: "field",
+                    list: "tag-list",
+                    value: "{f.tags}",
+                    oninput: move |evt| form.write().tags = evt.value(),
+                }
+                if !tag_options.is_empty() {
+                    div { class: "tag-suggest",
+                        {tag_options.iter().take(20).map(|tag| {
+                            let tag = tag.clone();
+                            rsx! {
+                                button {
+                                    key: "{tag}",
+                                    class: "tag tag-add",
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let mut w = form.write();
+                                        let mut tags = parse_tags(&w.tags);
+                                        if !tags.contains(&tag) {
+                                            tags.push(tag.clone());
+                                            w.tags = tags.join(", ");
+                                        }
+                                    },
+                                    "{tag}"
+                                }
+                            }
+                        })}
+                    }
+                }
+            }
+            label { class: "field-label full", "{tr.field_notes}"
+                textarea {
+                    class: "field",
+                    rows: "6",
+                    value: "{f.notes}",
+                    oninput: move |evt| form.write().notes = evt.value(),
+                }
+            }
+
+            div { class: "field-label full", "{tr.section_media}"
+                div { class: "media-edit-list",
+                    for (i, picture) in f.pictures.iter().enumerate() {
+                        div { key: "{i}", class: "media-edit-row",
+                            input {
+                                class: "field",
+                                r#type: "url",
+                                inputmode: "url",
+                                placeholder: "{tr.media_url_placeholder}",
+                                value: "{picture.filename}",
+                                oninput: move |evt| form.write().pictures[i].filename = evt.value(),
+                            }
+                            button {
+                                class: "icon-btn",
+                                r#type: "button",
+                                title: "{tr.remove}",
+                                onclick: move |_| { form.write().pictures.remove(i); },
+                                "✕"
+                            }
+                        }
+                    }
+                }
+                button {
+                    class: "btn",
+                    r#type: "button",
+                    onclick: move |_| form.write().pictures.push(Picture::default()),
+                    "{tr.add_media_link}"
+                }
+            }
+
+            div { class: "field-label full", "{tr.cyl_cylinder}"
+                div { class: "equip-list",
+                    for (i, cyl) in f.cylinders.iter().enumerate() {
+                        div { key: "{i}", class: "equip-row cylinder-row",
+                            select {
+                                class: "field",
+                                value: preset_value(cyl),
+                                onchange: move |evt| {
+                                    if let Some(preset) = cylinder_preset(&evt.value()) {
+                                        let mut w = form.write();
+                                        apply_preset(&mut w.cylinders[i], preset);
+                                    }
+                                },
+                                option { value: "", selected: preset_value(cyl).is_empty(), "{tr.custom}" }
+                                for preset in CYLINDER_PRESETS {
+                                    option {
+                                        key: "{preset.name}",
+                                        value: "{preset.name}",
+                                        selected: preset_value(cyl) == preset.name,
+                                        "{preset.name}"
+                                    }
+                                }
+                            }
+                            label { class: "mini", "{tr.cyl_o2}"
+                                input {
+                                    class: "field",
+                                    value: format!("{:.1}", cyl.gas.o2_percent()),
+                                    oninput: move |evt| {
+                                        let permille = evt.value().parse::<f64>().map(|v| (v * 10.0).round() as u16).unwrap_or(0);
+                                        form.write().cylinders[i].gas.o2_permille = permille;
+                                    },
+                                }
+                            }
+                            label { class: "mini", "{tr.cyl_he}"
+                                input {
+                                    class: "field",
+                                    value: format!("{:.1}", cyl.gas.he_percent()),
+                                    oninput: move |evt| {
+                                        let permille = evt.value().parse::<f64>().map(|v| (v * 10.0).round() as u16).unwrap_or(0);
+                                        form.write().cylinders[i].gas.he_permille = permille;
+                                    },
+                                }
+                            }
+                            label { class: "mini", "{tr.cyl_start} {prefs.pressure_unit()}"
+                                input {
+                                    class: "field",
+                                    value: cyl.start_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
+                                    oninput: move |evt| {
+                                        form.write().cylinders[i].start_pressure = evt.value().parse::<f64>().ok().map(|v| prefs.pressure_from_value(v));
+                                    },
+                                }
+                            }
+                            label { class: "mini", "{tr.cyl_end} {prefs.pressure_unit()}"
+                                input {
+                                    class: "field",
+                                    value: cyl.end_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
+                                    oninput: move |evt| {
+                                        form.write().cylinders[i].end_pressure = evt.value().parse::<f64>().ok().map(|v| prefs.pressure_from_value(v));
+                                    },
+                                }
+                            }
+                            label { class: "mini", "{tr.cyl_use}"
+                                select {
+                                    class: "field",
+                                    value: "{cyl.use_.index()}",
+                                    onchange: move |evt| {
+                                        let index = evt.value().parse::<usize>().unwrap_or(0);
+                                        form.write().cylinders[i].use_ = CylinderUse::from_index(index);
+                                    },
+                                    for use_ in CylinderUse::ALL {
+                                        option {
+                                            key: "{use_.index()}",
+                                            value: "{use_.index()}",
+                                            selected: cyl.use_ == use_,
+                                            "{use_.label()}"
+                                        }
+                                    }
+                                }
+                            }
+                            button {
+                                class: "icon-btn",
+                                title: "{tr.cyl_remove}",
+                                onclick: move |_| { form.write().cylinders.remove(i); },
+                                "✕"
+                            }
+                        }
+                    }
+                }
+                button {
+                    class: "btn",
+                    onclick: move |_| {
+                        let cylinder = match prefs
+                            .default_cylinder
+                            .and_then(|index| CYLINDER_PRESETS.get(index))
+                        {
+                            Some(preset) => Cylinder::from_preset(preset),
+                            None => Cylinder::default(),
+                        };
+                        form.write().cylinders.push(cylinder);
+                    },
+                    "{tr.cyl_add}"
+                }
+            }
+
+            if !other_gear.is_empty() {
+                div { class: "field-label full", "{tr.gear_used}"
+                    div { class: "tag-suggest",
+                        for (item, _usage) in other_gear.clone() {
+                            button {
+                                key: "{item.id}",
+                                class: if f.gear_ids.contains(&item.id) { "tag tag-add active" } else { "tag tag-add" },
+                                r#type: "button",
+                                onclick: move |_| {
+                                    let mut w = form.write();
+                                    match w.gear_ids.iter().position(|gear_id| *gear_id == item.id) {
+                                        Some(index) => { w.gear_ids.remove(index); }
+                                        None => w.gear_ids.push(item.id),
+                                    }
+                                },
+                                "{i18n::gear_kind(tr, item.kind)} · {item.name}"
+                            }
+                        }
+                    }
+                }
+            }
+
+            div { class: "field-label full", "{tr.weight_weight}"
+                div { class: "equip-list",
+                    for (i, ws) in f.weights.iter().enumerate() {
+                        div { key: "{i}", class: "equip-row weight-row",
+                            label { class: "mini", "{prefs.weight_unit()}"
+                                input {
+                                    class: "field",
+                                    value: format!("{:.2}", prefs.weight_value(ws.weight)),
+                                    oninput: move |evt| {
+                                        form.write().weights[i].weight = prefs.weight_from_value(evt.value().parse::<f64>().unwrap_or(0.0));
+                                    },
+                                }
+                            }
+                            label { class: "mini wide", "{tr.weight_description}"
+                                input {
+                                    class: "field",
+                                    value: "{ws.description}",
+                                    oninput: move |evt| form.write().weights[i].description = evt.value(),
+                                }
+                            }
+                            button {
+                                class: "icon-btn",
+                                title: "{tr.weight_remove}",
+                                onclick: move |_| { form.write().weights.remove(i); },
+                                "✕"
+                            }
+                        }
+                    }
+                }
+                button {
+                    class: "btn",
+                    onclick: move |_| form.write().weights.push(WeightSystem::new(Weight::from_kg(0.0), "belt")),
+                    "{tr.weight_add}"
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn DiveFacts(dive: Dive, active_dc: usize) -> Element {
+    let state = use_context::<AppState>();
+    let log = (state.log)();
+    let prefs = (state.prefs)();
+    let tr = i18n::strings(prefs.language);
+    let site = dive.site_id.and_then(|id| log.site_by_uuid(id)).cloned();
+
+    let duration = dive
+        .duration()
+        .map(format_duration)
+        .unwrap_or_else(|| "—".to_string());
+    let max_depth = dive
+        .max_depth()
+        .map(|d| prefs.depth(d))
+        .unwrap_or_else(|| "—".to_string());
+    let water_temp = dive
+        .water_temp
+        .or_else(|| dive.primary_computer().and_then(|dc| dc.water_temp))
+        .map(|t| prefs.temperature(t))
+        .unwrap_or_else(|| "—".to_string());
+    let air_temp = dive
+        .air_temp
+        .or_else(|| dive.primary_computer().and_then(|dc| dc.air_temp))
+        .map(|t| prefs.temperature(t))
+        .unwrap_or_else(|| "—".to_string());
+    let computer = {
+        let index = active_dc;
+        let model = dive
+            .computers
+            .get(index)
+            .map(|dc| dc.model.clone())
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| "—".to_string());
+        if dive.computers.len() > 1 {
+            format!("{model} ({}/{})", index + 1, dive.computers.len())
+        } else {
+            model
+        }
+    };
+    let dive_mode = match dive
+        .primary_computer()
+        .map(|computer| computer.divemode)
+        .unwrap_or_default()
+    {
+        Divemode::OpenCircuit => tr.oc_label,
+        Divemode::Ccr => tr.ccr_label,
+        Divemode::Pscr => tr.pscr_label,
+        Divemode::Freedive => tr.freedive_label,
+    };
+    let salinity_value = dive
+        .salinity
+        .unwrap_or_else(|| prefs.default_salinity.value());
+    let salinity = salinity_label(salinity_value);
+    let avg_depth = dive
+        .average_depth()
+        .map(|d| prefs.depth(d))
+        .unwrap_or_else(|| "—".to_string());
+    let rmv = dive
+        .rmv_l_per_min()
+        .map(|v| format!("{v:.1} L/min"))
+        .unwrap_or_else(|| "—".to_string());
+
     let cylinders: Vec<CylinderRow> = dive
         .cylinders
         .iter()
@@ -513,672 +1105,113 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .filter(|item| !item.kind.has_dedicated_field())
         .map(|item| (item.kind, item.name.clone()))
         .collect();
-    let profile_computer_model = dive
-        .primary_computer()
-        .map(|computer| computer.model.clone())
-        .filter(|model| !model.is_empty())
-        .unwrap_or_else(|| "—".to_string());
 
     rsx! {
-        section { class: "detail",
-            header { class: "detail-head",
-                div { class: "detail-title-row",
-                    button {
-                        class: "btn back-btn",
-                        title: "{tr.back_to_list}",
-                        onclick: move |_| mobile_detail.set(false),
-                        "‹ {tr.cat_dives}"
-                    }
-                    h1 { "{title}" }
-                    div { class: "detail-actions",
-                        if is_editing {
-                            button { class: "btn primary", onclick: on_save, "{tr.save}" }
-                            button { class: "btn", onclick: on_cancel, "{tr.cancel}" }
-                        } else {
-                            if dive.trip_id.is_some() {
-                                button {
-                                    class: "btn",
-                                    onclick: move |_| actions::detach_dive(state, dive_id),
-                                    "{tr.detach_from_trip}"
-                                }
-                            }
-                            button { class: "btn", onclick: move |_| editing.set(true), "{tr.edit}" }
-                            button { class: "btn", onclick: on_duplicate, "{tr.duplicate}" }
-                            button {
-                                class: if is_confirming { "btn danger" } else { "btn" },
-                                onclick: on_delete,
-                                if is_confirming { "{tr.confirm_delete}" } else { "{tr.delete}" }
-                            }
-                        }
-                    }
-                }
-                p { class: "muted", "{when} · {site_name} · {trip_name}" }
-            }
+        div { class: "facts",
+            Fact { label: tr.fact_duration, value: duration }
+            Fact { label: tr.fact_max_depth, value: max_depth }
+            Fact { label: tr.fact_avg_depth, value: avg_depth }
+            Fact { label: tr.fact_rmv, value: rmv }
+            Fact { label: tr.fact_water_temp, value: water_temp }
+            Fact { label: tr.fact_air_temp, value: air_temp }
+            Fact { label: tr.fact_computer, value: computer }
+            Fact { label: tr.dive_mode, value: dive_mode.to_string() }
+            Fact { label: tr.fact_buddy, value: dive.buddy.clone() }
+            Fact { label: tr.fact_dive_master, value: dive.diveguide.clone() }
+            Fact { label: tr.fact_suit, value: dive.suit.clone() }
+            Fact { label: tr.fact_salinity, value: salinity }
+        }
 
-            if dive.computers.len() > 1 {
-                div { class: "dc-tabs",
-                    for (index, computer) in dive.computers.iter().enumerate() {
-                        button {
-                            key: "{index}",
-                            class: if (active_dc)() == index { "dc-tab active" } else { "dc-tab" },
-                            onclick: move |_| active_dc.set(index),
-                            if computer.model.is_empty() {
-                                {i18n::t1(tr.computer_n, index + 1)}
-                            } else {
-                                "{computer.model}"
-                            }
-                        }
-                    }
-                }
-            }
-
-            DiveProfile { dive: preview_dive, dc_index: preview_dc, on_add_event, on_remove_event }
-
-            if is_editing {
-                div { class: "edit-form",
-                    // Native autocomplete for the fields divers retype every
-                    // trip. The datalists are invisible; they feed the inputs
-                    // below on desktop and mobile alike.
-                    datalist { id: "buddy-list",
-                        for value in buddy_options.clone() {
-                            option { value: "{value}" }
-                        }
-                    }
-                    datalist { id: "divemaster-list",
-                        for value in divemaster_options.clone() {
-                            option { value: "{value}" }
-                        }
-                    }
-                    datalist { id: "suit-list",
-                        for value in suit_options.clone() {
-                            option { value: "{value}" }
-                        }
-                    }
-                    datalist { id: "tag-list",
-                        for value in tag_options.clone() {
-                            option { value: "{value}" }
-                        }
-                    }
-                    if let Some(previous) = previous_dive.clone() {
-                        div { class: "field-label full",
-                            button {
-                                class: "btn",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    let mut w = form.write();
-                                    if !previous.buddy.is_empty() {
-                                        w.buddy.clone_from(&previous.buddy);
-                                    }
-                                    if !previous.diveguide.is_empty() {
-                                        w.divemaster.clone_from(&previous.diveguide);
-                                    }
-                                    if !previous.suit.is_empty() {
-                                        w.suit.clone_from(&previous.suit);
-                                    }
-                                },
-                                "{tr.copy_previous}"
-                            }
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_date_time}"
-                        input {
-                            class: "field",
-                            r#type: "datetime-local",
-                            value: "{when_value}",
-                            oninput: move |evt| {
-                                if let Some(when) = benthic_core::parse_datetime_local(&evt.value()) {
-                                    form.write().when = when;
-                                }
-                            },
-                        }
-                    }
-                    div { class: "field-label full",
-                        span { class: "label-row", "{tr.profile}" }
-                        div { class: "muted", "{profile_summary}" }
-                        div { class: "detail-actions",
-                            if profile_editable {
-                                button {
-                                    class: "btn",
-                                    r#type: "button",
-                                    onclick: move |_| show_profile.set(true),
-                                    "{tr.edit_profile}"
-                                }
-                            } else {
-                                span { class: "muted",
-                                    {i18n::t1(tr.profile_from_computer, &profile_computer_model)}
-                                }
-                            }
-                        }
-                    }
-                    label { class: "field-label", "{tr.dive_mode}"
-                        select {
-                            class: "field",
-                            value: match f.divemode {
-                                Divemode::OpenCircuit => "oc",
-                                Divemode::Ccr => "ccr",
-                                Divemode::Pscr => "pscr",
-                                Divemode::Freedive => "freedive",
-                            },
-                            onchange: move |evt| {
-                                form.write().divemode = match evt.value().as_str() {
-                                    "ccr" => Divemode::Ccr,
-                                    "pscr" => Divemode::Pscr,
-                                    "freedive" => Divemode::Freedive,
-                                    _ => Divemode::OpenCircuit,
-                                };
-                            },
-                            option { value: "oc", "{tr.oc_label}" }
-                            option { value: "ccr", "{tr.ccr_label}" }
-                            option { value: "pscr", "{tr.pscr_label}" }
-                            option { value: "freedive", "{tr.freedive_label}" }
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_number}"
-                        input {
-                            class: "field",
-                            r#type: "number",
-                            value: "{f.number}",
-                            oninput: move |evt| form.write().number = evt.value().parse().unwrap_or(0),
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_rating}"
-                        div { class: "stars",
-                            for (star, class) in stars {
-                                button {
-                                    key: "{star}",
-                                    class: "{class}",
-                                    aria_label: i18n::t1(tr.rate_stars, star),
-                                    onclick: move |_| form.write().rating = star,
-                                    "★"
-                                }
-                            }
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_buddy}"
-                        input {
-                            class: "field",
-                            list: "buddy-list",
-                            value: "{f.buddy}",
-                            oninput: move |evt| form.write().buddy = evt.value(),
-                        }
-                        if !buddy_options.is_empty() {
-                            div { class: "tag-suggest",
-                                for name in buddy_options.iter().take(6) {
-                                    button {
-                                        key: "{name}",
-                                        class: "tag tag-add",
-                                        r#type: "button",
-                                        onclick: {
-                                            let name = name.to_string();
-                                            move |_| {
-                                                let mut form = form;
-                                                let current = form.read().buddy.clone();
-                                                form.write().buddy = toggle_name(&current, &name);
-                                            }
-                                        },
-                                        "{name}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_dive_master}"
-                        input {
-                            class: "field",
-                            list: "divemaster-list",
-                            value: "{f.divemaster}",
-                            oninput: move |evt| form.write().divemaster = evt.value(),
-                        }
-                        if !divemaster_options.is_empty() {
-                            div { class: "tag-suggest",
-                                for name in divemaster_options.iter().take(6) {
-                                    button {
-                                        key: "{name}",
-                                        class: "tag tag-add",
-                                        r#type: "button",
-                                        onclick: {
-                                            let name = name.to_string();
-                                            move |_| form.write().divemaster = name.clone()
-                                        },
-                                        "{name}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_suit}"
-                        input {
-                            class: "field",
-                            list: "suit-list",
-                            value: "{f.suit}",
-                            oninput: move |evt| form.write().suit = evt.value(),
-                        }
-                        if !suit_options.is_empty() {
-                            div { class: "tag-suggest",
-                                for name in suit_options.iter().take(6) {
-                                    button {
-                                        key: "{name}",
-                                        class: "tag tag-add",
-                                        r#type: "button",
-                                        onclick: {
-                                            let name = name.to_string();
-                                            move |_| form.write().suit = name.clone()
-                                        },
-                                        "{name}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_trip}"
-                        select {
-                            class: "field",
-                            value: "{current_trip}",
-                            onchange: move |evt| {
-                                let value = evt.value();
-                                form.write().trip_id = if value.is_empty() { None } else { value.parse().ok() };
-                            },
-                            option { value: "", selected: f.trip_id.is_none(), "{tr.no_trip}" }
-                            for (id, label) in trips {
-                                option {
-                                    key: "{id}",
-                                    value: "{id}",
-                                    selected: f.trip_id == Some(id),
-                                    "{label}"
-                                }
-                            }
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_site_name}"
-                        input {
-                            class: "field",
-                            value: "{f.site_name}",
-                            oninput: move |evt| form.write().site_name = evt.value(),
-                        }
-                    }
-                    label { class: "field-label", "{tr.field_site_gps}"
-                        div { class: "gps-row",
-                            input {
-                                class: "field",
-                                inputmode: "decimal",
-                                placeholder: "28.572100, 34.536700",
-                                value: "{f.site_gps}",
-                                oninput: move |evt| form.write().site_gps = evt.value(),
-                            }
-                            {location_button}
-                            button {
-                                class: "btn",
-                                r#type: "button",
-                                title: "{tr.choose_on_map}",
-                                onclick: move |_| show_picker.set(true),
-                                "{tr.map}"
-                            }
-                        }
-                    }
-                    label { class: "field-label full", "{tr.field_tags}"
-                        input {
-                            class: "field",
-                            list: "tag-list",
-                            value: "{f.tags}",
-                            oninput: move |evt| form.write().tags = evt.value(),
-                        }
-                        if !tag_options.is_empty() {
-                            div { class: "tag-suggest",
-                                {tag_options.iter().take(20).map(|tag| {
-                                    let tag = tag.clone();
-                                    rsx! {
-                                        button {
-                                            key: "{tag}",
-                                            class: "tag tag-add",
-                                            r#type: "button",
-                                            onclick: move |_| {
-                                                let mut w = form.write();
-                                                let mut tags = parse_tags(&w.tags);
-                                                if !tags.contains(&tag) {
-                                                    tags.push(tag.clone());
-                                                    w.tags = tags.join(", ");
-                                                }
-                                            },
-                                            "{tag}"
-                                        }
-                                    }
-                                })}
-                            }
-                        }
-                    }
-                    label { class: "field-label full", "{tr.field_notes}"
-                        textarea {
-                            class: "field",
-                            rows: "6",
-                            value: "{f.notes}",
-                            oninput: move |evt| form.write().notes = evt.value(),
-                        }
-                    }
-
-                    div { class: "field-label full", "{tr.section_media}"
-                        div { class: "media-edit-list",
-                            for (i, picture) in f.pictures.iter().enumerate() {
-                                div { key: "{i}", class: "media-edit-row",
-                                    input {
-                                        class: "field",
-                                        r#type: "url",
-                                        inputmode: "url",
-                                        placeholder: "{tr.media_url_placeholder}",
-                                        value: "{picture.filename}",
-                                        oninput: move |evt| form.write().pictures[i].filename = evt.value(),
-                                    }
-                                    button {
-                                        class: "icon-btn",
-                                        r#type: "button",
-                                        title: "{tr.remove}",
-                                        onclick: move |_| { form.write().pictures.remove(i); },
-                                        "✕"
-                                    }
-                                }
-                            }
-                        }
-                        button {
-                            class: "btn",
-                            r#type: "button",
-                            onclick: move |_| form.write().pictures.push(Picture::default()),
-                            "{tr.add_media_link}"
-                        }
-                    }
-
-                    div { class: "field-label full", "{tr.cyl_cylinder}"
-                        div { class: "equip-list",
-                            for (i, cyl) in f.cylinders.iter().enumerate() {
-                                div { key: "{i}", class: "equip-row cylinder-row",
-                                    select {
-                                        class: "field",
-                                        value: preset_value(cyl),
-                                        onchange: move |evt| {
-                                            if let Some(preset) = cylinder_preset(&evt.value()) {
-                                                let mut w = form.write();
-                                                apply_preset(&mut w.cylinders[i], preset);
-                                            }
-                                        },
-                                        option { value: "", selected: preset_value(cyl).is_empty(), "{tr.custom}" }
-                                        for preset in CYLINDER_PRESETS {
-                                            option {
-                                                key: "{preset.name}",
-                                                value: "{preset.name}",
-                                                selected: preset_value(cyl) == preset.name,
-                                                "{preset.name}"
-                                            }
-                                        }
-                                    }
-                                    label { class: "mini", "{tr.cyl_o2}"
-                                        input {
-                                            class: "field",
-                                            value: format!("{:.1}", cyl.gas.o2_percent()),
-                                            oninput: move |evt| {
-                                                let permille = evt.value().parse::<f64>().map(|v| (v * 10.0).round() as u16).unwrap_or(0);
-                                                form.write().cylinders[i].gas.o2_permille = permille;
-                                            },
-                                        }
-                                    }
-                                    label { class: "mini", "{tr.cyl_he}"
-                                        input {
-                                            class: "field",
-                                            value: format!("{:.1}", cyl.gas.he_percent()),
-                                            oninput: move |evt| {
-                                                let permille = evt.value().parse::<f64>().map(|v| (v * 10.0).round() as u16).unwrap_or(0);
-                                                form.write().cylinders[i].gas.he_permille = permille;
-                                            },
-                                        }
-                                    }
-                                    label { class: "mini", "{tr.cyl_start} {prefs.pressure_unit()}"
-                                        input {
-                                            class: "field",
-                                            value: cyl.start_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
-                                            oninput: move |evt| {
-                                                form.write().cylinders[i].start_pressure = evt.value().parse::<f64>().ok().map(|v| prefs.pressure_from_value(v));
-                                            },
-                                        }
-                                    }
-                                    label { class: "mini", "{tr.cyl_end} {prefs.pressure_unit()}"
-                                        input {
-                                            class: "field",
-                                            value: cyl.end_pressure.map(|p| format!("{:.0}", prefs.pressure_value(p))).unwrap_or_default(),
-                                            oninput: move |evt| {
-                                                form.write().cylinders[i].end_pressure = evt.value().parse::<f64>().ok().map(|v| prefs.pressure_from_value(v));
-                                            },
-                                        }
-                                    }
-                                    label { class: "mini", "{tr.cyl_use}"
-                                        select {
-                                            class: "field",
-                                            value: "{cyl.use_.index()}",
-                                            onchange: move |evt| {
-                                                let index = evt.value().parse::<usize>().unwrap_or(0);
-                                                form.write().cylinders[i].use_ = CylinderUse::from_index(index);
-                                            },
-                                            for use_ in CylinderUse::ALL {
-                                                option {
-                                                    key: "{use_.index()}",
-                                                    value: "{use_.index()}",
-                                                    selected: cyl.use_ == use_,
-                                                    "{use_.label()}"
-                                                }
-                                            }
-                                        }
-                                    }
-                                    button {
-                                        class: "icon-btn",
-                                        title: "{tr.cyl_remove}",
-                                        onclick: move |_| { form.write().cylinders.remove(i); },
-                                        "✕"
-                                    }
-                                }
-                            }
-                        }
-                        button {
-                            class: "btn",
-                            onclick: move |_| {
-                                let cylinder = match prefs
-                                    .default_cylinder
-                                    .and_then(|index| CYLINDER_PRESETS.get(index))
-                                {
-                                    Some(preset) => Cylinder::from_preset(preset),
-                                    None => Cylinder::default(),
-                                };
-                                form.write().cylinders.push(cylinder);
-                            },
-                            "{tr.cyl_add}"
-                        }
-                    }
-
-                    if !other_gear.is_empty() {
-                        div { class: "field-label full", "{tr.gear_used}"
-                            div { class: "tag-suggest",
-                                for (item, _usage) in other_gear.clone() {
-                                    button {
-                                        key: "{item.id}",
-                                        class: if f.gear_ids.contains(&item.id) { "tag tag-add active" } else { "tag tag-add" },
-                                        r#type: "button",
-                                        onclick: move |_| {
-                                            let mut w = form.write();
-                                            match w.gear_ids.iter().position(|gear_id| *gear_id == item.id) {
-                                                Some(index) => { w.gear_ids.remove(index); }
-                                                None => w.gear_ids.push(item.id),
-                                            }
-                                        },
-                                        "{i18n::gear_kind(tr, item.kind)} · {item.name}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    div { class: "field-label full", "{tr.weight_weight}"
-                        div { class: "equip-list",
-                            for (i, ws) in f.weights.iter().enumerate() {
-                                div { key: "{i}", class: "equip-row weight-row",
-                                    label { class: "mini", "{prefs.weight_unit()}"
-                                        input {
-                                            class: "field",
-                                            value: format!("{:.2}", prefs.weight_value(ws.weight)),
-                                            oninput: move |evt| {
-                                                form.write().weights[i].weight = prefs.weight_from_value(evt.value().parse::<f64>().unwrap_or(0.0));
-                                            },
-                                        }
-                                    }
-                                    label { class: "mini wide", "{tr.weight_description}"
-                                        input {
-                                            class: "field",
-                                            value: "{ws.description}",
-                                            oninput: move |evt| form.write().weights[i].description = evt.value(),
-                                        }
-                                    }
-                                    button {
-                                        class: "icon-btn",
-                                        title: "{tr.weight_remove}",
-                                        onclick: move |_| { form.write().weights.remove(i); },
-                                        "✕"
-                                    }
-                                }
-                            }
-                        }
-                        button {
-                            class: "btn",
-                            onclick: move |_| form.write().weights.push(WeightSystem::new(Weight::from_kg(0.0), "belt")),
-                            "{tr.weight_add}"
-                        }
-                    }
-                }
-            } else {
-                div { class: "facts",
-                    Fact { label: tr.fact_duration, value: duration }
-                    Fact { label: tr.fact_max_depth, value: max_depth }
-                    Fact { label: tr.fact_avg_depth, value: avg_depth }
-                    Fact { label: tr.fact_rmv, value: rmv }
-                    Fact { label: tr.fact_water_temp, value: water_temp }
-                    Fact { label: tr.fact_air_temp, value: air_temp }
-                    Fact { label: tr.fact_computer, value: computer }
-                    Fact { label: tr.dive_mode, value: dive_mode.to_string() }
-                    Fact { label: tr.fact_buddy, value: dive.buddy.clone() }
-                    Fact { label: tr.fact_dive_master, value: dive.diveguide.clone() }
-                    Fact { label: tr.fact_suit, value: dive.suit.clone() }
-                    Fact { label: tr.fact_salinity, value: salinity }
-                }
-
-                if let Some(location) = site.as_ref().and_then(|s| s.location).filter(|l| l.is_valid()) {
-                    div { class: "detail-map-wrap",
-                        MapView {
-                            sites: vec![MapSite {
-                                site_id: site.as_ref().map(|s| s.uuid).unwrap_or_default(),
-                                name: site
-                                    .as_ref()
-                                    .map(|s| s.name.clone())
-                                    .unwrap_or_default(),
-                                lat: location.lat,
-                                lon: location.lon,
-                                dive_id: Some(dive.id),
-                                dives: 1,
-                                country: site.as_ref().and_then(|s| s.country.clone()),
-                            }],
-                            max_zoom: 13,
-                            height: "240px".to_string(),
-                            ctrl_zoom: true,
-                            on_click: move |_| {
-                                let mut map_focus = state.map_focus;
-                                let mut show_map = state.show_map;
-                                map_focus.set(Some((location.lat, location.lon)));
-                                show_map.set(true);
-                            },
-                        }
-                        a {
-                            class: "map-link",
-                            target: "_blank",
-                            rel: "noopener",
-                            href: "https://www.openstreetmap.org/?mlat={location.lat}&mlon={location.lon}#map=15/{location.lat}/{location.lon}",
-                            "{tr.open_osm}"
-                        }
-                    }
-                }
-
-                if !dive.tags.is_empty() {
-                    div { class: "tags",
-                        for tag in dive.tags.clone() {
-                            span { key: "{tag}", class: "tag", "{tag}" }
-                        }
-                    }
-                }
-
-                MediaGallery { pictures: dive.pictures.clone() }
-
-                if !cylinders.is_empty() {
-                    div { class: "section-title", "{tr.section_gas}" }
-                    div { class: "table-scroll",
-                        table { class: "data-table",
-                            thead { tr { th { "{tr.cyl_cylinder}" } th { "{tr.cyl_gas}" } th { "{tr.cyl_mod}" } th { "{tr.cyl_start}" } th { "{tr.cyl_end}" } } }
-                            tbody {
-                                for row in cylinders {
-                                    tr {
-                                        td { "{row.description}" }
-                                        td { "{row.gas}" }
-                                        td { "{row.mod_depth}" }
-                                        td { "{row.start}" }
-                                        td { "{row.end}" }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !weights.is_empty() {
-                        div { class: "table-scroll",
-                            table { class: "data-table",
-                                thead { tr { th { "{tr.weight_weight}" } th { "{tr.weight_description}" } } }
-                                tbody {
-                                    for row in weights {
-                                        tr { td { "{row.weight}" } td { "{row.description}" } }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if !extra_gear.is_empty() {
-                    div { class: "section-title", "{tr.gear_used}" }
-                    div { class: "tags",
-                        for (kind, name) in extra_gear {
-                            span { key: "{name}", class: "tag",
-                                "{i18n::gear_kind(tr, kind)} · {name}"
-                            }
-                        }
-                    }
-                }
-
-                if !dive.notes.is_empty() {
-                    div { class: "section-title", "{tr.section_notes}" }
-                    p { class: "notes", "{dive.notes}" }
-                }
-            }
-
-            if (show_picker)() {
-                LocationPickerDialog {
-                    on_choose: move |(lat, lon)| {
-                        form.write().site_gps = format!("{lat:.6}, {lon:.6}");
-                        show_picker.set(false);
+        if let Some(location) = site.as_ref().and_then(|s| s.location).filter(|l| l.is_valid()) {
+            div { class: "detail-map-wrap",
+                MapView {
+                    sites: vec![MapSite {
+                        site_id: site.as_ref().map(|s| s.uuid).unwrap_or_default(),
+                        name: site
+                            .as_ref()
+                            .map(|s| s.name.clone())
+                            .unwrap_or_default(),
+                        lat: location.lat,
+                        lon: location.lon,
+                        dive_id: Some(dive.id),
+                        dives: 1,
+                        country: site.as_ref().and_then(|s| s.country.clone()),
+                    }],
+                    max_zoom: 13,
+                    height: "240px".to_string(),
+                    ctrl_zoom: true,
+                    on_click: move |_| {
+                        let mut map_focus = state.map_focus;
+                        map_focus.set(Some((location.lat, location.lon)));
+                        state.open(Dialog::Map);
                     },
-                    on_close: move |_| show_picker.set(false),
+                }
+                a {
+                    class: "map-link",
+                    target: "_blank",
+                    rel: "noopener",
+                    href: "https://www.openstreetmap.org/?mlat={location.lat}&mlon={location.lon}#map=15/{location.lat}/{location.lon}",
+                    "{tr.open_osm}"
                 }
             }
+        }
 
-            if (show_profile)() {
-                ProfileEditorDialog {
-                    initial: (edited_samples)()
-                        .or_else(|| dive.primary_computer().map(|dc| dc.samples.clone()))
-                        .unwrap_or_default(),
-                    on_save: move |samples| {
-                        edited_samples.set(Some(samples));
-                        show_profile.set(false);
-                    },
-                    on_close: move |_| show_profile.set(false),
+        if !dive.tags.is_empty() {
+            div { class: "tags",
+                for tag in dive.tags.clone() {
+                    span { key: "{tag}", class: "tag", "{tag}" }
                 }
             }
+        }
+
+        MediaGallery { pictures: dive.pictures.clone() }
+
+        if !cylinders.is_empty() {
+            div { class: "section-title", "{tr.section_gas}" }
+            div { class: "table-scroll",
+                table { class: "data-table",
+                    thead { tr { th { "{tr.cyl_cylinder}" } th { "{tr.cyl_gas}" } th { "{tr.cyl_mod}" } th { "{tr.cyl_start}" } th { "{tr.cyl_end}" } } }
+                    tbody {
+                        for row in cylinders {
+                            tr {
+                                td { "{row.description}" }
+                                td { "{row.gas}" }
+                                td { "{row.mod_depth}" }
+                                td { "{row.start}" }
+                                td { "{row.end}" }
+                            }
+                        }
+                    }
+                }
+            }
+            if !weights.is_empty() {
+                div { class: "table-scroll",
+                    table { class: "data-table",
+                        thead { tr { th { "{tr.weight_weight}" } th { "{tr.weight_description}" } } }
+                        tbody {
+                            for row in weights {
+                                tr { td { "{row.weight}" } td { "{row.description}" } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !extra_gear.is_empty() {
+            div { class: "section-title", "{tr.gear_used}" }
+            div { class: "tags",
+                for (kind, name) in extra_gear {
+                    span { key: "{name}", class: "tag",
+                        "{i18n::gear_kind(tr, kind)} · {name}"
+                    }
+                }
+            }
+        }
+
+        if !dive.notes.is_empty() {
+            div { class: "section-title", "{tr.section_notes}" }
+            p { class: "notes", "{dive.notes}" }
         }
     }
 }

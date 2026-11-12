@@ -11,7 +11,12 @@
 //!
 //! On the web the log lives behind an in-memory cache plus a coalescing write
 //! queue: reads are synchronous (after [`init`]), writes update the cache and
-//! are flushed to IndexedDB in order in the background.
+//! are flushed to IndexedDB in order in the background. A failed flush is kept
+//! queued for retry and reported through [`next_write_status`] and subsequent
+//! [`save`] calls, so the UI never claims unsaved data is safe.
+//!
+//! On the desktop every write goes to a temporary file that is synced and then
+//! renamed over the target, so a crash never leaves a truncated log behind.
 
 /// How long to wait between automatic backups, in seconds.
 const BACKUP_INTERVAL_SECS: i64 = 3600;
@@ -26,6 +31,8 @@ const BACKUP_TIME: &str = "benthic.backup_time";
 const SYNC: &str = "benthic.sync";
 const SYNC_STATE: &str = "benthic.sync_state";
 const AI: &str = "benthic.ai";
+/// Prefix for copies of a log that failed to parse at startup.
+const UNREADABLE_PREFIX: &str = "benthic.unreadable.";
 #[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
 const DEVICE_FINGERPRINTS: &str = "benthic.device_fingerprints";
 
@@ -42,6 +49,7 @@ mod imp {
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
     use std::rc::Rc;
+    use std::task::{Poll, Waker};
 
     /// Keys stored in the bulk (IndexedDB) backend.
     const BULK: [&str; 3] = [super::LOG, super::BACKUP, super::BACKUP_TIME];
@@ -52,12 +60,47 @@ mod imp {
         static CACHE: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
         static PENDING: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
         static WRITING: Cell<bool> = const { Cell::new(false) };
-        static DB: RefCell<Option<Rc<Database>>> = RefCell::new(None);
+        static DB: RefCell<Option<Rc<Database>>> = const { RefCell::new(None) };
         static LOCAL_ONLY: Cell<bool> = const { Cell::new(false) };
+        static WRITE_ERROR: RefCell<Option<String>> = const { RefCell::new(None) };
+        static STATUS_GENERATION: Cell<u64> = const { Cell::new(0) };
+        static STATUS_WAKERS: RefCell<Vec<Waker>> = const { RefCell::new(Vec::new()) };
     }
 
     fn is_bulk(key: &str) -> bool {
-        BULK.contains(&key)
+        BULK.contains(&key) || key.starts_with(super::UNREADABLE_PREFIX)
+    }
+
+    fn set_write_error(error: Option<String>) {
+        let changed = WRITE_ERROR.with(|current| {
+            let mut current = current.borrow_mut();
+            if *current == error {
+                false
+            } else {
+                *current = error;
+                true
+            }
+        });
+        if changed {
+            STATUS_GENERATION.with(|generation| generation.set(generation.get() + 1));
+            for waker in STATUS_WAKERS.with(|wakers| std::mem::take(&mut *wakers.borrow_mut())) {
+                waker.wake();
+            }
+        }
+    }
+
+    /// Resolves with the current write error whenever it changes.
+    pub async fn next_write_status() -> Option<String> {
+        let start = STATUS_GENERATION.with(Cell::get);
+        std::future::poll_fn(|context| {
+            if STATUS_GENERATION.with(Cell::get) != start {
+                Poll::Ready(WRITE_ERROR.with(|error| error.borrow().clone()))
+            } else {
+                STATUS_WAKERS.with(|wakers| wakers.borrow_mut().push(context.waker().clone()));
+                Poll::Pending
+            }
+        })
+        .await
     }
 
     async fn open() -> Result<Rc<Database>, String> {
@@ -111,27 +154,24 @@ mod imp {
     }
 
     /// Load the bulk keys into memory. Call once before the first read.
-    pub async fn init() {
+    ///
+    /// Fails when IndexedDB opened but a stored key could not be read: the
+    /// caller must then keep autosave off, or it would overwrite a log it
+    /// never saw.
+    pub async fn init() -> Result<(), String> {
         let Some(db) = db().await else {
             // No IndexedDB: fall back to `localStorage` for everything.
             LOCAL_ONLY.with(|f| f.set(true));
-            return;
+            return Ok(());
         };
         let mut loaded = HashMap::new();
         for key in BULK {
-            if let Ok(Some(value)) = idb_get(&db, key).await {
+            if let Some(value) = idb_get(&db, key).await? {
                 loaded.insert(key.to_string(), value);
             }
         }
-        let had_log = loaded.contains_key(super::LOG);
         CACHE.with(|c| *c.borrow_mut() = loaded);
-        // One-time migration from the old `localStorage` log.
-        if !had_log {
-            if let Ok(old) = LocalStorage::get::<String>(super::LOG) {
-                CACHE.with(|c| c.borrow_mut().insert(super::LOG.to_string(), old.clone()));
-                enqueue(super::LOG, old);
-            }
-        }
+        Ok(())
     }
 
     pub fn get(key: &str) -> Option<String> {
@@ -147,6 +187,20 @@ mod imp {
         }
         CACHE.with(|c| c.borrow_mut().insert(key.to_string(), value.to_string()));
         enqueue(key, value.to_string());
+        match WRITE_ERROR.with(|error| error.borrow().clone()) {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    /// Write a key and wait until it is persisted, bypassing the queue.
+    pub async fn set_durable(key: &str, value: &str) -> Result<(), String> {
+        if !is_bulk(key) || LOCAL_ONLY.with(Cell::get) {
+            return LocalStorage::set(key, value).map_err(|e| e.to_string());
+        }
+        let db = db().await.ok_or("IndexedDB is unavailable")?;
+        idb_put(&db, key, value).await?;
+        CACHE.with(|c| c.borrow_mut().insert(key.to_string(), value.to_string()));
         Ok(())
     }
 
@@ -161,7 +215,11 @@ mod imp {
         wasm_bindgen_futures::spawn_local(drain());
     }
 
-    /// Flush the pending writes in order, coalescing repeats of the same key.
+    /// Flush the pending writes, coalescing repeats of the same key.
+    ///
+    /// On failure the unwritten values go back into the queue (unless a newer
+    /// value for the same key arrived meanwhile) and the drain stops; the next
+    /// write retries them.
     async fn drain() {
         loop {
             let batch: Vec<(String, String)> = PENDING.with(|p| p.borrow_mut().drain().collect());
@@ -171,9 +229,34 @@ mod imp {
                 WRITING.with(|w| w.set(false));
                 break;
             }
-            if let Some(db) = db().await {
-                for (key, value) in batch {
-                    let _ = idb_put(&db, &key, &value).await;
+            let failure = match db().await {
+                Some(db) => {
+                    let mut failure = None;
+                    let mut remaining = batch.into_iter();
+                    for (key, value) in remaining.by_ref() {
+                        if let Err(error) = idb_put(&db, &key, &value).await {
+                            failure = Some((error, Some((key, value))));
+                            break;
+                        }
+                    }
+                    failure.map(|(error, failed)| {
+                        (error, failed.into_iter().chain(remaining).collect())
+                    })
+                }
+                None => Some(("IndexedDB is unavailable".to_string(), batch)),
+            };
+            match failure {
+                None => set_write_error(None),
+                Some((error, unwritten)) => {
+                    PENDING.with(|pending| {
+                        let mut pending = pending.borrow_mut();
+                        for (key, value) in unwritten {
+                            pending.entry(key).or_insert(value);
+                        }
+                    });
+                    WRITING.with(|w| w.set(false));
+                    set_write_error(Some(error));
+                    break;
                 }
             }
         }
@@ -182,43 +265,94 @@ mod imp {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
-    use std::path::PathBuf;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::sync::OnceLock;
 
-    fn data_dir() -> PathBuf {
-        if let Some(dirs) = directories::ProjectDirs::from("io", "github", "benthic") {
-            let dir = dirs.data_dir().to_path_buf();
-            let _ = std::fs::create_dir_all(&dir);
-            dir
-        } else {
-            PathBuf::new()
-        }
+    fn data_dir() -> &'static Path {
+        static DIR: OnceLock<PathBuf> = OnceLock::new();
+        DIR.get_or_init(|| {
+            directories::ProjectDirs::from("io", "github", "benthic")
+                .map(|dirs| dirs.data_dir().to_path_buf())
+                .unwrap_or_default()
+        })
     }
 
     fn path(key: &str) -> PathBuf {
-        let dir = data_dir();
-        if dir.as_os_str().is_empty() {
-            PathBuf::from(key)
-        } else {
-            dir.join(key)
-        }
+        data_dir().join(key)
     }
 
     /// Nothing to prepare: the file backend reads and writes directly.
-    pub async fn init() {}
+    pub async fn init() -> Result<(), String> {
+        Ok(())
+    }
 
     pub fn get(key: &str) -> Option<String> {
         std::fs::read_to_string(path(key)).ok()
     }
 
     pub fn set(key: &str, value: &str) -> Result<(), String> {
-        std::fs::write(path(key), value).map_err(|e| e.to_string())
+        write_atomic(&path(key), value.as_bytes()).map_err(|e| e.to_string())
+    }
+
+    pub async fn set_durable(key: &str, value: &str) -> Result<(), String> {
+        set(key, value)
+    }
+
+    /// Write `contents` to a sibling temporary file, flush it to disk, then
+    /// rename it over `target`, so readers see either the old or the new file.
+    pub(super) fn write_atomic(target: &Path, contents: &[u8]) -> std::io::Result<()> {
+        let dir = target.parent().filter(|dir| !dir.as_os_str().is_empty());
+        if let Some(dir) = dir {
+            std::fs::create_dir_all(dir)?;
+        }
+        let mut name = target.file_name().unwrap_or_default().to_os_string();
+        name.push(".tmp");
+        let temporary = target.with_file_name(name);
+        let result = (|| {
+            let mut file = std::fs::File::create(&temporary)?;
+            file.write_all(contents)?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&temporary, target)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+            return result;
+        }
+        // Persist the rename itself. Directories cannot be opened for syncing
+        // on every platform, so this is best effort.
+        #[cfg(unix)]
+        if let Some(dir) = dir {
+            if let Ok(dir) = std::fs::File::open(dir) {
+                let _ = dir.sync_all();
+            }
+        }
+        Ok(())
     }
 }
 
 /// Prepare the storage backend (opens IndexedDB on the web). Call once at
-/// startup before the first read.
-pub async fn init() {
-    imp::init().await;
+/// startup before the first read. On error, stored data could not be read and
+/// must not be overwritten.
+pub async fn init() -> Result<(), String> {
+    imp::init().await
+}
+
+/// Wait until the background write status changes; `Some` carries the error
+/// of the last failed flush, `None` means pending writes have been persisted.
+#[cfg(target_arch = "wasm32")]
+pub async fn next_write_status() -> Option<String> {
+    imp::next_write_status().await
+}
+
+/// Durably keep a copy of a log that failed to parse under a new key, so
+/// later saves and backups cannot destroy it. Returns the key it was stored
+/// under.
+pub async fn preserve_unreadable(contents: &str) -> Result<String, String> {
+    let key = format!("{UNREADABLE_PREFIX}{}", crate::platform::now_secs());
+    imp::set_durable(&key, contents).await?;
+    Ok(key)
 }
 
 /// Load the dive log, if a stored one exists.
@@ -306,7 +440,8 @@ pub fn save_presets(contents: &str) -> Result<(), String> {
 
 /// Snapshot the current stored log into the backup slot, at most once per
 /// [`BACKUP_INTERVAL_SECS`]. The age check happens before reading the log so
-/// the common case costs nothing.
+/// the common case costs nothing. A stored log that no longer parses never
+/// replaces the backup.
 fn maybe_backup(new_contents: &str) {
     let due = match backup_age_secs() {
         Some(age) => age >= BACKUP_INTERVAL_SECS,
@@ -318,8 +453,37 @@ fn maybe_backup(new_contents: &str) {
     let Some(current) = imp::get(LOG) else {
         return;
     };
-    if current == new_contents {
+    if current == new_contents || benthic_core::io::parse_auto(&current).is_err() {
         return;
     }
     let _ = write_backup(&current);
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::imp::write_atomic;
+
+    #[test]
+    fn atomic_write_replaces_the_file_and_leaves_no_temporary() {
+        let dir = std::env::temp_dir().join(format!("benthic-storage-{}", std::process::id()));
+        let target = dir.join("benthic.log");
+        write_atomic(&target, b"first").unwrap();
+        write_atomic(&target, b"second").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "second");
+        let entries: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(entries.len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn failed_atomic_write_keeps_the_previous_file() {
+        let dir = std::env::temp_dir().join(format!("benthic-storage-fail-{}", std::process::id()));
+        let target = dir.join("benthic.log");
+        write_atomic(&target, b"kept").unwrap();
+        // A directory where the temporary file should go makes creation fail.
+        std::fs::create_dir(dir.join("benthic.log.tmp")).unwrap();
+        assert!(write_atomic(&target, b"lost").is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "kept");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

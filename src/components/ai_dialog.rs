@@ -9,7 +9,6 @@ use crate::state::AppState;
 #[component]
 pub fn AiDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show_ai = state.show_ai;
     let t = i18n::strings((state.prefs)().language);
 
     let mut config = use_signal(crate::ai::load_config);
@@ -66,7 +65,7 @@ pub fn AiDialog() -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| show_ai.set(false),
+            onclick: move |_| state.close_dialog(),
             div {
                 class: "modal wide ai-dialog",
                 role: "dialog",
@@ -153,7 +152,7 @@ pub fn AiDialog() -> Element {
                     button {
                         class: "btn",
                         r#type: "button",
-                        onclick: move |_| show_ai.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{t.close}"
                     }
                 }

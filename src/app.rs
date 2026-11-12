@@ -10,7 +10,7 @@ use crate::components::{
     SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
 };
 use crate::routing::{self, Route};
-use crate::state::AppState;
+use crate::state::{AppState, Dialog};
 
 #[cfg(feature = "divecomputer")]
 use crate::components::DeviceDownloadDialog;
@@ -38,21 +38,11 @@ pub fn App() -> Element {
                 ..Default::default()
             })
     });
-    let show_prefs = use_signal(|| initial_route == Route::Preferences);
-    let show_ai = use_signal(|| false);
-    let show_trips = use_signal(|| initial_route == Route::Trips);
-    let show_map = use_signal(|| initial_route == Route::Map);
-    let show_people = use_signal(|| initial_route == Route::People);
+    let dialog = use_signal(|| initial_route.dialog());
     let map_focus = use_signal(|| None::<(f64, f64)>);
-    let show_planner = use_signal(|| initial_route == Route::Planner);
-    let show_sync = use_signal(|| initial_route == Route::Sync);
-    let show_download = use_signal(|| initial_route == Route::Download);
     // Assume available, then hide the Download action on web platforms that
     // have neither Web Serial nor Web Bluetooth (e.g. iOS).
     let download_available = use_signal(|| true);
-    let show_compare = use_signal(|| initial_route == Route::Compare);
-    let mut confirm_delete_selected = use_signal(|| false);
-    let show_batch_edit = use_signal(|| false);
     let import_review = use_signal(|| None::<crate::state::PendingImport>);
     let show_trip = use_signal(|| match initial_route {
         Route::Trip(id) => Some(id),
@@ -69,6 +59,9 @@ pub fn App() -> Element {
     // Autosave is gated until the initial load has completed, so we never
     // overwrite a stored log with the empty in-memory log on startup.
     let loaded = use_signal(|| false);
+    // Set when the stored log was unreadable and had no usable backup: once
+    // the unreadable copy is preserved, the first edit turns autosave on.
+    let autosave_on_edit = use_signal(|| false);
     // Set when a local write fails, so the UI never claims data is safe when
     // it isn't (quota exhausted, private mode, ...).
     let mut storage_error = use_signal(|| None::<String>);
@@ -82,19 +75,9 @@ pub fn App() -> Element {
         presets,
         show_filters,
         prefs,
-        show_prefs,
-        show_ai,
-        show_trips,
-        show_map,
-        show_people,
+        dialog,
         map_focus,
-        show_planner,
-        show_sync,
-        show_download,
         download_available,
-        show_compare,
-        confirm_delete_selected,
-        show_batch_edit,
         import_review,
         show_trip,
         mobile_detail,
@@ -105,17 +88,7 @@ pub fn App() -> Element {
     // Keep the browser URL in sync with the open pane or dialog. This is the
     // single place that pushes history for UI-driven navigation.
     use_effect(move || {
-        let desired = Route::from_ui(
-            (show_prefs)(),
-            (show_trips)(),
-            (show_map)(),
-            (show_planner)(),
-            (show_sync)(),
-            (show_compare)(),
-            (show_download)(),
-            (show_people)(),
-            (show_trip)(),
-        );
+        let desired = Route::from_ui((dialog)(), (show_trip)());
         if desired == (state.route)() {
             return;
         }
@@ -190,51 +163,84 @@ pub fn App() -> Element {
         let mut selected = selected;
         let mut status = status;
         let mut loaded = loaded;
-        crate::storage::init().await;
-        match crate::storage::load() {
-            Some(text) => match benthic_core::io::parse_auto(&text) {
-                Ok(mut parsed) => {
-                    parsed.number_missing_dives();
-                    crate::actions::seed_catalog(&mut parsed);
-                    if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
-                        selected.set(Some(first));
-                    }
-                    let count = parsed.dives.len();
-                    log.set(parsed);
-                    loaded.set(true);
-                    status.set(crate::i18n::t1(t.status_loaded, count));
-                }
-                // Leave autosave disabled so the unreadable log is preserved
-                // for manual recovery instead of being overwritten.
-                Err(e) => match crate::storage::load_backup() {
-                    Some(backup) => match benthic_core::io::parse_auto(&backup) {
-                        Ok(mut parsed) => {
-                            parsed.number_missing_dives();
-                            crate::actions::seed_catalog(&mut parsed);
-                            if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
-                                selected.set(Some(first));
-                            }
-                            let count = parsed.dives.len();
-                            log.set(parsed);
-                            loaded.set(true);
-                            status.set(crate::i18n::t2(t.status_recovered, e, count));
-                        }
-                        Err(_) => status.set(crate::i18n::t1(t.status_could_not_read, e)),
-                    },
-                    None => status.set(crate::i18n::t1(t.status_could_not_read, e)),
-                },
-            },
-            None => {
+        let mut autosave_on_edit = autosave_on_edit;
+        let mut storage_error = storage_error;
+        let mut adopt = move |mut parsed: DiveLog| {
+            parsed.prepare();
+            selected.set(parsed.newest_dive_id());
+            let count = parsed.dives.len();
+            log.set(parsed);
+            count
+        };
+        // Autosave stays off on every failure path below, so a log we could
+        // not read is never overwritten.
+        if let Err(error) = crate::storage::init().await {
+            let message = crate::i18n::t1(t.status_could_not_read, error);
+            status.set(message.clone());
+            storage_error.set(Some(message));
+            return;
+        }
+        let Some(text) = crate::storage::load() else {
+            loaded.set(true);
+            status.set(t.status_no_log.to_string());
+            return;
+        };
+        let error = match benthic_core::io::parse_auto(&text) {
+            Ok(parsed) => {
+                let count = adopt(parsed);
                 loaded.set(true);
-                status.set(t.status_no_log.to_string());
+                status.set(crate::i18n::t1(t.status_loaded, count));
+                return;
             }
+            Err(error) => error,
+        };
+        let kept = match crate::storage::preserve_unreadable(&text).await {
+            Ok(key) => key,
+            Err(preserve_error) => {
+                let message = crate::i18n::t1(
+                    t.status_could_not_read,
+                    format!("{error}; {preserve_error}"),
+                );
+                status.set(message.clone());
+                storage_error.set(Some(message));
+                return;
+            }
+        };
+        match crate::storage::load_backup().map(|backup| benthic_core::io::parse_auto(&backup)) {
+            Some(Ok(parsed)) => {
+                let count = adopt(parsed);
+                loaded.set(true);
+                status.set(crate::i18n::t3(t.status_recovered, error, count, kept));
+            }
+            _ => {
+                // The unreadable log is safely copied, so the next edit may
+                // start a fresh log in its place.
+                autosave_on_edit.set(true);
+                let message = crate::i18n::t2(t.status_unreadable_kept, error, kept);
+                status.set(message.clone());
+                storage_error.set(Some(message));
+            }
+        }
+    });
+
+    // Report background write failures (and recoveries) on the web, where
+    // saves complete asynchronously.
+    #[cfg(target_arch = "wasm32")]
+    use_future(move || async move {
+        let mut storage_error = storage_error;
+        loop {
+            storage_error.set(crate::storage::next_write_status().await);
         }
     });
 
     // Autosave whenever the log changes (once loading has finished).
     use_effect(move || {
         if !(loaded)() {
-            return;
+            if !((autosave_on_edit)() && (history)().can_undo()) {
+                return;
+            }
+            let mut loaded = loaded;
+            loaded.set(true);
         }
         let mut storage_error = storage_error;
         let snapshot = log();
@@ -254,41 +260,8 @@ pub fn App() -> Element {
     let on_keydown = move |evt: KeyboardEvent| {
         // Escape closes the open dialog, whichever it is.
         if evt.key() == Key::Escape {
-            let mut confirm_delete_selected = confirm_delete_selected;
-            let mut show_prefs = show_prefs;
-            let mut show_trips = show_trips;
-            let mut show_map = show_map;
-            let mut show_planner = show_planner;
-            let mut show_sync = show_sync;
-            let mut show_download = show_download;
-            let mut show_compare = show_compare;
-            let mut show_people = show_people;
-            let mut show_batch_edit = show_batch_edit;
-            let mut closed = true;
-            if (confirm_delete_selected)() {
-                confirm_delete_selected.set(false);
-            } else if (show_batch_edit)() {
-                show_batch_edit.set(false);
-            } else if (show_prefs)() {
-                show_prefs.set(false);
-            } else if (show_trips)() {
-                show_trips.set(false);
-            } else if (show_map)() {
-                show_map.set(false);
-            } else if (show_planner)() {
-                show_planner.set(false);
-            } else if (show_sync)() {
-                show_sync.set(false);
-            } else if (show_compare)() {
-                show_compare.set(false);
-            } else if (show_download)() {
-                show_download.set(false);
-            } else if (show_people)() {
-                show_people.set(false);
-            } else {
-                closed = false;
-            }
-            if closed {
+            if (dialog)().is_some() {
+                state.close_dialog();
                 evt.prevent_default();
             }
             return;
@@ -329,26 +302,38 @@ pub fn App() -> Element {
     let show_welcome = (loaded)() && (log)().dives.is_empty() && !(prefs)().seen_welcome;
     // While a dialog is open, the page behind it is inert, so focus and
     // assistive technology stay inside the dialog.
-    let modal_open = show_welcome
-        || (show_prefs)()
-        || (show_ai)()
-        || (show_trips)()
-        || (show_map)()
-        || (show_planner)()
-        || (show_compare)()
-        || (confirm_delete_selected)()
-        || (show_batch_edit)()
-        || (import_review)().is_some()
-        || (show_sync)()
-        || (show_download)()
-        || (show_people)();
+    let modal_open = show_welcome || (dialog)().is_some() || (import_review)().is_some();
 
-    #[cfg(feature = "divecomputer")]
-    let device_download = (show_download)().then(|| rsx! { DeviceDownloadDialog {} });
-    #[cfg(target_arch = "wasm32")]
-    let device_download = (show_download)().then(|| rsx! { DeviceDownloadWebDialog {} });
-    #[cfg(not(any(feature = "divecomputer", target_arch = "wasm32")))]
-    let device_download: Option<Element> = None;
+    let dialog_view = (dialog)().map(|open| match open {
+        Dialog::Preferences => rsx! { PreferencesDialog {} },
+        Dialog::Ai => rsx! { AiDialog {} },
+        Dialog::Trips => rsx! { TripsDialog {} },
+        Dialog::Map => rsx! { MapDialog {} },
+        Dialog::People => rsx! { PeopleGearDialog {} },
+        Dialog::Planner => rsx! { PlannerDialog {} },
+        Dialog::Sync => rsx! { SyncDialog {} },
+        Dialog::Compare => rsx! { CompareDialog {} },
+        Dialog::BatchEdit => rsx! { BatchEditDialog {} },
+        Dialog::ConfirmDeleteSelected => rsx! {
+            ConfirmDialog {
+                title: tr.confirm_delete_dives_title.to_string(),
+                body: crate::i18n::t1(tr.confirm_delete_dives_body, (selection)().len()),
+                confirm_label: tr.delete.to_string(),
+                cancel_label: tr.cancel.to_string(),
+                on_confirm: move |_| {
+                    crate::actions::delete_selected(state);
+                    state.close_dialog();
+                },
+                on_cancel: move |_| state.close_dialog(),
+            }
+        },
+        #[cfg(feature = "divecomputer")]
+        Dialog::Download => rsx! { DeviceDownloadDialog {} },
+        #[cfg(target_arch = "wasm32")]
+        Dialog::Download => rsx! { DeviceDownloadWebDialog {} },
+        #[cfg(not(any(feature = "divecomputer", target_arch = "wasm32")))]
+        Dialog::Download => rsx! {},
+    });
 
     rsx! {
         style { dangerous_inner_html: CSS }
@@ -396,50 +381,10 @@ pub fn App() -> Element {
         if show_welcome {
             WelcomeDialog {}
         }
-        if (show_prefs)() {
-            PreferencesDialog {}
-        }
-        if (show_ai)() {
-            AiDialog {}
-        }
-        if (show_trips)() {
-            TripsDialog {}
-        }
-        if (show_map)() {
-            MapDialog {}
-        }
-        if (show_planner)() {
-            PlannerDialog {}
-        }
-        if (show_compare)() {
-            CompareDialog {}
-        }
-        if (show_people)() {
-            PeopleGearDialog {}
-        }
-        if (show_batch_edit)() {
-            BatchEditDialog {}
-        }
-        if (confirm_delete_selected)() {
-            ConfirmDialog {
-                title: tr.confirm_delete_dives_title.to_string(),
-                body: crate::i18n::t1(tr.confirm_delete_dives_body, (selection)().len()),
-                confirm_label: tr.delete.to_string(),
-                cancel_label: tr.cancel.to_string(),
-                on_confirm: move |_| {
-                    crate::actions::delete_selected(state);
-                    confirm_delete_selected.set(false);
-                },
-                on_cancel: move |_| confirm_delete_selected.set(false),
-            }
-        }
+        {dialog_view}
         if let Some(pending) = (import_review)() {
             ImportReviewDialog { key: "{pending.nonce}", pending }
         }
-        if (show_sync)() {
-            SyncDialog {}
-        }
-        {device_download}
         }
     }
 }

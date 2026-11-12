@@ -16,7 +16,6 @@ struct TripRow {
 #[component]
 pub fn TripsDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show_trips = state.show_trips;
     let log = (state.log)();
     let prefs = (state.prefs)();
     let tr = i18n::strings(prefs.language);
@@ -61,7 +60,7 @@ pub fn TripsDialog() -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| show_trips.set(false),
+            onclick: move |_| state.close_dialog(),
             div {
                 class: "modal wide",
                 role: "dialog",
@@ -144,7 +143,7 @@ pub fn TripsDialog() -> Element {
                     }
                     button {
                         class: "btn primary",
-                        onclick: move |_| show_trips.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{tr.done}"
                     }
                 }

@@ -957,6 +957,25 @@ impl DiveLog {
         dives
     }
 
+    /// The id of the most recent dive, if any.
+    pub fn newest_dive_id(&self) -> Option<u32> {
+        self.dives.iter().max_by_key(|d| d.when).map(|d| d.id)
+    }
+
+    /// The user-visible number a newly added dive should get.
+    pub fn next_number(&self) -> i32 {
+        self.dives.iter().map(|d| d.number).max().unwrap_or(0) + 1
+    }
+
+    /// Bring a log from storage, a file or a remote up to the app's
+    /// invariants: summary fields derived, every dive numbered, and the
+    /// people/gear catalog seeded. Idempotent.
+    pub fn prepare(&mut self) {
+        self.fixup_all();
+        self.number_missing_dives();
+        self.seed_catalog();
+    }
+
     /// Give every dive without a user-visible number the next free one.
     ///
     /// Dives are numbered oldest-first, which is how a chronological logbook

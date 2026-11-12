@@ -10,7 +10,7 @@ use crate::actions;
 use crate::components::{DiveProfile, InfoTip};
 use crate::i18n;
 use crate::routing::{self, Route};
-use crate::state::AppState;
+use crate::state::{AppState, Dialog};
 
 const GAS_COLORS: [&str; 8] = [
     "#4cc9f0", "#7ee787", "#f5a623", "#f28fad", "#c792ea", "#ffd166", "#a8dadc", "#d0ffb7",
@@ -646,7 +646,6 @@ fn Gauge(
 #[component]
 pub fn PlannerDialog() -> Element {
     let state = use_context::<AppState>();
-    let mut show_planner = state.show_planner;
     let prefs = (state.prefs)();
     let tr = i18n::strings(prefs.language);
     let salinity = prefs.default_salinity.value();
@@ -717,7 +716,7 @@ pub fn PlannerDialog() -> Element {
             (vpmb_conservatism)(),
             (rmv)(),
         );
-        routing::replace_query(Route::Planner, &query);
+        routing::replace_query(Route::Dialog(Dialog::Planner), &query);
     });
 
     let gas_forms = (gases)();
@@ -882,8 +881,6 @@ pub fn PlannerDialog() -> Element {
     }
 
     let max_depth = plan.max_depth();
-    let bottom_mode = plan.bottom_mode();
-    let rebreather = bottom_mode.is_rebreather();
     let mod_mm = mod_depth_mm(
         bottom_gas,
         (max_ppo2_value.max(0.1) * 1000.0).round(),
@@ -930,69 +927,7 @@ pub fn PlannerDialog() -> Element {
             }
         }
     }
-    // A partly used first bottle may be empty by design when a second bottle
-    // of the same gas takes over. Only the last bottle of each gas mix has to
-    // retain the reserve.
-    let mut last_for_gas = std::collections::HashMap::new();
-    for (index, gas) in plan.gas_uses.iter().enumerate() {
-        last_for_gas.insert((gas.gas.o2_permille, gas.gas.he_permille), index);
-    }
-    let gas_low = plan.gas_uses.iter().enumerate().any(|(index, gas)| {
-        last_for_gas
-            .get(&(gas.gas.o2_permille, gas.gas.he_permille))
-            .is_some_and(|last| *last == index)
-            && gas.end_pressure.mbar < reserve_value.mbar
-    });
-
-    let ndl_text = ndl()
-        .map(|d| {
-            if d.seconds >= 24 * 3600 {
-                "> 24 h".to_string()
-            } else {
-                format_duration(d)
-            }
-        })
-        .unwrap_or_else(|| "> 24 h".to_string());
-
-    let stops: Vec<(String, String)> = plan
-        .stops
-        .iter()
-        .map(|stop| (prefs.depth(stop.depth), format_duration(stop.duration)))
-        .collect();
-    let switches: Vec<(String, String, String, String)> = plan
-        .gas_switches
-        .iter()
-        .map(|switch| {
-            (
-                format_duration(switch.time),
-                prefs.depth(switch.depth),
-                switch.gas.name(),
-                gas_color(&gas_forms, switch.gas).to_string(),
-            )
-        })
-        .collect();
-    let gas_usage: Vec<(String, f64, f64, f64, f64, bool, String)> = plan
-        .gas_uses
-        .iter()
-        .enumerate()
-        .map(|(index, gas)| {
-            let low = last_for_gas
-                .get(&(gas.gas.o2_permille, gas.gas.he_permille))
-                .is_some_and(|last| *last == index)
-                && gas.end_pressure.mbar < reserve_value.mbar;
-            (
-                gas.gas.name(),
-                gas.size.liters(),
-                gas.start_pressure.bar(),
-                gas.used_liters,
-                gas.end_pressure.bar(),
-                low,
-                gas_color(&gas_forms, gas.gas).to_string(),
-            )
-        })
-        .collect();
-    let has_stops = !stops.is_empty();
-    let gas_needed: f64 = plan.gas_uses.iter().map(|gas| gas.used_liters).sum();
+    let gas_low = plan_gas_low(&plan, reserve_value);
 
     let graph_samples =
         plan.graph_samples_without_tts(SURFACE_PRESSURE_MBAR / 1000.0, salinity, rmv_value);
@@ -1028,7 +963,7 @@ pub fn PlannerDialog() -> Element {
     let plan_for_save = plan.clone();
     let on_save = move |_| {
         actions::save_plan(state, plan_for_save.clone());
-        show_planner.set(false);
+        state.close_dialog();
     };
 
     let optimize = move |_| {
@@ -1094,7 +1029,7 @@ pub fn PlannerDialog() -> Element {
                         button {
                             class: "btn back-btn",
                             title: "{tr.back}",
-                            onclick: move |_| show_planner.set(false),
+                            onclick: move |_| state.close_dialog(),
                             "\u{2039} {tr.back}"
                         }
                         h1 { "{tr.dive_planner}" }
@@ -1102,7 +1037,7 @@ pub fn PlannerDialog() -> Element {
                             button { class: "btn primary", onclick: on_save, "{tr.planner_save_dive}" }
                             button {
                                 class: "btn",
-                                onclick: move |_| show_planner.set(false),
+                                onclick: move |_| state.close_dialog(),
                                 "{tr.close}"
                             }
                         }
@@ -1503,106 +1438,204 @@ pub fn PlannerDialog() -> Element {
                     p { class: "warn", "{warning}" }
                 }
 
-                div { class: "section-title", "{tr.summary}" }
-                div { class: "facts planner-results",
-                    Result { label: tr.bottom_gas, value: bottom_gas.name() }
-                    Result { label: tr.ambient, value: format!("{:.2} bar", ambient_mbar(max_depth.mm, SURFACE_PRESSURE_MBAR, salinity) / 1000.0) }
+                PlanResults {
+                    plan: plan.clone(),
+                    gases: gas_forms.clone(),
+                    bottom_gas,
+                    reserve: reserve_value,
+                    ndl: ndl(),
+                    mod_mm,
+                    end_mm,
+                    rmv: rmv_value,
+                    salinity,
+                }
+            }
+        }
+    }
+}
+
+/// Whether the last bottle of any gas mix ends below the reserve. A partly
+/// used first bottle may be empty by design when a second bottle of the same
+/// gas takes over, so only the last bottle of each mix counts.
+fn plan_gas_low(plan: &DivePlan, reserve: Pressure) -> bool {
+    low_bottles(plan, reserve).into_iter().any(|low| low)
+}
+
+/// For each bottle in `plan.gas_uses`, whether it ends below the reserve while
+/// being the last bottle of its gas mix.
+fn low_bottles(plan: &DivePlan, reserve: Pressure) -> Vec<bool> {
+    let mut last_for_gas = std::collections::HashMap::new();
+    for (index, gas) in plan.gas_uses.iter().enumerate() {
+        last_for_gas.insert((gas.gas.o2_permille, gas.gas.he_permille), index);
+    }
+    plan.gas_uses
+        .iter()
+        .enumerate()
+        .map(|(index, gas)| {
+            last_for_gas[&(gas.gas.o2_permille, gas.gas.he_permille)] == index
+                && gas.end_pressure.mbar < reserve.mbar
+        })
+        .collect()
+}
+
+/// The summary facts and the gas, switch and stop tables of a plan.
+#[allow(clippy::too_many_arguments)]
+#[component]
+fn PlanResults(
+    plan: DivePlan,
+    gases: Vec<GasForm>,
+    bottom_gas: GasMix,
+    reserve: Pressure,
+    ndl: Option<Duration>,
+    mod_mm: i32,
+    end_mm: i32,
+    rmv: f64,
+    salinity: i32,
+) -> Element {
+    let state = use_context::<AppState>();
+    let prefs = (state.prefs)();
+    let tr = state.strings();
+    let max_depth = plan.max_depth();
+    let rebreather = plan.bottom_mode().is_rebreather();
+    let ndl_text = match ndl {
+        Some(d) if d.seconds < 24 * 3600 => format_duration(d),
+        _ => "> 24 h".to_string(),
+    };
+    let stops: Vec<(String, String)> = plan
+        .stops
+        .iter()
+        .map(|stop| (prefs.depth(stop.depth), format_duration(stop.duration)))
+        .collect();
+    let switches: Vec<(String, String, String, String)> = plan
+        .gas_switches
+        .iter()
+        .map(|switch| {
+            (
+                format_duration(switch.time),
+                prefs.depth(switch.depth),
+                switch.gas.name(),
+                gas_color(&gases, switch.gas).to_string(),
+            )
+        })
+        .collect();
+    let gas_usage: Vec<(String, f64, f64, f64, f64, bool, String)> = plan
+        .gas_uses
+        .iter()
+        .zip(low_bottles(&plan, reserve))
+        .map(|(gas, low)| {
+            (
+                gas.gas.name(),
+                gas.size.liters(),
+                gas.start_pressure.bar(),
+                gas.used_liters,
+                gas.end_pressure.bar(),
+                low,
+                gas_color(&gases, gas.gas).to_string(),
+            )
+        })
+        .collect();
+    let has_stops = !stops.is_empty();
+    let gas_needed: f64 = plan.gas_uses.iter().map(|gas| gas.used_liters).sum();
+
+    rsx! {
+            div { class: "section-title", "{tr.summary}" }
+            div { class: "facts planner-results",
+                Result { label: tr.bottom_gas, value: bottom_gas.name() }
+                Result { label: tr.ambient, value: format!("{:.2} bar", ambient_mbar(max_depth.mm, SURFACE_PRESSURE_MBAR, salinity) / 1000.0) }
+                Result {
+                    label: tr.mod_depth,
+                    value: prefs.depth(Depth::new(mod_mm)),
+                    help: Some(tr.tip_mod),
+                }
+                Result {
+                    label: tr.end,
+                    value: prefs.depth(Depth::new(end_mm)),
+                    help: Some(tr.tip_end),
+                }
+                Result {
+                    label: tr.ndl,
+                    value: ndl_text,
+                    help: Some(tr.tip_ndl),
+                }
+                Result { label: tr.runtime, value: format_duration(plan.total_time()) }
+                Result { label: tr.bottom_time, value: format_duration(plan.bottom_time()) }
+                Result { label: tr.deco_time, value: format_duration(plan.deco_time()) }
+                if !rebreather {
                     Result {
-                        label: tr.mod_depth,
-                        value: prefs.depth(Depth::new(mod_mm)),
-                        help: Some(tr.tip_mod),
+                        label: tr.gas_needed,
+                        value: format!("{gas_needed:.0} L"),
+                        help: Some(tr.tip_gas_needed),
                     }
+                } else {
                     Result {
-                        label: tr.end,
-                        value: prefs.depth(Depth::new(end_mm)),
-                        help: Some(tr.tip_end),
-                    }
-                    Result {
-                        label: tr.ndl,
-                        value: ndl_text,
-                        help: Some(tr.tip_ndl),
-                    }
-                    Result { label: tr.runtime, value: format_duration(plan.total_time()) }
-                    Result { label: tr.bottom_time, value: format_duration(plan.bottom_time()) }
-                    Result { label: tr.deco_time, value: format_duration(plan.deco_time()) }
-                    if !rebreather {
-                        Result {
-                            label: tr.gas_needed,
-                            value: format!("{gas_needed:.0} L"),
-                            help: Some(tr.tip_gas_needed),
-                        }
-                    } else {
-                        Result {
-                            label: tr.oc_bailout,
-                            value: format!("{:.0} L", plan.bailout_liters(rmv_value, SURFACE_PRESSURE_MBAR / 1000.0, salinity)),
-                            help: Some(tr.tip_bailout),
-                        }
+                        label: tr.oc_bailout,
+                        value: format!("{:.0} L", plan.bailout_liters(rmv, SURFACE_PRESSURE_MBAR / 1000.0, salinity)),
+                        help: Some(tr.tip_bailout),
                     }
                 }
+            }
 
-                if !gas_usage.is_empty() {
-                    div { class: "section-title", "{tr.gas_usage}" }
-                    div { class: "table-scroll",
-                        table { class: "data-table",
-                            thead { tr { th { "{tr.gas_gas}" } th { "{tr.tank_size}" } th { "{tr.start_pressure}" } th { "{tr.used_gas}" } th { "{tr.gas_left}" } } }
-                            tbody {
-                                for (name, size, start, used, left, low, color) in gas_usage.iter() {
-                                    tr {
-                                        td {
-                                            span {
-                                                class: "gas-color-dot",
-                                                style: "background: {color};",
-                                            }
-                                            "{name}"
-                                        }
-                                        td { "{size:.1} L" }
-                                        td { "{start:.0} bar" }
-                                        td { "{used:.0} L" }
-                                        td { class: if *low { "warn" } else { "" }, "{left:.0} bar" }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if !switches.is_empty() {
-                    div { class: "section-title", "{tr.gas_switches}" }
+            if !gas_usage.is_empty() {
+                div { class: "section-title", "{tr.gas_usage}" }
+                div { class: "table-scroll",
                     table { class: "data-table",
-                        thead { tr { th { "{tr.time}" } th { "{tr.stop}" } th { "{tr.gas_gas}" } } }
+                        thead { tr { th { "{tr.gas_gas}" } th { "{tr.tank_size}" } th { "{tr.start_pressure}" } th { "{tr.used_gas}" } th { "{tr.gas_left}" } } }
                         tbody {
-                            for (time, depth, gas, color) in switches.iter() {
+                            for (name, size, start, used, left, low, color) in gas_usage.iter() {
                                 tr {
-                                    td { "{time}" }
-                                    td { "{depth}" }
                                     td {
                                         span {
                                             class: "gas-color-dot",
                                             style: "background: {color};",
                                         }
-                                        "{gas}"
+                                        "{name}"
                                     }
+                                    td { "{size:.1} L" }
+                                    td { "{start:.0} bar" }
+                                    td { "{used:.0} L" }
+                                    td { class: if *low { "warn" } else { "" }, "{left:.0} bar" }
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                if has_stops {
-                    div { class: "section-title", "{tr.deco_schedule}" }
-                    table { class: "data-table",
-                        thead { tr { th { "{tr.stop}" } th { "{tr.time}" } } }
-                        tbody {
-                            for (stop_depth, stop_time) in stops.iter() {
-                                tr { td { "{stop_depth}" } td { "{stop_time}" } }
+            if !switches.is_empty() {
+                div { class: "section-title", "{tr.gas_switches}" }
+                table { class: "data-table",
+                    thead { tr { th { "{tr.time}" } th { "{tr.stop}" } th { "{tr.gas_gas}" } } }
+                    tbody {
+                        for (time, depth, gas, color) in switches.iter() {
+                            tr {
+                                td { "{time}" }
+                                td { "{depth}" }
+                                td {
+                                    span {
+                                        class: "gas-color-dot",
+                                        style: "background: {color};",
+                                    }
+                                    "{gas}"
+                                }
                             }
                         }
                     }
-                } else {
-                    p { class: "muted", "{tr.no_stops}" }
                 }
             }
-        }
+
+            if has_stops {
+                div { class: "section-title", "{tr.deco_schedule}" }
+                table { class: "data-table",
+                    thead { tr { th { "{tr.stop}" } th { "{tr.time}" } } }
+                    tbody {
+                        for (stop_depth, stop_time) in stops.iter() {
+                            tr { td { "{stop_depth}" } td { "{stop_time}" } }
+                        }
+                    }
+                }
+            } else {
+                p { class: "muted", "{tr.no_stops}" }
+            }
     }
 }
 

@@ -248,6 +248,17 @@ impl DiveLog {
         usage
     }
 
+    /// Seed the catalog from dive history once per [`CATALOG_VERSION`], so
+    /// names from older logs or Subsurface XML show up in the global lists
+    /// without resurrecting entries the user deleted afterwards.
+    pub fn seed_catalog(&mut self) {
+        if self.catalog_version >= CATALOG_VERSION {
+            return;
+        }
+        self.adopt_untracked_entries();
+        self.catalog_version = CATALOG_VERSION;
+    }
+
     /// Register every person and gear name found in the dives that is not yet
     /// in the catalog. Returns how many entries were added.
     ///

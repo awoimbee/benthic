@@ -11,7 +11,6 @@ use crate::state::AppState;
 pub fn PreferencesDialog() -> Element {
     let state = use_context::<AppState>();
     let mut prefs = state.prefs;
-    let mut show_prefs = state.show_prefs;
     let t = i18n::strings(prefs().language);
     let current = (state.prefs)().units;
     let current_theme = (state.prefs)().theme;
@@ -64,7 +63,7 @@ pub fn PreferencesDialog() -> Element {
     rsx! {
         div {
             class: "modal-backdrop",
-            onclick: move |_| show_prefs.set(false),
+            onclick: move |_| state.close_dialog(),
             div {
                 class: "modal",
                 role: "dialog",
@@ -191,7 +190,7 @@ pub fn PreferencesDialog() -> Element {
                 div { class: "detail-actions",
                     button {
                         class: "btn primary",
-                        onclick: move |_| show_prefs.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{t.done}"
                     }
                 }

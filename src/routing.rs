@@ -7,22 +7,15 @@
 
 use dioxus::prelude::WritableExt;
 
-use crate::state::AppState;
+use crate::state::{AppState, Dialog};
 
 /// A top-level destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
     /// The main dive list.
     Dives,
-    Planner,
-    Map,
-    Trips,
     Trip(u32),
-    Preferences,
-    Sync,
-    Compare,
-    Download,
-    People,
+    Dialog(Dialog),
 }
 
 impl Route {
@@ -30,52 +23,25 @@ impl Route {
     pub fn path(self) -> String {
         match self {
             Route::Dives => "/".to_string(),
-            Route::Planner => "/planner".to_string(),
-            Route::Map => "/map".to_string(),
-            Route::Trips => "/trips".to_string(),
             Route::Trip(id) => format!("/trips/{id}"),
-            Route::Preferences => "/preferences".to_string(),
-            Route::Sync => "/sync".to_string(),
-            Route::Compare => "/compare".to_string(),
-            Route::Download => "/download".to_string(),
-            Route::People => "/people".to_string(),
+            Route::Dialog(dialog) => format!("/{}", dialog.slug().unwrap_or_default()),
         }
     }
 
-    /// The route implied by the current UI signals. Dialogs take precedence
-    /// over the pane behind them.
-    #[allow(clippy::too_many_arguments)]
-    pub fn from_ui(
-        prefs: bool,
-        trips: bool,
-        map: bool,
-        planner: bool,
-        sync: bool,
-        compare: bool,
-        download: bool,
-        people: bool,
-        trip: Option<u32>,
-    ) -> Self {
-        if planner {
-            Route::Planner
-        } else if prefs {
-            Route::Preferences
-        } else if trips {
-            Route::Trips
-        } else if map {
-            Route::Map
-        } else if sync {
-            Route::Sync
-        } else if compare {
-            Route::Compare
-        } else if download {
-            Route::Download
-        } else if people {
-            Route::People
-        } else if let Some(id) = trip {
-            Route::Trip(id)
-        } else {
-            Route::Dives
+    /// The route implied by the UI: an addressable dialog takes precedence
+    /// over the pane behind it.
+    pub fn from_ui(dialog: Option<Dialog>, trip: Option<u32>) -> Self {
+        match dialog {
+            Some(dialog) if dialog.slug().is_some() => Route::Dialog(dialog),
+            _ => trip.map_or(Route::Dives, Route::Trip),
+        }
+    }
+
+    /// The dialog this route opens, if any.
+    pub fn dialog(self) -> Option<Dialog> {
+        match self {
+            Route::Dialog(dialog) => Some(dialog),
+            _ => None,
         }
     }
 }
@@ -83,26 +49,10 @@ impl Route {
 /// Apply a route to the UI signals (used for Back/Forward and direct links).
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 pub fn apply_route(state: AppState, route: Route) {
-    let mut show_prefs = state.show_prefs;
-    let mut show_trips = state.show_trips;
-    let mut show_map = state.show_map;
-    let mut show_planner = state.show_planner;
-    let mut show_sync = state.show_sync;
-    let mut show_compare = state.show_compare;
-    let mut show_download = state.show_download;
-    let mut show_people = state.show_people;
+    let mut dialog = state.dialog;
     let mut show_trip = state.show_trip;
     let mut mobile_detail = state.mobile_detail;
-
-    show_prefs.set(route == Route::Preferences);
-    show_trips.set(route == Route::Trips);
-    show_map.set(route == Route::Map);
-    show_planner.set(route == Route::Planner);
-    show_sync.set(route == Route::Sync);
-    show_compare.set(route == Route::Compare);
-    show_download.set(route == Route::Download);
-    show_people.set(route == Route::People);
-
+    dialog.set(route.dialog());
     match route {
         Route::Dives => {
             show_trip.set(None);
@@ -112,36 +62,27 @@ pub fn apply_route(state: AppState, route: Route) {
             show_trip.set(Some(id));
             mobile_detail.set(true);
         }
-        _ => {}
+        Route::Dialog(_) => {}
     }
 }
 
 /// Parse a pathname into a route, ignoring any deployment base path.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 pub fn route_from_path(path: &str) -> Route {
-    let path = path
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(path)
-        .trim_end_matches('/');
+    let path = path.split(['?', '#']).next().unwrap_or(path);
     let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    let Some(last) = parts.last().copied() else {
+    let Some(&last) = parts.last() else {
         return Route::Dives;
     };
-    match last {
-        "planner" => Route::Planner,
-        "map" => Route::Map,
-        "preferences" => Route::Preferences,
-        "sync" => Route::Sync,
-        "compare" => Route::Compare,
-        "download" => Route::Download,
-        "people" => Route::People,
-        "trips" => Route::Trips,
-        id if parts.len() >= 2 && parts[parts.len() - 2] == "trips" => {
-            id.parse().map(Route::Trip).unwrap_or(Route::Dives)
-        }
-        _ => Route::Dives,
+    if let Some(dialog) = Dialog::from_slug(last) {
+        return Route::Dialog(dialog);
     }
+    if parts.len() >= 2 && parts[parts.len() - 2] == "trips" {
+        if let Ok(id) = last.parse() {
+            return Route::Trip(id);
+        }
+    }
+    Route::Dives
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -151,6 +92,7 @@ mod imp {
     use wasm_bindgen::JsValue;
 
     use super::Route;
+    use crate::state::Dialog;
 
     fn location_path() -> String {
         web_sys::window()
@@ -166,18 +108,10 @@ mod imp {
             let path = location_path();
             let trimmed = path.trim_end_matches('/');
             let parts: Vec<&str> = trimmed.split('/').filter(|p| !p.is_empty()).collect();
-            let take = match parts.as_slice() {
-                [] => 0,
-                [.., "planner"] => 1,
-                [.., "map"] => 1,
-                [.., "preferences"] => 1,
-                [.., "sync"] => 1,
-                [.., "compare"] => 1,
-                [.., "download"] => 1,
-                [.., "people"] => 1,
-                [.., "trips"] => 1,
-                [.., "trips", _] => 2,
-                _ => 0,
+            let take = match super::route_from_path(&path) {
+                Route::Dives => 0,
+                Route::Dialog(_) => 1,
+                Route::Trip(_) => 2,
             };
             let base = parts[..parts.len().saturating_sub(take)].join("/");
             if base.is_empty() {
@@ -247,7 +181,7 @@ mod imp {
             let mut url = full_path(route);
             // The planner writes its parameters with replaceState. If it won
             // the race against this push, keep them on the new entry.
-            if route == Route::Planner {
+            if route == Route::Dialog(Dialog::Planner) {
                 if let Ok(search) = window.location().search() {
                     url.push_str(&search);
                 }
@@ -284,13 +218,29 @@ mod tests {
 
     #[test]
     fn parses_routes_with_and_without_a_base_path() {
-        assert_eq!(route_from_path("/planner"), Route::Planner);
-        assert_eq!(route_from_path("/benthic/planner/"), Route::Planner);
-        assert_eq!(route_from_path("/benthic/trips"), Route::Trips);
-        assert_eq!(route_from_path("/benthic/people"), Route::People);
+        let planner = Route::Dialog(Dialog::Planner);
+        assert_eq!(route_from_path("/planner"), planner);
+        assert_eq!(route_from_path("/benthic/planner/"), planner);
+        assert_eq!(
+            route_from_path("/benthic/trips"),
+            Route::Dialog(Dialog::Trips)
+        );
+        assert_eq!(
+            route_from_path("/benthic/people"),
+            Route::Dialog(Dialog::People)
+        );
         assert_eq!(route_from_path("/benthic/trips/42"), Route::Trip(42));
         assert_eq!(route_from_path("/benthic/"), Route::Dives);
         assert_eq!(route_from_path("/"), Route::Dives);
         assert_eq!(route_from_path("/benthic/nope"), Route::Dives);
+    }
+
+    #[test]
+    fn every_routable_dialog_round_trips() {
+        for dialog in Dialog::ROUTABLE {
+            let route = Route::Dialog(dialog);
+            assert_eq!(route_from_path(&route.path()), route);
+        }
+        assert_eq!(route_from_path(&Route::Trip(7).path()), Route::Trip(7));
     }
 }

@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::actions;
 use crate::components::ImportExport;
 use crate::i18n::{self, Strings};
-use crate::state::AppState;
+use crate::state::{AppState, Dialog};
 
 /// A top-level category in the header. On wide screens each is its own
 /// dropdown; on phones they are stacked into one sheet with headings.
@@ -80,16 +80,7 @@ pub fn Toolbar() -> Element {
     // Close the menu as soon as a dialog opens, so it never lingers on top of
     // (or behind) the modal that replaces it.
     use_effect(move || {
-        let dialog_open = (state.show_prefs)()
-            || (state.show_ai)()
-            || (state.show_trips)()
-            || (state.show_map)()
-            || (state.show_planner)()
-            || (state.show_sync)()
-            || (state.show_compare)()
-            || (state.show_download)()
-            || (state.show_people)()
-            || (state.show_batch_edit)();
+        let dialog_open = (state.dialog)().is_some();
         if dialog_open {
             open_menu.set(None);
             sheet_open.set(false);
@@ -242,9 +233,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
     let can_redo = state.can_redo();
     let selected_count = (state.selection)().len();
     let mut selection = state.selection;
-    let mut show_map = state.show_map;
     let mut map_focus = state.map_focus;
-    let mut show_sync = state.show_sync;
 
     rsx! {
         for section in sections {
@@ -272,8 +261,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                             label: i18n::t1(t.delete_selected_count, selected_count),
                             danger: true,
                             onclick: move |_| {
-                                let mut confirm = state.confirm_delete_selected;
-                                confirm.set(true);
+                                state.open(Dialog::ConfirmDeleteSelected);
                             },
                         }
                         MenuItem {
@@ -299,8 +287,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     MenuItem {
                         label: t.people_gear.to_string(),
                         onclick: move |_| {
-                            let mut show_people = state.show_people;
-                            show_people.set(true);
+                            state.open(Dialog::People);
                         },
                     }
                     MenuItem {
@@ -323,7 +310,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                         label: t.map.to_string(),
                         onclick: move |_| {
                             map_focus.set(None);
-                            show_map.set(true);
+                            state.open(Dialog::Map);
                         },
                     }
                     MenuItem {
@@ -354,7 +341,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     DownloadItem {}
                     MenuItem {
                         label: t.sync.to_string(),
-                        onclick: move |_| show_sync.set(true),
+                        onclick: move |_| state.open(Dialog::Sync),
                     }
                 },
                 MenuSection::Settings => rsx! {
@@ -365,8 +352,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     MenuItem {
                         label: t.ai_assistant.to_string(),
                         onclick: move |_| {
-                            let mut show_ai = state.show_ai;
-                            show_ai.set(true);
+                            state.open(Dialog::Ai);
                         },
                     }
                     PrivacyItem {}
@@ -383,13 +369,12 @@ fn DownloadItem() -> Element {
     {
         let state = use_context::<AppState>();
         let t = i18n::strings((state.prefs)().language);
-        let mut show_download = state.show_download;
         if (state.download_available)() {
             return rsx! {
                 button {
                     class: "menu-item",
                     r#type: "button",
-                    onclick: move |_| show_download.set(true),
+                    onclick: move |_| state.open(Dialog::Download),
                     "{t.download_dc}"
                 }
             };

@@ -4,7 +4,7 @@ use benthic_core::sync::{self as core_sync, SyncPlan};
 
 use crate::i18n;
 use crate::state::AppState;
-use crate::sync::backend::{self, AuthKind};
+use crate::sync::backend::{self, AuthKind, Field};
 use crate::sync::SyncConfig;
 
 /// What a sync attempt decided to do.
@@ -47,21 +47,12 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
             let remote = remote.ok_or_else(|| t.sync_remote_empty.to_string())?;
             let parsed =
                 benthic_core::io::parse_auto(&remote.content).map_err(|error| error.to_string())?;
-            let count = parsed.dives.len();
-            if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
-                let mut selected = state.selected;
-                selected.set(Some(first));
-            }
-            // Go through the command stack so "Keep remote" is undoable like
-            // every other change, instead of silently replacing the log.
-            let before = (state.log)();
-            state.dispatch(benthic_core::Command::Snapshot {
-                label: t.sync_downloaded.into(),
-                before: Box::new(before),
-                after: Box::new(parsed),
-            });
+            let count = crate::actions::replace_log(state, parsed, t.sync_downloaded);
+            let stored = (state.log)();
+            let local =
+                benthic_core::io::json::to_string(&stored).map_err(|error| error.to_string())?;
             bookmark.remote_revision = Some(remote.revision);
-            bookmark.local_fingerprint = Some(core_sync::fingerprint(&remote.content));
+            bookmark.local_fingerprint = Some(core_sync::fingerprint(&local));
             bookmark.last_sync_secs = crate::platform::now_secs();
             crate::sync::save_state(&bookmark);
             state.set_status(i18n::t1(t.downloaded_remote, count));
@@ -76,7 +67,6 @@ async fn run(state: AppState, mut config: SyncConfig, mode: Mode) -> Result<Outc
 pub fn SyncDialog() -> Element {
     let state = use_context::<AppState>();
     let tr = state.strings();
-    let mut show_sync = state.show_sync;
     let mut config = use_signal(crate::sync::load_config);
     let mut status = use_signal(|| None::<String>);
     let mut busy = use_signal(|| false);
@@ -86,21 +76,24 @@ pub fn SyncDialog() -> Element {
     let backend = cfg.backend();
     let signed_in = backend.signed_in(cfg.settings());
     let oauth = backend.auth() == AuthKind::OAuth;
-    let visible = backend
+    let (advanced, normal): (Vec<&Field>, Vec<&Field>) = backend
         .fields()
         .iter()
         .filter(|field| field.platforms.current())
-        .collect::<Vec<_>>();
-    let normal = visible
-        .iter()
-        .copied()
-        .filter(|field| !field.advanced)
-        .collect::<Vec<_>>();
-    let advanced = visible
-        .iter()
-        .copied()
-        .filter(|field| field.advanced)
-        .collect::<Vec<_>>();
+        .partition(|field| field.advanced);
+    let field_input = move |field: &'static Field| {
+        rsx! {
+            label { class: "field-label", "{field.label}"
+                input {
+                    class: "field",
+                    r#type: field.kind.input_type(),
+                    value: "{config.read().settings().text(field.key)}",
+                    placeholder: field.placeholder,
+                    oninput: move |evt| config.write().settings_mut().set(field.key, evt.value()),
+                }
+            }
+        }
+    };
 
     let mut launch = move |mode: Mode| {
         let mut snapshot = (config)();
@@ -162,7 +155,7 @@ pub fn SyncDialog() -> Element {
     };
 
     rsx! {
-        div { class: "modal-backdrop", onclick: move |_| show_sync.set(false),
+        div { class: "modal-backdrop", onclick: move |_| state.close_dialog(),
             div { class: "modal wide",
                 role: "dialog",
             tabindex: "-1",
@@ -188,15 +181,7 @@ pub fn SyncDialog() -> Element {
                         }
                     }
                     for field in normal {
-                        label { class: "field-label", "{field.label}"
-                            input {
-                                class: "field",
-                                r#type: field.kind.input_type(),
-                                value: "{cfg.settings().text(field.key)}",
-                                placeholder: field.placeholder,
-                                oninput: move |evt| config.write().settings_mut().set(field.key, evt.value()),
-                            }
-                        }
+                        {field_input(field)}
                     }
                     if oauth {
                         if signed_in {
@@ -224,15 +209,7 @@ pub fn SyncDialog() -> Element {
                         summary { "{tr.sync_advanced}" }
                         div { class: "edit-form",
                             for field in advanced {
-                                label { class: "field-label", "{field.label}"
-                                    input {
-                                        class: "field",
-                                        r#type: field.kind.input_type(),
-                                        value: "{cfg.settings().text(field.key)}",
-                                        placeholder: field.placeholder,
-                                        oninput: move |evt| config.write().settings_mut().set(field.key, evt.value()),
-                                    }
-                                }
+                                {field_input(field)}
                             }
                         }
                     }
@@ -264,7 +241,7 @@ pub fn SyncDialog() -> Element {
                     }
                     button {
                         class: "btn",
-                        onclick: move |_| show_sync.set(false),
+                        onclick: move |_| state.close_dialog(),
                         "{tr.close}"
                     }
                 }

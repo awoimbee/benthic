@@ -35,7 +35,7 @@ device download.
 ```
 src/main.rs        launch(App)
 src/app.rs         root component: load-once, autosave effect, shortcuts, layout
-src/state.rs       AppState { log, selected, selection, status, history, filter, prefs, show_prefs }
+src/state.rs       AppState { log, selected, selection, status, history, filter, prefs, dialog, ... }
 src/actions.rs     high-level user actions -> commands (new/duplicate/delete/...)
 src/storage.rs     autosave backend (localStorage | data dir), JSON
 src/platform.rs    export: Blob download (web) | file write (desktop), clock
@@ -99,13 +99,19 @@ Preferences are stored separately so they survive replacing the log; they are
 **display-only** (the model and all file formats remain canonical metric).
 
 An automatic backup of the previous log is kept, refreshed at most once an
-hour. If the primary log fails to parse at startup, the app loads the backup
-and reports the recovery; the unreadable primary is left untouched. The
-preferences dialog also offers a manual "Restore last backup".
+hour; a stored log that no longer parses never replaces it. If the primary log
+fails to parse at startup, the app first copies it to `benthic.unreadable.<ts>`
+and waits for that write to be persisted, then loads the backup and reports
+both. If the copy cannot be written, autosave stays off. Without a usable
+backup, autosave stays off until the first edit. The preferences dialog also
+offers a manual "Restore last backup".
 
 Autosave runs in a `use_effect` keyed on the log signal. On the web it updates
 an in-memory cache synchronously and flushes to IndexedDB in the background, so
-the effect stays cheap and writes never reorder.
+the effect stays cheap and writes never reorder. A failed flush stays queued
+for retry and is reported in the UI until a later flush succeeds. On the
+desktop each file is written to a temporary sibling, synced, and renamed into
+place, so a crash leaves either the old or the new file, never a truncated one.
 
 ## Remote sync
 
@@ -126,8 +132,7 @@ owns the settings fields the dialog renders, the optional interactive sign-in,
 and fetch/push. They are listed in one registry, so adding a service (OneDrive,
 FTP, ...) is a new module plus a registry entry — nothing else changes. HTTP
 goes through a single cross-platform shim: `gloo-net` on the web, `reqwest`
-natively. Settings are stored per backend as JSON, and old flat configs are
-migrated on load.
+natively. Settings are stored per backend as JSON.
 
 GitHub uses the repository-contents API (the base URL is configurable, so Gitea
 and enterprise hosts work), needs only a personal access token, and is the
