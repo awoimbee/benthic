@@ -1007,6 +1007,37 @@ impl DiveLog {
         count
     }
 
+    /// Number every dive chronologically, oldest first, starting at `start`.
+    /// Dives at the same time keep their id order. Returns how many numbers
+    /// changed.
+    pub fn renumber(&mut self, start: i32) -> usize {
+        let mut order: Vec<(Timestamp, u32)> =
+            self.dives.iter().map(|dive| (dive.when, dive.id)).collect();
+        order.sort_unstable();
+        let mut changed = 0;
+        for (offset, (_, id)) in order.into_iter().enumerate() {
+            let number = start.saturating_add(offset as i32);
+            if let Some(dive) = self.dives.iter_mut().find(|dive| dive.id == id) {
+                if dive.number != number {
+                    dive.number = number;
+                    changed += 1;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Other dives that already use `number`.
+    pub fn dives_numbered(&self, number: i32, except: u32) -> Vec<&Dive> {
+        if number == 0 {
+            return Vec::new();
+        }
+        self.dives
+            .iter()
+            .filter(|dive| dive.number == number && dive.id != except)
+            .collect()
+    }
+
     /// Re-derive per-dive summary fields from the dive computers.
     pub fn fixup_all(&mut self) {
         for dive in &mut self.dives {

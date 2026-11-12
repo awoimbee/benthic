@@ -552,3 +552,25 @@ fn missing_dive_numbers_are_assigned_chronologically() {
     assert_eq!(log.dive_by_id(2).unwrap().number, 9);
     assert_eq!(log.number_missing_dives(), 0);
 }
+
+#[test]
+fn renumber_is_chronological_and_reports_changes() {
+    let mut log = benthic_core::DiveLog::new();
+    for (id, number, when) in [(1, 5, 300), (2, 5, 100), (3, 0, 200), (4, 9, 200)] {
+        log.dives.push(benthic_core::Dive {
+            id,
+            number,
+            when,
+            ..Default::default()
+        });
+    }
+
+    assert_eq!(log.dives_numbered(5, 1).len(), 1);
+    assert!(log.dives_numbered(0, 1).is_empty());
+
+    assert_eq!(log.renumber(10), 4);
+    let numbers: Vec<(u32, i32)> = log.dives.iter().map(|d| (d.id, d.number)).collect();
+    // Oldest first; the two dives at t=200 keep their id order.
+    assert_eq!(numbers, vec![(1, 13), (2, 10), (3, 11), (4, 12)]);
+    assert_eq!(log.renumber(10), 0);
+}

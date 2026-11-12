@@ -1175,6 +1175,13 @@ textarea.field {
   margin: 0.35rem 0;
 }
 
+.field-warn {
+  color: var(--trace-temp);
+  font-size: 0.75rem;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .warn {
   color: var(--danger);
   font-size: 0.85rem;
@@ -2088,6 +2095,42 @@ a:focus-visible {
 .gps-row .field {
   flex: 1;
   min-width: 0;
+}
+
+.combo {
+  position: relative;
+}
+
+.combo-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 14rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  /* The surrounding label is uppercase and small; options read like the input. */
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.9rem;
+}
+
+.combo-option {
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.combo-option.active {
+  background: var(--accent-dim);
 }
 
 .tag-suggest {

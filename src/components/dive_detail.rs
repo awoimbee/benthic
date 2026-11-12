@@ -9,8 +9,8 @@ use benthic_core::{
 
 use crate::actions;
 use crate::components::{
-    normalize_media_url, profile_bounds, DiveProfile, LocationPickerDialog, MapSite, MapView,
-    MediaGallery, ProfileEditorDialog,
+    normalize_media_url, profile_bounds, ComboInput, DiveProfile, InfoTip, LocationPickerDialog,
+    MapSite, MapView, MediaGallery, ProfileEditorDialog,
 };
 use crate::i18n;
 use crate::state::{AppState, Dialog};
@@ -30,8 +30,13 @@ pub fn DiveDetail() -> Element {
         };
     };
 
-    // Remount on selection change so the edit form resets.
-    rsx! { DiveDetailInner { key: "{dive.id}", dive } }
+    // Remount on selection change so the edit form resets. Keys only take
+    // effect between list siblings, so the view is a one-item list.
+    rsx! {
+        for dive in std::iter::once(dive) {
+            DiveDetailInner { key: "{dive.id}", dive }
+        }
+    }
 }
 
 /// The editable subset of a dive, kept separate from the full [`Dive`] so that
@@ -120,7 +125,11 @@ fn DiveDetailInner(dive: Dive) -> Element {
             let f = form();
             let mut after = dive.clone();
             after.when = f.when;
-            after.number = f.number;
+            after.number = if f.number > 0 {
+                f.number
+            } else {
+                log.next_number()
+            };
             after.buddy = f.buddy;
             after.diveguide = f.divemaster;
             after.suit = f.suit;
@@ -451,6 +460,19 @@ fn DiveEditForm(
 
     let f = (form)();
     let when_value = benthic_core::datetime_local(f.when);
+    let number_clash: Vec<String> = log
+        .dives_numbered(f.number, dive.id)
+        .into_iter()
+        .map(|other| {
+            let site = log.site_name_of(other).unwrap_or_default();
+            let date = prefs.date(other.when);
+            if site.is_empty() {
+                date
+            } else {
+                format!("{site} ({date})")
+            }
+        })
+        .collect();
     // The profile can be edited by hand only when it is not a dive-computer
     // recording; imported traces are left untouched.
     let profile_editable = dive
@@ -555,29 +577,6 @@ fn DiveEditForm(
 
     rsx! {
         div { class: "edit-form",
-            // Native autocomplete for the fields divers retype every
-            // trip. The datalists are invisible; they feed the inputs
-            // below on desktop and mobile alike.
-            datalist { id: "buddy-list",
-                for value in buddy_options.clone() {
-                    option { value: "{value}" }
-                }
-            }
-            datalist { id: "divemaster-list",
-                for value in divemaster_options.clone() {
-                    option { value: "{value}" }
-                }
-            }
-            datalist { id: "suit-list",
-                for value in suit_options.clone() {
-                    option { value: "{value}" }
-                }
-            }
-            datalist { id: "tag-list",
-                for value in tag_options.clone() {
-                    option { value: "{value}" }
-                }
-            }
             if let Some(previous) = previous_dive.clone() {
                 div { class: "field-label full",
                     button {
@@ -652,21 +651,38 @@ fn DiveEditForm(
                     option { value: "freedive", "{tr.freedive_label}" }
                 }
             }
-            label { class: "field-label", "{tr.field_number}"
+            div { class: "field-label",
+                span {
+                    label { r#for: "dive-number", "{tr.field_dive_number}" }
+                    InfoTip { text: tr.tip_dive_number }
+                }
                 input {
+                    id: "dive-number",
                     class: "field",
                     r#type: "number",
-                    value: "{f.number}",
-                    oninput: move |evt| form.write().number = evt.value().parse().unwrap_or(0),
+                    min: "1",
+                    placeholder: "{tr.dive_number_auto}",
+                    value: if f.number > 0 { f.number.to_string() } else { String::new() },
+                    oninput: move |evt| form.write().number = evt.value().parse::<i32>().unwrap_or(0).max(0),
+                }
+                if !number_clash.is_empty() {
+                    span { class: "field-warn",
+                        {i18n::t2(tr.dive_number_duplicate, f.number, number_clash.join(", "))}
+                    }
                 }
             }
-            label { class: "field-label", "{tr.field_rating}"
-                div { class: "stars",
+            // Not a <label>: a click anywhere in a label activates its first
+            // button, which would set the rating to one star.
+            div { class: "field-label",
+                span { id: "rating-label", "{tr.field_rating}" }
+                div { class: "stars", role: "group", aria_labelledby: "rating-label",
                     for (star, class) in stars {
                         button {
                             key: "{star}",
                             class: "{class}",
+                            r#type: "button",
                             aria_label: i18n::t1(tr.rate_stars, star),
+                            aria_pressed: if f.rating == star { "true" } else { "false" },
                             onclick: move |_| form.write().rating = star,
                             "★"
                         }
@@ -674,11 +690,11 @@ fn DiveEditForm(
                 }
             }
             label { class: "field-label", "{tr.field_buddy}"
-                input {
-                    class: "field",
-                    list: "buddy-list",
-                    value: "{f.buddy}",
-                    oninput: move |evt| form.write().buddy = evt.value(),
+                ComboInput {
+                    value: f.buddy.clone(),
+                    options: buddy_options.clone(),
+                    multi: true,
+                    oninput: move |value| form.write().buddy = value,
                 }
                 if !buddy_options.is_empty() {
                     div { class: "tag-suggest",
@@ -702,11 +718,10 @@ fn DiveEditForm(
                 }
             }
             label { class: "field-label", "{tr.field_dive_master}"
-                input {
-                    class: "field",
-                    list: "divemaster-list",
-                    value: "{f.divemaster}",
-                    oninput: move |evt| form.write().divemaster = evt.value(),
+                ComboInput {
+                    value: f.divemaster.clone(),
+                    options: divemaster_options.clone(),
+                    oninput: move |value| form.write().divemaster = value,
                 }
                 if !divemaster_options.is_empty() {
                     div { class: "tag-suggest",
@@ -726,11 +741,10 @@ fn DiveEditForm(
                 }
             }
             label { class: "field-label", "{tr.field_suit}"
-                input {
-                    class: "field",
-                    list: "suit-list",
-                    value: "{f.suit}",
-                    oninput: move |evt| form.write().suit = evt.value(),
+                ComboInput {
+                    value: f.suit.clone(),
+                    options: suit_options.clone(),
+                    oninput: move |value| form.write().suit = value,
                 }
                 if !suit_options.is_empty() {
                     div { class: "tag-suggest",
@@ -795,11 +809,11 @@ fn DiveEditForm(
                 }
             }
             label { class: "field-label full", "{tr.field_tags}"
-                input {
-                    class: "field",
-                    list: "tag-list",
-                    value: "{f.tags}",
-                    oninput: move |evt| form.write().tags = evt.value(),
+                ComboInput {
+                    value: f.tags.clone(),
+                    options: tag_options.clone(),
+                    multi: true,
+                    oninput: move |value| form.write().tags = value,
                 }
                 if !tag_options.is_empty() {
                     div { class: "tag-suggest",

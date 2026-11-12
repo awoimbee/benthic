@@ -28,6 +28,7 @@ pub enum Dialog {
     Download,
     Compare,
     BatchEdit,
+    Renumber,
     ConfirmDeleteSelected,
 }
 
@@ -54,7 +55,9 @@ impl Dialog {
             Dialog::Sync => "sync",
             Dialog::Download => "download",
             Dialog::Compare => "compare",
-            Dialog::Ai | Dialog::BatchEdit | Dialog::ConfirmDeleteSelected => return None,
+            Dialog::Ai | Dialog::BatchEdit | Dialog::Renumber | Dialog::ConfirmDeleteSelected => {
+                return None
+            }
         })
     }
 

@@ -336,6 +336,24 @@ pub fn merge_duplicate_sites(state: AppState) {
     state.set_status(i18n::t1(state.strings().merged_sites, removed));
 }
 
+/// Number every dive chronologically from `start`, as one undo step.
+pub fn renumber_dives(state: AppState, start: i32) {
+    let before = (state.log)();
+    let mut after = before.clone();
+    let changed = after.renumber(start);
+    state.close_dialog();
+    if changed == 0 {
+        state.set_status(state.strings().renumber_unchanged);
+        return;
+    }
+    state.dispatch(Command::Snapshot {
+        label: state.strings().undo_renumber.into(),
+        before: Box::new(before),
+        after: Box::new(after),
+    });
+    state.set_status(i18n::t1(state.strings().renumbered, changed));
+}
+
 /// Restore the most recent automatic backup over the current log.
 pub fn restore_backup(state: AppState) {
     let Some(text) = crate::storage::load_backup() else {

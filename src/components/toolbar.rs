@@ -295,6 +295,11 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                         onclick: move |_| actions::merge_duplicate_sites(state),
                     }
                     MenuItem {
+                        label: t.renumber_dives.to_string(),
+                        disabled: log.dives.is_empty(),
+                        onclick: move |_| state.open(Dialog::Renumber),
+                    }
+                    MenuItem {
                         label: t.undo.to_string(),
                         disabled: !can_undo,
                         onclick: move |_| state.undo(),

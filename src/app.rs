@@ -7,7 +7,7 @@ use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 use crate::components::{
     AiDialog, BatchEditDialog, CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar,
     ImportReviewDialog, MapDialog, PeopleGearDialog, PlannerDialog, PreferencesDialog,
-    SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
+    RenumberDialog, SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
 };
 use crate::routing::{self, Route};
 use crate::state::{AppState, Dialog};
@@ -314,6 +314,7 @@ pub fn App() -> Element {
         Dialog::Sync => rsx! { SyncDialog {} },
         Dialog::Compare => rsx! { CompareDialog {} },
         Dialog::BatchEdit => rsx! { BatchEditDialog {} },
+        Dialog::Renumber => rsx! { RenumberDialog {} },
         Dialog::ConfirmDeleteSelected => rsx! {
             ConfirmDialog {
                 title: tr.confirm_delete_dives_title.to_string(),
@@ -368,8 +369,12 @@ pub fn App() -> Element {
             }
             div { class: "{panes_class}",
                 DiveList {}
+                // Keys only take effect between list siblings, so the
+                // remount-on-change views are rendered as one-item lists.
                 if let Some(trip_id) = (show_trip)() {
-                    TripView { key: "{trip_id}", trip_id }
+                    for trip_id in std::iter::once(trip_id) {
+                        TripView { key: "{trip_id}", trip_id }
+                    }
                 } else {
                     DiveDetail {}
                 }
@@ -382,7 +387,7 @@ pub fn App() -> Element {
             WelcomeDialog {}
         }
         {dialog_view}
-        if let Some(pending) = (import_review)() {
+        for pending in (import_review)() {
             ImportReviewDialog { key: "{pending.nonce}", pending }
         }
         }

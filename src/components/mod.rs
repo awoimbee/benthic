@@ -1,5 +1,6 @@
 mod ai_dialog;
 mod batch_edit;
+mod combo_input;
 mod compare;
 mod confirm;
 #[cfg(feature = "divecomputer")]
@@ -21,6 +22,7 @@ mod planner;
 mod preferences;
 mod profile;
 mod profile_editor;
+mod renumber;
 mod selection_bar;
 mod sync_dialog;
 mod toolbar;
@@ -30,6 +32,7 @@ mod welcome;
 
 pub use ai_dialog::AiDialog;
 pub use batch_edit::BatchEditDialog;
+pub use combo_input::ComboInput;
 pub use compare::CompareDialog;
 pub use confirm::ConfirmDialog;
 #[cfg(feature = "divecomputer")]
@@ -49,6 +52,7 @@ pub use planner::PlannerDialog;
 pub use preferences::PreferencesDialog;
 pub use profile::DiveProfile;
 pub use profile_editor::{profile_bounds, ProfileEditorDialog};
+pub use renumber::RenumberDialog;
 pub use selection_bar::SelectionBar;
 pub use sync_dialog::SyncDialog;
 pub use toolbar::Toolbar;
