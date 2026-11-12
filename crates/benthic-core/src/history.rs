@@ -262,6 +262,25 @@ pub fn delete_dives(log: &DiveLog, ids: &[u32]) -> Vec<Command> {
         .collect()
 }
 
+/// Build the commands that delete a site, detaching its dives first. The dives
+/// keep their own locations. Empty if the site does not exist.
+pub fn delete_site(log: &DiveLog, uuid: u32) -> Vec<Command> {
+    let Some(site) = log.site_by_uuid(uuid).cloned() else {
+        return Vec::new();
+    };
+    let mut commands: Vec<Command> = Vec::new();
+    for dive in log.dives.iter().filter(|d| d.site_id == Some(uuid)) {
+        let mut after = dive.clone();
+        after.site_id = None;
+        commands.push(Command::UpdateDive {
+            before: dive.clone(),
+            after,
+        });
+    }
+    commands.push(Command::DeleteSite { site });
+    commands
+}
+
 /// Build the commands that delete a trip, unassigning its dives first.
 ///
 /// Returns an empty vector if the trip does not exist. The result is a single

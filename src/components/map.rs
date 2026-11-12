@@ -51,7 +51,7 @@ impl MapSite {
             .sites
             .iter()
             .filter_map(|site| {
-                let location = site.location.filter(|l| l.is_valid())?;
+                let location = log.site_location(site.uuid)?;
                 let dives: Vec<&benthic_core::Dive> = log
                     .dives
                     .iter()

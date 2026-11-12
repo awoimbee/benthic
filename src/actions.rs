@@ -3,7 +3,7 @@
 //! Each action builds one or more [`Command`]s and dispatches them through the
 //! [`AppState`] so that it is automatically undoable.
 
-use benthic_core::{Command, Dive, DivePlan, DiveTrip, GearItem, GearKind, Person};
+use benthic_core::{Command, Dive, DivePlan, DiveSite, DiveTrip, GearItem, GearKind, Person};
 use dioxus::prelude::WritableExt;
 
 use crate::i18n;
@@ -484,6 +484,38 @@ pub fn delete_gear(state: AppState, id: u32) {
         return;
     }
     state.dispatch_all("Delete gear", commands);
+}
+
+/// Rename a site. Empty names and names used by another site are ignored.
+pub fn rename_site(state: AppState, uuid: u32, name: &str) {
+    let name = name.trim();
+    let log = (state.log)();
+    let Some(before) = log.site_by_uuid(uuid).cloned() else {
+        return;
+    };
+    if name.is_empty()
+        || before.name == name
+        || log
+            .site_by_name(name)
+            .is_some_and(|other| other.uuid != uuid)
+    {
+        return;
+    }
+    let after = DiveSite {
+        name: name.to_string(),
+        ..before.clone()
+    };
+    state.dispatch(Command::UpdateSite { before, after });
+}
+
+/// Delete a site, keeping its dives (and their locations) but detaching them.
+pub fn delete_site(state: AppState, uuid: u32) {
+    let log = (state.log)();
+    let commands = benthic_core::history::delete_site(&log, uuid);
+    if commands.is_empty() {
+        return;
+    }
+    state.dispatch_all(state.strings().undo_delete_site, commands);
 }
 
 /// Open the dive planner dialog.

@@ -285,7 +285,7 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                         onclick: move |_| actions::open_trips(state),
                     }
                     MenuItem {
-                        label: t.people_gear.to_string(),
+                        label: t.people_gear_sites.to_string(),
                         onclick: move |_| {
                             state.open(Dialog::People);
                         },

@@ -16,7 +16,10 @@ use crate::units::Timestamp;
 
 /// Bump when a new seeding pass must backfill existing logs. Version 1 covers
 /// people, suits, bottles, weights and dive computers.
-pub const CATALOG_VERSION: u32 = 1;
+///
+/// Version 2 also copies each site's stored position onto its dives, since
+/// site positions are now derived from dive locations.
+pub const CATALOG_VERSION: u32 = 2;
 
 /// Someone who can appear on a dive: a buddy, a dive guide, ...
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -252,10 +255,12 @@ impl DiveLog {
     /// names from older logs or Subsurface XML show up in the global lists
     /// without resurrecting entries the user deleted afterwards.
     pub fn seed_catalog(&mut self) {
-        if self.catalog_version >= CATALOG_VERSION {
-            return;
+        if self.catalog_version < 1 {
+            self.adopt_untracked_entries();
         }
-        self.adopt_untracked_entries();
+        if self.catalog_version < 2 {
+            self.adopt_site_locations();
+        }
         self.catalog_version = CATALOG_VERSION;
     }
 

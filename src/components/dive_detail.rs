@@ -78,8 +78,9 @@ impl DiveForm {
                 .map(|dc| dc.divemode)
                 .unwrap_or_default(),
             site_name: site.map(|s| s.name.clone()).unwrap_or_default(),
-            site_gps: site
-                .and_then(|s| s.location)
+            site_gps: dive
+                .location
+                .filter(Location::is_valid)
                 .map(|l| format!("{:.6}, {:.6}", l.lat, l.lon))
                 .unwrap_or_default(),
             cylinders: dive.cylinders.clone(),
@@ -116,7 +117,6 @@ fn DiveDetailInner(dive: Dive) -> Element {
 
     let on_save = {
         let dive = dive.clone();
-        let site = site.clone();
         let log = log.clone();
         move |_| {
             let form = form;
@@ -173,32 +173,25 @@ fn DiveDetailInner(dive: Dive) -> Element {
             // Names typed on this dive join the global lists, so the next
             // edit can pick them from the catalog.
             let mut commands = benthic_core::catalog::register_dive_entries(&log, &after);
+            // The name picks a site from the global list, or creates one. The
+            // GPS point belongs to this dive; the site's position is derived
+            // from all of its dives.
             let name = f.site_name.trim().to_string();
-            let location = parse_location(&f.site_gps);
-            let site_id = match (after.site_id, site.clone()) {
-                (Some(id), Some(existing)) => {
-                    let mut updated = existing.clone();
-                    updated.name = name;
-                    updated.location = location;
-                    commands.push(Command::UpdateSite {
-                        before: existing,
-                        after: updated,
-                    });
-                    Some(id)
-                }
-                _ if !name.is_empty() || location.is_some() => {
-                    let uuid = log.next_site_uuid();
-                    commands.push(Command::AddSite {
-                        site: DiveSite {
-                            uuid,
-                            name,
-                            location,
-                            ..Default::default()
-                        },
-                    });
-                    Some(uuid)
-                }
-                _ => None,
+            after.location = parse_location(&f.site_gps);
+            let site_id = if name.is_empty() {
+                None
+            } else if let Some(existing) = log.site_by_name(&name) {
+                Some(existing.uuid)
+            } else {
+                let uuid = log.next_site_uuid();
+                commands.push(Command::AddSite {
+                    site: DiveSite {
+                        uuid,
+                        name,
+                        ..Default::default()
+                    },
+                });
+                Some(uuid)
             };
             after.site_id = site_id;
             commands.push(Command::UpdateDive {
@@ -524,6 +517,27 @@ fn DiveEditForm(
         tags.dedup();
         tags
     };
+    // Every known site, most dived first, for the site-name picker.
+    let site_counts = log.site_dive_counts();
+    let mut sites_sorted: Vec<&benthic_core::DiveSite> = log
+        .sites
+        .iter()
+        .filter(|site| !site.name.trim().is_empty())
+        .collect();
+    sites_sorted.sort_by_key(|site| {
+        (
+            std::cmp::Reverse(site_counts.get(&site.uuid).copied().unwrap_or(0)),
+            site.name.to_lowercase(),
+        )
+    });
+    let site_options: Vec<String> = sites_sorted.iter().map(|site| site.name.clone()).collect();
+    let site_is_new = log.site_by_name(&f.site_name).is_none();
+    let site_log = log.clone();
+    let site_position = move |name: &str| {
+        let site = site_log.site_by_name(name)?;
+        let location = site_log.site_location(site.uuid)?;
+        Some(format!("{:.6}, {:.6}", location.lat, location.lon))
+    };
     // The most recent earlier dive, for the one-tap copy shortcut.
     let previous_dive = log
         .dives
@@ -783,10 +797,26 @@ fn DiveEditForm(
                 }
             }
             label { class: "field-label", "{tr.field_site_name}"
-                input {
-                    class: "field",
-                    value: "{f.site_name}",
-                    oninput: move |evt| form.write().site_name = evt.value(),
+                ComboInput {
+                    value: f.site_name.clone(),
+                    options: site_options.clone(),
+                    oninput: move |value: String| {
+                        let mut form = form;
+                        // Picking a known site fills in its position when this
+                        // dive has none yet.
+                        let position = (form.read().site_gps.trim().is_empty())
+                            .then(|| site_position(&value))
+                            .flatten();
+                        let mut w = form.write();
+                        w.site_name = value;
+                        if let Some(position) = position {
+                            w.site_gps = position;
+                        }
+                    },
+                }
+                if f.site_name.trim().is_empty() {
+                } else if site_is_new {
+                    span { class: "field-hint", "{tr.site_new}" }
                 }
             }
             label { class: "field-label", "{tr.field_site_gps}"
@@ -1136,7 +1166,7 @@ fn DiveFacts(dive: Dive, active_dc: usize) -> Element {
             Fact { label: tr.fact_salinity, value: salinity }
         }
 
-        if let Some(location) = site.as_ref().and_then(|s| s.location).filter(|l| l.is_valid()) {
+        if let Some(location) = log.dive_location(&dive) {
             div { class: "detail-map-wrap",
                 MapView {
                     sites: vec![MapSite {

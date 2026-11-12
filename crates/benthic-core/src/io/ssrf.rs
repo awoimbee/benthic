@@ -102,6 +102,7 @@ pub fn parse_str(xml: &str) -> Result<DiveLog> {
     }
 
     log.fixup_all();
+    log.adopt_site_locations();
     Ok(log)
 }
 
@@ -134,8 +135,14 @@ pub fn write_string(log: &DiveLog) -> String {
 
     // dive sites
     out.push_str("<divesites>\n");
+    // Subsurface stores positions on sites only, so each site gets the centre
+    // of its dives' locations.
     for site in &log.sites {
-        write_site(&mut out, site);
+        let site = DiveSite {
+            location: log.site_location(site.uuid),
+            ..site.clone()
+        };
+        write_site(&mut out, &site);
     }
     out.push_str("</divesites>\n");
 
@@ -246,7 +253,13 @@ fn parse_dive(node: &Node, log: &mut DiveLog, next_site_uuid: &mut u32) -> Dive 
 
     for child in &node.children {
         match child.name.as_str() {
-            "location" if dive.site_id.is_none() => {
+            "location" => {
+                if let Some(loc) = child.attr("gps").and_then(parse_location_str) {
+                    dive.location = Some(loc);
+                }
+                if dive.site_id.is_some() {
+                    continue;
+                }
                 let name = child.text_trimmed().to_string();
                 if !name.is_empty() {
                     let uuid = *next_site_uuid;
@@ -279,30 +292,13 @@ fn parse_dive(node: &Node, log: &mut DiveLog, next_site_uuid: &mut u32) -> Dive 
         }
     }
 
-    if let Some(gps) = node.attr("gps") {
-        if let Some(loc) = parse_location_str(gps) {
-            // Attach to the dive's site, creating one if necessary.
-            let uuid = match dive
-                .site_id
-                .and_then(|id| log.sites.iter().position(|s| s.uuid == id))
-            {
-                Some(idx) => {
-                    if log.sites[idx].location.is_none()
-                        || !log.sites[idx].location.unwrap().is_valid()
-                    {
-                        log.sites[idx].location = Some(loc);
-                    }
-                    return dive;
-                }
-                None => {
-                    let uuid = *next_site_uuid;
-                    *next_site_uuid += 1;
-                    uuid
-                }
-            };
+    if let Some(loc) = node.attr("gps").and_then(parse_location_str) {
+        dive.location = Some(loc);
+        if dive.site_id.is_none() {
+            let uuid = *next_site_uuid;
+            *next_site_uuid += 1;
             log.sites.push(DiveSite {
                 uuid,
-                location: Some(loc),
                 ..Default::default()
             });
             dive.site_id = Some(uuid);

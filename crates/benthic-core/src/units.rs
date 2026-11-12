@@ -239,6 +239,26 @@ impl Location {
             && (-180.0..=180.0).contains(&self.lon)
     }
 
+    /// The geographic centre of `points` (via the mean of their unit
+    /// vectors, so it behaves across the antimeridian). `None` when empty.
+    pub fn centroid(points: &[Location]) -> Option<Location> {
+        if points.is_empty() {
+            return None;
+        }
+        let (mut x, mut y, mut z) = (0.0, 0.0, 0.0);
+        for point in points {
+            let (lat, lon) = (point.lat.to_radians(), point.lon.to_radians());
+            x += lat.cos() * lon.cos();
+            y += lat.cos() * lon.sin();
+            z += lat.sin();
+        }
+        let n = points.len() as f64;
+        let (x, y, z) = (x / n, y / n, z / n);
+        let lon = y.atan2(x);
+        let lat = z.atan2((x * x + y * y).sqrt());
+        Some(Location::new(lat.to_degrees(), lon.to_degrees()))
+    }
+
     /// Great-circle distance to another location, in metres.
     pub fn distance_m(self, other: Location) -> f64 {
         const EARTH_RADIUS_M: f64 = 6_371_000.0;

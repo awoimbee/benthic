@@ -320,6 +320,10 @@ pub struct Dive {
     pub trip_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub site_id: Option<u32>,
+    /// Where this dive took place. A site's position is derived from the
+    /// locations of its dives (see [`DiveLog::site_location`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<Location>,
 
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub notes: String,
@@ -515,6 +519,8 @@ pub struct DiveSite {
     pub uuid: u32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    /// Fallback position, used only when none of the site's dives has one
+    /// (e.g. a site imported from GPX that has not been dived yet).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<Location>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -679,6 +685,74 @@ impl DiveLog {
         }
     }
 
+    /// A site's position: the centre of the valid locations of its dives,
+    /// or the site's own fallback location when none of them has one.
+    pub fn site_location(&self, uuid: u32) -> Option<Location> {
+        let points: Vec<Location> = self
+            .dives
+            .iter()
+            .filter(|dive| dive.site_id == Some(uuid))
+            .filter_map(|dive| dive.location.filter(Location::is_valid))
+            .collect();
+        Location::centroid(&points).or_else(|| {
+            self.site_by_uuid(uuid)
+                .and_then(|site| site.location)
+                .filter(Location::is_valid)
+        })
+    }
+
+    /// A dive's position: its own location, else its site's position.
+    pub fn dive_location(&self, dive: &Dive) -> Option<Location> {
+        dive.location
+            .filter(Location::is_valid)
+            .or_else(|| dive.site_id.and_then(|id| self.site_location(id)))
+    }
+
+    /// Case- and whitespace-insensitive lookup of a site by name.
+    pub fn site_by_name(&self, name: &str) -> Option<&DiveSite> {
+        let key = normalize_site_name(name);
+        if key.is_empty() {
+            return None;
+        }
+        self.sites
+            .iter()
+            .find(|site| normalize_site_name(&site.name) == key)
+    }
+
+    /// Number of dives at each site, keyed by uuid (sites without dives are 0).
+    pub fn site_dive_counts(&self) -> std::collections::BTreeMap<u32, usize> {
+        let mut counts: std::collections::BTreeMap<u32, usize> =
+            self.sites.iter().map(|site| (site.uuid, 0)).collect();
+        for dive in &self.dives {
+            if let Some(count) = dive.site_id.and_then(|id| counts.get_mut(&id)) {
+                *count += 1;
+            }
+        }
+        counts
+    }
+
+    /// Give dives that have no location of their own their site's stored
+    /// position, so each dive carries the point it was logged at. Run once per
+    /// log (see `CATALOG_VERSION`); returns how many dives were updated.
+    pub fn adopt_site_locations(&mut self) -> usize {
+        let fallback: std::collections::HashMap<u32, Location> = self
+            .sites
+            .iter()
+            .filter_map(|site| Some((site.uuid, site.location.filter(Location::is_valid)?)))
+            .collect();
+        let mut updated = 0;
+        for dive in &mut self.dives {
+            if dive.location.filter(Location::is_valid).is_some() {
+                continue;
+            }
+            if let Some(location) = dive.site_id.and_then(|id| fallback.get(&id)) {
+                dive.location = Some(*location);
+                updated += 1;
+            }
+        }
+        updated
+    }
+
     /// The human name of a dive's site, if set.
     pub fn site_name_of(&self, dive: &Dive) -> Option<&str> {
         dive.site_id
@@ -694,12 +768,7 @@ impl DiveLog {
     /// missing, or they are within `radius_m` of each other. Returns groups of
     /// site uuids, each of size >= 2.
     pub fn mergeable_site_groups(&self, radius_m: f64) -> Vec<Vec<u32>> {
-        fn normalize(name: &str) -> String {
-            name.split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_lowercase()
-        }
+        let normalize = normalize_site_name;
         let compatible = |a: Option<Location>, b: Option<Location>| match (a, b) {
             (Some(a), Some(b)) => a.distance_m(b) <= radius_m,
             _ => true,
@@ -722,7 +791,12 @@ impl DiveLog {
                     continue;
                 }
                 let other = &self.sites[j];
-                if normalize(&other.name) == name && compatible(site.location, other.location) {
+                if normalize(&other.name) == name
+                    && compatible(
+                        self.site_location(site.uuid),
+                        self.site_location(other.uuid),
+                    )
+                {
                     *flag = true;
                     group.push(other.uuid);
                 }
@@ -1057,6 +1131,14 @@ impl DiveLog {
             }
         }
     }
+}
+
+/// Site names compare equal ignoring case and repeated whitespace.
+fn normalize_site_name(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn is_zero_u32(v: &u32) -> bool {

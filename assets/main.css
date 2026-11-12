@@ -1175,6 +1175,13 @@ textarea.field {
   margin: 0.35rem 0;
 }
 
+.field-hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .field-warn {
   color: var(--trace-temp);
   font-size: 0.75rem;

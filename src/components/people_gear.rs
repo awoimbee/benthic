@@ -1,4 +1,4 @@
-//! The global people & gear manager.
+//! The global people, gear and dive-site manager.
 //!
 //! Entries are ordered by most recent use, so the things a diver reaches for
 //! on the next trip are at the top. Usage is derived from the dives, never
@@ -16,6 +16,19 @@ use crate::state::AppState;
 enum Tab {
     People,
     Gear,
+    Sites,
+}
+
+/// A site row: its name, how many dives it has and where it is.
+#[derive(Clone, PartialEq)]
+struct SiteRow {
+    uuid: u32,
+    name: String,
+    dives: usize,
+    position: Option<benthic_core::Location>,
+    located_dives: usize,
+    /// Distance from the centre to the farthest dive, in metres.
+    spread_m: f64,
 }
 
 #[component]
@@ -56,10 +69,47 @@ pub fn PeopleGearDialog() -> Element {
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
 
+    let counts = log.site_dive_counts();
+    let mut sites: Vec<SiteRow> = log
+        .sites
+        .iter()
+        .map(|site| {
+            let position = log.site_location(site.uuid);
+            let points: Vec<benthic_core::Location> = log
+                .dives
+                .iter()
+                .filter(|dive| dive.site_id == Some(site.uuid))
+                .filter_map(|dive| dive.location.filter(benthic_core::Location::is_valid))
+                .collect();
+            let spread_m = position
+                .map(|centre| {
+                    points
+                        .iter()
+                        .map(|point| centre.distance_m(*point))
+                        .fold(0.0, f64::max)
+                })
+                .unwrap_or(0.0);
+            SiteRow {
+                uuid: site.uuid,
+                name: site.name.clone(),
+                dives: counts.get(&site.uuid).copied().unwrap_or(0),
+                position,
+                located_dives: points.len(),
+                spread_m,
+            }
+        })
+        .collect();
+    sites.sort_by(|a, b| {
+        b.dives
+            .cmp(&a.dives)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
     let active = (tab)();
     let people_empty = people.is_empty();
     let gear_empty = gear.is_empty();
-    let title = tr.people_gear;
+    let sites_empty = sites.is_empty();
+    let title = tr.people_gear_sites;
 
     rsx! {
         div {
@@ -73,7 +123,7 @@ pub fn PeopleGearDialog() -> Element {
                 aria_modal: "true",
                 aria_label: "{title}",
                 onclick: move |evt| evt.stop_propagation(),
-                h2 { "{tr.people_gear}" }
+                h2 { "{title}" }
                 div { class: "dc-tabs",
                     button {
                         class: if active == Tab::People { "dc-tab active" } else { "dc-tab" },
@@ -84,6 +134,11 @@ pub fn PeopleGearDialog() -> Element {
                         class: if active == Tab::Gear { "dc-tab active" } else { "dc-tab" },
                         onclick: move |_| tab.set(Tab::Gear),
                         "{tr.tab_gear}"
+                    }
+                    button {
+                        class: if active == Tab::Sites { "dc-tab active" } else { "dc-tab" },
+                        onclick: move |_| tab.set(Tab::Sites),
+                        "{tr.tab_sites}"
                     }
                 }
 
@@ -126,6 +181,26 @@ pub fn PeopleGearDialog() -> Element {
                                 class: "icon-btn",
                                 title: "{tr.delete}",
                                 onclick: move |_| actions::delete_person(state, person.id),
+                                "✕"
+                            }
+                        }
+                    }
+                } else if active == Tab::Sites {
+                    if sites_empty {
+                        div { class: "muted", "{tr.sites_empty}" }
+                    }
+                    for site in sites {
+                        div { key: "{site.uuid}", class: "catalog-row",
+                            input {
+                                class: "field",
+                                value: "{site.name}",
+                                onchange: move |evt| actions::rename_site(state, site.uuid, &evt.value()),
+                            }
+                            span { class: "muted catalog-usage", {site_text(tr, &site)} }
+                            button {
+                                class: "icon-btn",
+                                title: "{tr.delete}",
+                                onclick: move |_| actions::delete_site(state, site.uuid),
                                 "✕"
                             }
                         }
@@ -228,6 +303,32 @@ fn usage_text(prefs: &benthic_core::Preferences, tr: &i18n::Strings, usage: Usag
         Some(when) => i18n::t2(tr.last_used, prefs.date(when), usage.dives),
         None => tr.never_used.to_string(),
     }
+}
+
+fn site_text(tr: &i18n::Strings, site: &SiteRow) -> String {
+    let dives = if site.dives == 1 {
+        tr.site_one_dive.to_string()
+    } else {
+        i18n::t1(tr.site_dives, site.dives)
+    };
+    let Some(position) = site.position else {
+        return format!("{dives} · {}", tr.site_no_position);
+    };
+    let coordinates = format!("{:.4}, {:.4}", position.lat, position.lon);
+    // The spread only says something when the dives were logged at
+    // different points.
+    if site.located_dives < 2 || site.spread_m < 1.0 {
+        return format!("{dives} · {coordinates}");
+    }
+    let spread = if site.spread_m >= 1000.0 {
+        format!("{:.1} km", site.spread_m / 1000.0)
+    } else {
+        format!("{:.0} m", site.spread_m)
+    };
+    format!(
+        "{dives} · {coordinates} · {}",
+        i18n::t2(tr.site_spread, site.located_dives, spread)
+    )
 }
 
 fn gear_kind_index(kind: GearKind) -> usize {

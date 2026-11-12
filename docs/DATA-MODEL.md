@@ -15,7 +15,7 @@ the model easy to serialize, diff and (eventually) apply commands to.
 | `Event` | `struct event` | Gas switch, mode change, marker, alarm |
 | `Cylinder` | `struct cylinder_t` | Tank + gas + start/end pressure |
 | `WeightSystem` | `struct weightsystem_t` | Weight + description |
-| `DiveSite` | `struct dive_site` | Named location with optional GPS |
+| `DiveSite` | `struct dive_site` | Named place; position derived from its dives |
 | `DiveTrip` | `struct dive_trip` | Group of dives |
 | `Device` | `struct device` | Known dive computer (nickname/serial) |
 | `Picture` | `struct picture` | Photo/video (local file or public URL) + time offset |
@@ -78,6 +78,14 @@ Dive
 all dive computers when the dive-level value is absent. `DiveLog::fixup_all()`
 recomputes these after import. Aggregates such as OTU/CNS/SAC and deco
 information are not yet stored; they belong to the deco engine (Phase 2).
+
+Each `Dive` carries its own `location`, the GPS point it was logged at. A
+site's position (`DiveLog::site_location`) is the centre of its dives'
+locations; the site's stored `location` is only a fallback for when none of
+its dives has one (for example a GPX waypoint not dived yet). SSRF export writes
+the derived position on each site. SSRF import puts a dive's `gps` (and a
+legacy `<location gps=...>`) on the dive and gives dives without one their
+site's position.
 
 ## Compatibility notes
 

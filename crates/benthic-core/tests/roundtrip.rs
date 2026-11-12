@@ -574,3 +574,69 @@ fn renumber_is_chronological_and_reports_changes() {
     assert_eq!(numbers, vec![(1, 13), (2, 10), (3, 11), (4, 12)]);
     assert_eq!(log.renumber(10), 0);
 }
+
+#[test]
+fn site_position_is_the_centre_of_its_dives() {
+    use benthic_core::{Dive, DiveLog, DiveSite, Location};
+    let mut log = DiveLog::new();
+    log.sites.push(DiveSite {
+        uuid: 1,
+        name: "Reef".into(),
+        location: Some(Location::new(10.0, 10.0)),
+        ..Default::default()
+    });
+    log.sites.push(DiveSite {
+        uuid: 2,
+        name: "Wreck".into(),
+        location: Some(Location::new(-5.0, 20.0)),
+        ..Default::default()
+    });
+    for (id, site, location) in [
+        (1, 1, Some(Location::new(43.0, 6.0))),
+        (2, 1, Some(Location::new(43.002, 6.004))),
+        (3, 1, None),
+        (4, 2, None),
+    ] {
+        log.dives.push(Dive {
+            id,
+            when: id as i64,
+            site_id: Some(site),
+            location,
+            ..Default::default()
+        });
+    }
+
+    let reef = log.site_location(1).unwrap();
+    assert!((reef.lat - 43.001).abs() < 1e-6 && (reef.lon - 6.002).abs() < 1e-6);
+    // No dive at the wreck has a point, so its stored position is used.
+    assert_eq!(log.site_location(2), Some(Location::new(-5.0, 20.0)));
+    // A dive without its own point falls back to its site's position.
+    assert_eq!(log.dive_location(&log.dives[2]), Some(reef));
+
+    assert_eq!(log.adopt_site_locations(), 2);
+    assert_eq!(log.dives[2].location, Some(Location::new(10.0, 10.0)));
+    assert_eq!(log.site_by_name("  reef ").map(|s| s.uuid), Some(1));
+    assert_eq!(log.site_dive_counts()[&1], 3);
+}
+
+#[test]
+fn ssrf_dive_gps_lands_on_the_dive_and_round_trips() {
+    let xml = "<divelog program='subsurface' version='2'><divesites>\
+        <site uuid='00000001' name='Reef' gps='43.000000 6.000000'></site>\
+        </divesites><dives>\
+        <dive number='1' date='2024-01-01' time='10:00:00' divesiteid='00000001'></dive>\
+        <dive number='2' date='2024-01-02' time='10:00:00' divesiteid='00000001' gps='43.010000 6.010000'></dive>\
+        <dive number='3' date='2024-01-03' time='10:00:00'><location gps='45.000000 7.000000'>Lake</location></dive>\
+        </dives></divelog>";
+    let log = ssrf::parse_str(xml).unwrap();
+    let by_number = |n: i32| log.dives.iter().find(|d| d.number == n).unwrap();
+    assert_eq!(by_number(1).location, Some(Location::new(43.0, 6.0)));
+    assert_eq!(by_number(2).location, Some(Location::new(43.01, 6.01)));
+    assert_eq!(by_number(3).location, Some(Location::new(45.0, 7.0)));
+    assert_eq!(log.site_name_of(by_number(3)), Some("Lake"));
+
+    let again = ssrf::parse_str(&ssrf::write_string(&log)).unwrap();
+    let reef = again.site_by_name("Reef").unwrap();
+    let centre = again.site_location(reef.uuid).unwrap();
+    assert!((centre.lat - 43.005).abs() < 1e-3 && (centre.lon - 6.005).abs() < 1e-3);
+}
