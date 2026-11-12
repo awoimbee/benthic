@@ -18,6 +18,6 @@
 !dives/**/*.ssrf
 exports/
 
-# Generated libdivecomputer wasm shim (scripts/build-web-divecomputer.sh)
+# Generated libdivecomputer wasm shim (cargo xtask build-web-shim)
 /public/divecomputer/benthic-dc.mjs
 /public/divecomputer/benthic-dc.wasm

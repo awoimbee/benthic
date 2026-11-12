@@ -34,7 +34,8 @@ to get sample data.
 
 ## Before opening a PR
 
-Run the same checks CI runs:
+Run the same checks CI runs (`cargo xtask check` runs all but the native one;
+`cargo xtask help` lists the other development tasks):
 
 ```bash
 cargo fmt --all

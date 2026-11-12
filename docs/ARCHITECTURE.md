@@ -175,13 +175,13 @@ installed system-wide. The crate exposes:
 The C build is gated behind the crate's `native` feature and the whole crate
 compiles to nothing on `wasm32`, so a plain workspace `cargo test`/`clippy`
 stays pure Rust on machines without the toolchain. The native path is built in
-the devcontainer and in CI (`just check-native`). Parsing and the download
+the devcontainer and in CI (`cargo xtask check-native`). Parsing and the download
 plumbing are covered by the three raw dumps shipped with libdivecomputer and by
 error-path tests; real device protocols need real hardware. BLE has no native
 transport in this libdivecomputer fork (it expects the application to provide
 an I/O stream), so it is not wired up yet.
 
-On the web the same Rust mapping is reused. `scripts/build-web-divecomputer.sh`
+On the web the same Rust mapping is reused. `cargo xtask build-web-shim`
 builds libdivecomputer with Emscripten plus a small C shim
 (`web/divecomputer/shim.c`) that emits the neutral `RawDive` JSON (see
 `benthic-core::divecomputer`); the app deserialises it and builds the model, so

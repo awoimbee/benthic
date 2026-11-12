@@ -78,8 +78,9 @@ known GATT serial service. The desktop app exposes all of this through its
 The **web** build downloads over **Web Serial** or **Web Bluetooth**
 (Chrome/Edge/Opera): the **Download** button loads libdivecomputer compiled to
 wasm with Emscripten and drives it over the async browser transport (Asyncify).
-Build the shim with `just build-web-shim` before `dx build` / `dx serve`; CI
-and the Pages workflow do it automatically.
+`cargo xtask serve` builds the shim on first use; `cargo xtask build-web-shim`
+rebuilds it. It uses `emcc` from `PATH` when available and otherwise installs a
+pinned emsdk under `target/emsdk`, so no global Emscripten install is needed.
 
 ## Building and testing
 
