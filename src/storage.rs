@@ -25,6 +25,7 @@ const BACKUP: &str = "benthic.backup";
 const BACKUP_TIME: &str = "benthic.backup_time";
 const SYNC: &str = "benthic.sync";
 const SYNC_STATE: &str = "benthic.sync_state";
+const AI: &str = "benthic.ai";
 #[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
 const DEVICE_FINGERPRINTS: &str = "benthic.device_fingerprints";
 
@@ -273,6 +274,15 @@ pub fn load_sync_state() -> Option<String> {
 
 pub fn save_sync_state(contents: &str) -> Result<(), String> {
     imp::set(SYNC_STATE, contents)
+}
+
+/// Local-only AI settings. The API key must never enter the dive log or sync.
+pub fn load_ai() -> Option<String> {
+    imp::get(AI)
+}
+
+pub fn save_ai(contents: &str) -> Result<(), String> {
+    imp::set(AI, contents)
 }
 
 /// Per-device download fingerprints, keyed by model and connection.

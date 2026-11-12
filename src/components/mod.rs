@@ -1,3 +1,5 @@
+mod ai_dialog;
+mod batch_edit;
 mod compare;
 mod confirm;
 #[cfg(feature = "divecomputer")]
@@ -12,6 +14,7 @@ mod import_review;
 mod info_tip;
 mod map;
 mod media;
+mod people_gear;
 mod planner;
 mod preferences;
 mod profile;
@@ -23,6 +26,8 @@ mod trip_view;
 mod trips_dialog;
 mod welcome;
 
+pub use ai_dialog::AiDialog;
+pub use batch_edit::BatchEditDialog;
 pub use compare::CompareDialog;
 pub use confirm::ConfirmDialog;
 #[cfg(feature = "divecomputer")]
@@ -37,6 +42,7 @@ pub use import_review::ImportReviewDialog;
 pub use info_tip::InfoTip;
 pub use map::{LocationPickerDialog, MapDialog, MapSite, MapView};
 pub use media::{normalize_media_url, MediaGallery};
+pub use people_gear::PeopleGearDialog;
 pub use planner::PlannerDialog;
 pub use preferences::PreferencesDialog;
 pub use profile::DiveProfile;

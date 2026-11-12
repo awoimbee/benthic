@@ -50,6 +50,8 @@ Guiding principles:
 - [x] Keyboard shortcuts for undo/redo (`Ctrl/Cmd+Z`, `Shift+Z`, `Y`)
 - [x] Cylinder & weight editing with presets (AL80, LP85, steel 12/15, ...)
 - [x] Multi-select and bulk delete (one undo step)
+- [x] Batch edit of selected dives (trip, buddy, guide, suit, tags, rating)
+- [x] Global people and gear lists, ordered by last use, with dive-editor pickers
 - [x] Filter UI for tags, rating and depth
 - [x] Preferences: metric/imperial units, persisted separately from the log
 - [x] Saveable filter presets

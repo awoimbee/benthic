@@ -6,6 +6,7 @@
 //! and this crate only wires it to a UI and to platform storage.
 
 mod actions;
+mod ai;
 mod app;
 mod components;
 mod divecomputer;

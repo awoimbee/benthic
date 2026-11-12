@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::catalog::{GearItem, Person};
 use crate::gas::{ambient_mbar, GasMix, SURFACE_PRESSURE_MBAR};
 use crate::units::*;
 
@@ -164,6 +165,10 @@ impl Event {
 
 /// Extra key/value metadata reported by a dive computer.
 pub type ExtraData = (String, String);
+
+/// The model name used for hand-entered dives and profiles. It is not a real
+/// dive computer, so it is not added to the global gear list.
+pub const MANUAL_COMPUTER_MODEL: &str = "Manually entered";
 
 /// A single dive computer's recording of a dive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -364,6 +369,11 @@ pub struct Dive {
     pub computers: Vec<DiveComputer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pictures: Vec<Picture>,
+    /// Ids of global [`GearItem`]s worn or carried on this dive. Suits,
+    /// bottles and weights are also matched by name, so this is mainly for
+    /// gear that has no dedicated field (BCD, regulator, torch, ...).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gear_ids: Vec<u32>,
     /// Exclude this dive from automatic trip grouping.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_trip: bool,
@@ -375,7 +385,7 @@ impl Dive {
         Self {
             when,
             computers: vec![DiveComputer {
-                model: "Manually entered".to_string(),
+                model: MANUAL_COMPUTER_MODEL.to_string(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -389,6 +399,16 @@ impl Dive {
         self.computers
             .iter()
             .any(|dc| dc.divemode == Divemode::Freedive)
+    }
+
+    /// Names of the people on this dive: buddies and dive guides, with
+    /// comma-separated lists split into individual names.
+    pub fn people_names(&self) -> impl Iterator<Item = &str> {
+        self.buddy
+            .split(',')
+            .chain(self.diveguide.split(','))
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
     }
 
     /// The primary dive computer, if any.
@@ -539,6 +559,16 @@ pub struct DiveLog {
     pub sites: Vec<DiveSite>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub devices: Vec<Device>,
+    /// Global lists of people and gear offered when editing dives.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<Person>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gear: Vec<GearItem>,
+    /// Version of the catalog seeding that has run on this log. Seeding is
+    /// versioned so new gear kinds can be backfilled once, while entries the
+    /// user deleted stay deleted.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub catalog_version: u32,
 }
 
 impl Default for DiveLog {
@@ -550,6 +580,9 @@ impl Default for DiveLog {
             trips: Vec::new(),
             sites: Vec::new(),
             devices: Vec::new(),
+            people: Vec::new(),
+            gear: Vec::new(),
+            catalog_version: 0,
         }
     }
 }
@@ -877,6 +910,8 @@ impl DiveLog {
     pub fn merge(&mut self, other: DiveLog) {
         use std::collections::HashMap;
 
+        let (_, gear_map) = self.merge_catalog(&other);
+
         let mut site_map = HashMap::new();
         for mut site in other.sites {
             let new = self.next_site_uuid();
@@ -896,6 +931,13 @@ impl DiveLog {
         for mut dive in other.dives {
             dive.site_id = dive.site_id.and_then(|s| site_map.get(&s).copied());
             dive.trip_id = dive.trip_id.and_then(|t| trip_map.get(&t).copied());
+            dive.gear_ids = dive
+                .gear_ids
+                .iter()
+                .filter_map(|id| gear_map.get(id).copied())
+                .collect();
+            dive.gear_ids.sort_unstable();
+            dive.gear_ids.dedup();
             dive.id = self.next_id();
             self.dives.push(dive);
         }
@@ -913,6 +955,37 @@ impl DiveLog {
         let mut dives: Vec<&Dive> = self.dives.iter().collect();
         dives.sort_by_key(|d| std::cmp::Reverse(d.when));
         dives
+    }
+
+    /// Give every dive without a user-visible number the next free one.
+    ///
+    /// Dives are numbered oldest-first, which is how a chronological logbook
+    /// reads and how Subsurface imports assign numbers. Returns how many
+    /// dives were numbered.
+    pub fn number_missing_dives(&mut self) -> usize {
+        let mut next = self
+            .dives
+            .iter()
+            .map(|dive| dive.number)
+            .filter(|number| *number > 0)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let mut missing: Vec<(Timestamp, u32)> = self
+            .dives
+            .iter()
+            .filter(|dive| dive.number == 0)
+            .map(|dive| (dive.when, dive.id))
+            .collect();
+        missing.sort_unstable();
+        let count = missing.len();
+        for (_, id) in missing {
+            if let Some(dive) = self.dives.iter_mut().find(|dive| dive.id == id) {
+                dive.number = next;
+                next += 1;
+            }
+        }
+        count
     }
 
     /// Re-derive per-dive summary fields from the dive computers.

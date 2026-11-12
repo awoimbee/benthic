@@ -8,6 +8,7 @@
 //! before/after of a single dive). Bulk operations that are awkward to express
 //! as fine-grained diffs (import, autogroup) use [`Command::Snapshot`].
 
+use crate::catalog::{GearItem, Person};
 use crate::model::{Dive, DiveLog, DiveSite, DiveTrip};
 
 /// A single, invertible mutation of a [`DiveLog`].
@@ -56,6 +57,28 @@ pub enum Command {
         after: DiveSite,
     },
 
+    AddPerson {
+        person: Person,
+    },
+    DeletePerson {
+        person: Person,
+    },
+    UpdatePerson {
+        before: Person,
+        after: Person,
+    },
+
+    AddGear {
+        gear: GearItem,
+    },
+    DeleteGear {
+        gear: GearItem,
+    },
+    UpdateGear {
+        before: GearItem,
+        after: GearItem,
+    },
+
     /// A sequence of commands treated as one undo step.
     Compound {
         label: String,
@@ -83,6 +106,12 @@ impl Command {
             Command::AddSite { .. } => "Add dive site".into(),
             Command::DeleteSite { .. } => "Delete dive site".into(),
             Command::UpdateSite { .. } => "Edit dive site".into(),
+            Command::AddPerson { .. } => "Add person".into(),
+            Command::DeletePerson { .. } => "Delete person".into(),
+            Command::UpdatePerson { .. } => "Edit person".into(),
+            Command::AddGear { .. } => "Add gear".into(),
+            Command::DeleteGear { .. } => "Delete gear".into(),
+            Command::UpdateGear { .. } => "Edit gear".into(),
             Command::Compound { label, .. } | Command::Snapshot { label, .. } => label.clone(),
         }
     }
@@ -110,6 +139,32 @@ impl Command {
             }
             Command::UpdateSite { after, .. } => {
                 log.replace_site(after.clone());
+            }
+            Command::AddPerson { person } => {
+                if log.person_by_id(person.id).is_none() {
+                    log.people.push(person.clone());
+                }
+            }
+            Command::DeletePerson { person } => {
+                log.people.retain(|p| p.id != person.id);
+            }
+            Command::UpdatePerson { after, .. } => {
+                if let Some(slot) = log.people.iter_mut().find(|p| p.id == after.id) {
+                    *slot = after.clone();
+                }
+            }
+            Command::AddGear { gear } => {
+                if log.gear_by_id(gear.id).is_none() {
+                    log.gear.push(gear.clone());
+                }
+            }
+            Command::DeleteGear { gear } => {
+                log.gear.retain(|g| g.id != gear.id);
+            }
+            Command::UpdateGear { after, .. } => {
+                if let Some(slot) = log.gear.iter_mut().find(|g| g.id == after.id) {
+                    *slot = after.clone();
+                }
             }
             Command::Compound { commands, .. } => {
                 for command in commands {
@@ -145,6 +200,32 @@ impl Command {
             Command::DeleteSite { site } => log.sites.push(site.clone()),
             Command::UpdateSite { before, .. } => {
                 log.replace_site(before.clone());
+            }
+            Command::AddPerson { person } => {
+                log.people.retain(|p| p.id != person.id);
+            }
+            Command::DeletePerson { person } => {
+                if log.person_by_id(person.id).is_none() {
+                    log.people.push(person.clone());
+                }
+            }
+            Command::UpdatePerson { before, .. } => {
+                if let Some(slot) = log.people.iter_mut().find(|p| p.id == before.id) {
+                    *slot = before.clone();
+                }
+            }
+            Command::AddGear { gear } => {
+                log.gear.retain(|g| g.id != gear.id);
+            }
+            Command::DeleteGear { gear } => {
+                if log.gear_by_id(gear.id).is_none() {
+                    log.gear.push(gear.clone());
+                }
+            }
+            Command::UpdateGear { before, .. } => {
+                if let Some(slot) = log.gear.iter_mut().find(|g| g.id == before.id) {
+                    *slot = before.clone();
+                }
             }
             Command::Compound { commands, .. } => {
                 for command in commands.iter().rev() {
@@ -199,6 +280,27 @@ pub fn delete_trip(log: &DiveLog, trip_id: u32) -> Vec<Command> {
         });
     }
     commands.push(Command::DeleteTrip { trip });
+    commands
+}
+
+/// Build the commands that delete a gear item, unlinking it from dives first.
+///
+/// Returns an empty vector if the gear does not exist. The result is a single
+/// undo step when dispatched via [`Command::Compound`].
+pub fn delete_gear(log: &DiveLog, gear_id: u32) -> Vec<Command> {
+    let Some(gear) = log.gear_by_id(gear_id).cloned() else {
+        return Vec::new();
+    };
+    let mut commands: Vec<Command> = Vec::new();
+    for dive in log.dives.iter().filter(|d| d.gear_ids.contains(&gear_id)) {
+        let mut after = dive.clone();
+        after.gear_ids.retain(|id| *id != gear_id);
+        commands.push(Command::UpdateDive {
+            before: dive.clone(),
+            after,
+        });
+    }
+    commands.push(Command::DeleteGear { gear });
     commands
 }
 

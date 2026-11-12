@@ -21,7 +21,7 @@ pub fn ImportReviewDialog(pending: PendingImport) -> Element {
         .log
         .dives
         .iter()
-        .filter(|dive| pending.mode == ImportMode::Open || !pending.duplicates.contains(&dive.id))
+        .filter(|dive| !pending.duplicates.contains(&dive.id))
         .map(|dive| dive.id)
         .collect();
     let selected = use_signal(|| initial_selected);
@@ -140,11 +140,8 @@ pub fn ImportReviewDialog(pending: PendingImport) -> Element {
             }
         }
         let file_name = pending.file_name.clone();
-        let (dives, sites) = match pending.mode {
-            ImportMode::Open => actions::open_log(state, pending.log),
-            ImportMode::Merge | ImportMode::Download => actions::merge_log(state, pending.log),
-        };
-        if matches!(confirm_pending.mode, ImportMode::Open) || (state.selected)().is_none() {
+        let (dives, sites) = actions::merge_log(state, pending.log);
+        if (state.selected)().is_none() {
             let first = (state.log)()
                 .dives_recent_first()
                 .first()
@@ -156,7 +153,6 @@ pub fn ImportReviewDialog(pending: PendingImport) -> Element {
             crate::divecomputer::save_fingerprint(&key, &value);
         }
         match confirm_pending.mode {
-            ImportMode::Open => state.set_status(i18n::t3(tr.opened_file, dives, sites, file_name)),
             ImportMode::Merge => state.set_status(i18n::t3(tr.imported, dives, sites, file_name)),
             ImportMode::Download => {
                 state.set_status(i18n::t1(tr.downloading_dc, dives));
@@ -166,14 +162,8 @@ pub fn ImportReviewDialog(pending: PendingImport) -> Element {
 
     let all_for_select = all_ids.clone();
     let mut selected_for_all = selected;
-    let title = match pending.mode {
-        ImportMode::Open => tr.open_review_title,
-        ImportMode::Merge | ImportMode::Download => tr.import_review_title,
-    };
-    let confirm_label = match pending.mode {
-        ImportMode::Open => tr.open_selected,
-        ImportMode::Merge | ImportMode::Download => tr.import_selected,
-    };
+    let title = tr.import_review_title;
+    let confirm_label = tr.import_selected;
 
     rsx! {
         div {

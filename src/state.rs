@@ -10,7 +10,6 @@ use crate::routing::Route;
 /// How a reviewed import should be applied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportMode {
-    Open,
     Merge,
     #[allow(dead_code)]
     Download,
@@ -53,10 +52,14 @@ pub struct AppState {
     pub prefs: Signal<Preferences>,
     /// Whether the preferences dialog is open.
     pub show_prefs: Signal<bool>,
+    /// Whether the AI assistant dialog is open.
+    pub show_ai: Signal<bool>,
     /// Whether the trips manager is open.
     pub show_trips: Signal<bool>,
     /// Whether the dive-site map is open.
     pub show_map: Signal<bool>,
+    /// Whether the people & gear manager is open.
+    pub show_people: Signal<bool>,
     /// Coordinates the site map should centre on when it opens, if any.
     pub map_focus: Signal<Option<(f64, f64)>>,
     /// Whether the dive planner is open.
@@ -75,6 +78,8 @@ pub struct AppState {
     pub show_compare: Signal<bool>,
     /// Whether the bulk-delete confirmation is open.
     pub confirm_delete_selected: Signal<bool>,
+    /// Whether the batch-edit dialog is open.
+    pub show_batch_edit: Signal<bool>,
     /// A parsed file awaiting per-dive import selection.
     pub import_review: Signal<Option<PendingImport>>,
     /// The trip currently shown in the trip view, if any.

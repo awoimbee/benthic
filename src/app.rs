@@ -5,9 +5,9 @@ use dioxus::prelude::*;
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
-    CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar, ImportReviewDialog, MapDialog,
-    PlannerDialog, PreferencesDialog, SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog,
-    WelcomeDialog,
+    AiDialog, BatchEditDialog, CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar,
+    ImportReviewDialog, MapDialog, PeopleGearDialog, PlannerDialog, PreferencesDialog,
+    SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
 };
 use crate::routing::{self, Route};
 use crate::state::AppState;
@@ -39,8 +39,10 @@ pub fn App() -> Element {
             })
     });
     let show_prefs = use_signal(|| initial_route == Route::Preferences);
+    let show_ai = use_signal(|| false);
     let show_trips = use_signal(|| initial_route == Route::Trips);
     let show_map = use_signal(|| initial_route == Route::Map);
+    let show_people = use_signal(|| initial_route == Route::People);
     let map_focus = use_signal(|| None::<(f64, f64)>);
     let show_planner = use_signal(|| initial_route == Route::Planner);
     let show_sync = use_signal(|| initial_route == Route::Sync);
@@ -50,6 +52,7 @@ pub fn App() -> Element {
     let download_available = use_signal(|| true);
     let show_compare = use_signal(|| initial_route == Route::Compare);
     let mut confirm_delete_selected = use_signal(|| false);
+    let show_batch_edit = use_signal(|| false);
     let import_review = use_signal(|| None::<crate::state::PendingImport>);
     let show_trip = use_signal(|| match initial_route {
         Route::Trip(id) => Some(id),
@@ -80,8 +83,10 @@ pub fn App() -> Element {
         show_filters,
         prefs,
         show_prefs,
+        show_ai,
         show_trips,
         show_map,
+        show_people,
         map_focus,
         show_planner,
         show_sync,
@@ -89,6 +94,7 @@ pub fn App() -> Element {
         download_available,
         show_compare,
         confirm_delete_selected,
+        show_batch_edit,
         import_review,
         show_trip,
         mobile_detail,
@@ -107,6 +113,7 @@ pub fn App() -> Element {
             (show_sync)(),
             (show_compare)(),
             (show_download)(),
+            (show_people)(),
             (show_trip)(),
         );
         if desired == (state.route)() {
@@ -186,7 +193,9 @@ pub fn App() -> Element {
         crate::storage::init().await;
         match crate::storage::load() {
             Some(text) => match benthic_core::io::parse_auto(&text) {
-                Ok(parsed) => {
+                Ok(mut parsed) => {
+                    parsed.number_missing_dives();
+                    crate::actions::seed_catalog(&mut parsed);
                     if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
                         selected.set(Some(first));
                     }
@@ -199,7 +208,9 @@ pub fn App() -> Element {
                 // for manual recovery instead of being overwritten.
                 Err(e) => match crate::storage::load_backup() {
                     Some(backup) => match benthic_core::io::parse_auto(&backup) {
-                        Ok(parsed) => {
+                        Ok(mut parsed) => {
+                            parsed.number_missing_dives();
+                            crate::actions::seed_catalog(&mut parsed);
                             if let Some(first) = parsed.dives_recent_first().first().map(|d| d.id) {
                                 selected.set(Some(first));
                             }
@@ -251,9 +262,13 @@ pub fn App() -> Element {
             let mut show_sync = show_sync;
             let mut show_download = show_download;
             let mut show_compare = show_compare;
+            let mut show_people = show_people;
+            let mut show_batch_edit = show_batch_edit;
             let mut closed = true;
             if (confirm_delete_selected)() {
                 confirm_delete_selected.set(false);
+            } else if (show_batch_edit)() {
+                show_batch_edit.set(false);
             } else if (show_prefs)() {
                 show_prefs.set(false);
             } else if (show_trips)() {
@@ -268,6 +283,8 @@ pub fn App() -> Element {
                 show_compare.set(false);
             } else if (show_download)() {
                 show_download.set(false);
+            } else if (show_people)() {
+                show_people.set(false);
             } else {
                 closed = false;
             }
@@ -314,14 +331,17 @@ pub fn App() -> Element {
     // assistive technology stay inside the dialog.
     let modal_open = show_welcome
         || (show_prefs)()
+        || (show_ai)()
         || (show_trips)()
         || (show_map)()
         || (show_planner)()
         || (show_compare)()
         || (confirm_delete_selected)()
+        || (show_batch_edit)()
         || (import_review)().is_some()
         || (show_sync)()
-        || (show_download)();
+        || (show_download)()
+        || (show_people)();
 
     #[cfg(feature = "divecomputer")]
     let device_download = (show_download)().then(|| rsx! { DeviceDownloadDialog {} });
@@ -379,6 +399,9 @@ pub fn App() -> Element {
         if (show_prefs)() {
             PreferencesDialog {}
         }
+        if (show_ai)() {
+            AiDialog {}
+        }
         if (show_trips)() {
             TripsDialog {}
         }
@@ -390,6 +413,12 @@ pub fn App() -> Element {
         }
         if (show_compare)() {
             CompareDialog {}
+        }
+        if (show_people)() {
+            PeopleGearDialog {}
+        }
+        if (show_batch_edit)() {
+            BatchEditDialog {}
         }
         if (confirm_delete_selected)() {
             ConfirmDialog {

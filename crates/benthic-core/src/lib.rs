@@ -11,6 +11,7 @@
 //! Everything above this crate (storage, import/export UX, rendering) is
 //! provided by the application crate.
 
+pub mod catalog;
 pub mod deco;
 pub mod divecomputer;
 pub mod equipment;
@@ -24,6 +25,10 @@ pub mod planner;
 pub mod sync;
 pub mod units;
 
+pub use catalog::{
+    register_dive_entries, rename_gear_commands, rename_person_commands, GearItem, GearKind,
+    Person, Usage, CATALOG_VERSION,
+};
 pub use deco::{Buhlmann, DecoModel};
 pub use equipment::{apply_preset, cylinder_preset, CylinderPreset, CYLINDER_PRESETS};
 pub use filter::{DiveFilter, FilterPreset};

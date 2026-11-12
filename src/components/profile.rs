@@ -716,32 +716,6 @@ pub fn DiveProfile(
                         drag.set(None);
                         hover.set(None);
                     },
-                    // A mouse wheel zooms around the pointer. Touch gestures
-                    // are handled above because a wheel event is not emitted
-                    // for finger drags or pinches.
-                    onwheel: move |evt: WheelEvent| {
-                        let width = (plot_width)();
-                        if width <= 1.0 {
-                            return;
-                        }
-                        let delta = evt.delta().strip_units().y;
-                        if delta == 0.0 {
-                            return;
-                        }
-                        let factor = (-delta / 500.0).exp();
-                        let fraction = (evt.element_coordinates().x / width).clamp(0.0, 1.0);
-                        let current_zoom = (zoom)().max(1.0);
-                        let half = 0.5 / current_zoom;
-                        let center = (pan)().clamp(half, 1.0 - half);
-                        let anchor = win_start + fraction * win_span;
-                        let next_zoom = (current_zoom * factor).clamp(1.0, MAX_ZOOM);
-                        let next_half = 0.5 / next_zoom;
-                        let next_center =
-                            anchor + (center - anchor) * (current_zoom / next_zoom);
-                        zoom.set(next_zoom);
-                        pan.set(next_center.clamp(next_half, 1.0 - next_half));
-                        evt.prevent_default();
-                    },
                     // Keep the readout pinned where the pointer left; the
                     // scrubber (or a new hover) moves it.
 

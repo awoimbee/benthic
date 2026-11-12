@@ -22,6 +22,7 @@ pub enum Route {
     Sync,
     Compare,
     Download,
+    People,
 }
 
 impl Route {
@@ -37,6 +38,7 @@ impl Route {
             Route::Sync => "/sync".to_string(),
             Route::Compare => "/compare".to_string(),
             Route::Download => "/download".to_string(),
+            Route::People => "/people".to_string(),
         }
     }
 
@@ -51,6 +53,7 @@ impl Route {
         sync: bool,
         compare: bool,
         download: bool,
+        people: bool,
         trip: Option<u32>,
     ) -> Self {
         if planner {
@@ -67,6 +70,8 @@ impl Route {
             Route::Compare
         } else if download {
             Route::Download
+        } else if people {
+            Route::People
         } else if let Some(id) = trip {
             Route::Trip(id)
         } else {
@@ -85,6 +90,7 @@ pub fn apply_route(state: AppState, route: Route) {
     let mut show_sync = state.show_sync;
     let mut show_compare = state.show_compare;
     let mut show_download = state.show_download;
+    let mut show_people = state.show_people;
     let mut show_trip = state.show_trip;
     let mut mobile_detail = state.mobile_detail;
 
@@ -95,6 +101,7 @@ pub fn apply_route(state: AppState, route: Route) {
     show_sync.set(route == Route::Sync);
     show_compare.set(route == Route::Compare);
     show_download.set(route == Route::Download);
+    show_people.set(route == Route::People);
 
     match route {
         Route::Dives => {
@@ -128,6 +135,7 @@ pub fn route_from_path(path: &str) -> Route {
         "sync" => Route::Sync,
         "compare" => Route::Compare,
         "download" => Route::Download,
+        "people" => Route::People,
         "trips" => Route::Trips,
         id if parts.len() >= 2 && parts[parts.len() - 2] == "trips" => {
             id.parse().map(Route::Trip).unwrap_or(Route::Dives)
@@ -166,6 +174,7 @@ mod imp {
                 [.., "sync"] => 1,
                 [.., "compare"] => 1,
                 [.., "download"] => 1,
+                [.., "people"] => 1,
                 [.., "trips"] => 1,
                 [.., "trips", _] => 2,
                 _ => 0,
@@ -278,6 +287,7 @@ mod tests {
         assert_eq!(route_from_path("/planner"), Route::Planner);
         assert_eq!(route_from_path("/benthic/planner/"), Route::Planner);
         assert_eq!(route_from_path("/benthic/trips"), Route::Trips);
+        assert_eq!(route_from_path("/benthic/people"), Route::People);
         assert_eq!(route_from_path("/benthic/trips/42"), Route::Trip(42));
         assert_eq!(route_from_path("/benthic/"), Route::Dives);
         assert_eq!(route_from_path("/"), Route::Dives);

@@ -3,7 +3,7 @@
 //! Each action builds one or more [`Command`]s and dispatches them through the
 //! [`AppState`] so that it is automatically undoable.
 
-use benthic_core::{Command, Dive, DivePlan, DiveTrip};
+use benthic_core::{Command, Dive, DivePlan, DiveTrip, GearItem, GearKind, Person};
 use dioxus::prelude::WritableExt;
 
 use crate::i18n;
@@ -19,6 +19,19 @@ pub const AUTOGROUP_MAX_GAP_DAYS: i64 = 3;
 /// Maximum distance between two same-named sites for them to be considered
 /// duplicates.
 pub const SITE_DEDUP_RADIUS_M: f64 = 500.0;
+
+/// Seed the people/gear catalog from dive history.
+///
+/// Runs once per log (and for freshly imported files), so names from older
+/// versions or Subsurface XML show up in the global lists without resurrecting
+/// entries the user deleted afterwards.
+pub fn seed_catalog(log: &mut benthic_core::DiveLog) {
+    if log.catalog_version >= benthic_core::CATALOG_VERSION {
+        return;
+    }
+    log.adopt_untracked_entries();
+    log.catalog_version = benthic_core::CATALOG_VERSION;
+}
 
 /// Create an empty, manually-entered dive, select it, and open the editor.
 pub fn new_dive(state: AppState) {
@@ -114,6 +127,99 @@ pub fn delete_selected(state: AppState) {
         selected.set((state.log)().dives_recent_first().first().map(|d| d.id));
     }
     state.set_status(i18n::t1(state.strings().deleted_dives, ids.len()));
+}
+
+/// Fields a batch edit may change. `None` leaves a field untouched.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BatchEdit {
+    /// `Some(None)` removes the trip assignment, `Some(Some(id))` assigns it.
+    pub trip_id: Option<Option<u32>>,
+    pub buddy: Option<String>,
+    pub diveguide: Option<String>,
+    pub suit: Option<String>,
+    /// `Some(0)` clears the rating.
+    pub rating: Option<u8>,
+    pub add_tags: Vec<String>,
+    pub remove_tags: Vec<String>,
+}
+
+impl BatchEdit {
+    pub fn is_empty(&self) -> bool {
+        self.trip_id.is_none()
+            && self.buddy.is_none()
+            && self.diveguide.is_none()
+            && self.suit.is_none()
+            && self.rating.is_none()
+            && self.add_tags.is_empty()
+            && self.remove_tags.is_empty()
+    }
+}
+
+/// Open the batch-edit dialog for the ticked dives.
+pub fn open_batch_edit(state: AppState) {
+    if (state.selection)().is_empty() {
+        return;
+    }
+    let mut show = state.show_batch_edit;
+    show.set(true);
+}
+
+/// Apply a batch edit to every ticked dive as one undo step.
+pub fn apply_batch_edit(state: AppState, edit: BatchEdit) {
+    let ids: std::collections::BTreeSet<u32> = (state.selection)().iter().copied().collect();
+    if ids.is_empty() || edit.is_empty() {
+        let mut show = state.show_batch_edit;
+        show.set(false);
+        return;
+    }
+    let log = (state.log)();
+    let mut commands = Vec::new();
+    for dive in log.dives.iter().filter(|dive| ids.contains(&dive.id)) {
+        let mut after = dive.clone();
+        if let Some(trip_id) = edit.trip_id {
+            after.trip_id = trip_id;
+        }
+        if let Some(buddy) = &edit.buddy {
+            after.buddy.clone_from(buddy);
+        }
+        if let Some(diveguide) = &edit.diveguide {
+            after.diveguide.clone_from(diveguide);
+        }
+        if let Some(suit) = &edit.suit {
+            after.suit.clone_from(suit);
+        }
+        if let Some(rating) = edit.rating {
+            after.rating = rating;
+        }
+        for tag in &edit.add_tags {
+            if !after.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                after.tags.push(tag.clone());
+            }
+        }
+        after
+            .tags
+            .retain(|tag| !edit.remove_tags.iter().any(|r| r.eq_ignore_ascii_case(tag)));
+        after.tags.sort();
+        after.tags.dedup();
+        if after != *dive {
+            commands.push(Command::UpdateDive {
+                before: dive.clone(),
+                after,
+            });
+        }
+    }
+    if commands.is_empty() {
+        let mut show = state.show_batch_edit;
+        show.set(false);
+        return;
+    }
+    let count = commands.len();
+    state.dispatch_all(i18n::t1(state.strings().undo_batch_edit, count), commands);
+    let mut selection = state.selection;
+    selection.write().clear();
+    let mut show = state.show_batch_edit;
+    show.set(false);
+    state.set_status(i18n::t1(state.strings().edited_dives, count));
 }
 
 /// Create a trip from the ticked dives and assign them to it.
@@ -268,7 +374,8 @@ pub fn restore_backup(state: AppState) {
         return;
     };
     match benthic_core::io::parse_auto(&text) {
-        Ok(parsed) => {
+        Ok(mut parsed) => {
+            parsed.number_missing_dives();
             let before = (state.log)();
             state.dispatch(Command::Snapshot {
                 label: state.strings().undo_restore_backup.into(),
@@ -301,6 +408,103 @@ pub fn open_preferences(state: AppState) {
 pub fn open_trips(state: AppState) {
     let mut show = state.show_trips;
     show.set(true);
+}
+
+/// Add a person to the global list. Empty and duplicate names are ignored.
+pub fn add_person(state: AppState, name: &str) -> Option<u32> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let log = (state.log)();
+    if log.person_by_name(name).is_some() {
+        return None;
+    }
+    let id = log.next_person_id();
+    state.dispatch(Command::AddPerson {
+        person: Person {
+            id,
+            name: name.to_string(),
+            notes: String::new(),
+        },
+    });
+    Some(id)
+}
+
+/// Rename a person, updating the dives that mention them.
+pub fn rename_person(state: AppState, id: u32, name: &str) {
+    let log = (state.log)();
+    let commands = benthic_core::rename_person_commands(&log, id, name);
+    if commands.is_empty() {
+        return;
+    }
+    state.dispatch_all("Edit person", commands);
+}
+
+pub fn delete_person(state: AppState, id: u32) {
+    let log = (state.log)();
+    let Some(person) = log.person_by_id(id).cloned() else {
+        return;
+    };
+    state.dispatch(Command::DeletePerson { person });
+}
+
+/// Add a gear item to the global list. Empty and duplicate names are ignored.
+pub fn add_gear(state: AppState, kind: GearKind, name: &str) -> Option<u32> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let log = (state.log)();
+    if log.gear_by_name(kind, name).is_some() {
+        return None;
+    }
+    let id = log.next_gear_id();
+    state.dispatch(Command::AddGear {
+        gear: GearItem {
+            id,
+            kind,
+            name: name.to_string(),
+            notes: String::new(),
+        },
+    });
+    Some(id)
+}
+
+/// Rename a gear item, updating the dive fields it is linked to.
+pub fn rename_gear(state: AppState, id: u32, name: &str) {
+    let log = (state.log)();
+    let commands = benthic_core::rename_gear_commands(&log, id, name);
+    if commands.is_empty() {
+        return;
+    }
+    state.dispatch_all("Edit gear", commands);
+}
+
+/// Change the kind of a gear item.
+pub fn update_gear_kind(state: AppState, id: u32, kind: GearKind) {
+    let log = (state.log)();
+    let Some(before) = log.gear_by_id(id).cloned() else {
+        return;
+    };
+    if before.kind == kind {
+        return;
+    }
+    let after = GearItem {
+        kind,
+        ..before.clone()
+    };
+    state.dispatch(Command::UpdateGear { before, after });
+}
+
+/// Delete a gear item and unlink it from every dive, as one undo step.
+pub fn delete_gear(state: AppState, id: u32) {
+    let log = (state.log)();
+    let commands = benthic_core::history::delete_gear(&log, id);
+    if commands.is_empty() {
+        return;
+    }
+    state.dispatch_all("Delete gear", commands);
 }
 
 /// Open the dive planner dialog.
@@ -476,6 +680,8 @@ pub fn review_downloaded(
 /// automatic backup, so an accidental open is recoverable.
 pub fn open_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {
     incoming.fixup_all();
+    incoming.number_missing_dives();
+    seed_catalog(&mut incoming);
     let dives = incoming.dives.len();
     let sites = incoming.sites.len();
     let before = (state.log)();
@@ -510,11 +716,14 @@ pub fn open_example_log(state: AppState) {
 /// Returns the number of dives and sites added.
 pub fn merge_log(state: AppState, mut incoming: benthic_core::DiveLog) -> (usize, usize) {
     incoming.fixup_all();
+    seed_catalog(&mut incoming);
     let dives = incoming.dives.len();
     let sites = incoming.sites.len();
     let before = (state.log)();
     let mut after = before.clone();
     after.merge(incoming);
+    after.number_missing_dives();
+    seed_catalog(&mut after);
     state.dispatch(Command::Snapshot {
         label: i18n::t2(state.strings().undo_import, dives, sites),
         before: Box::new(before),

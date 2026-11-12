@@ -53,6 +53,7 @@ struct DiveForm {
     cylinders: Vec<Cylinder>,
     weights: Vec<WeightSystem>,
     pictures: Vec<Picture>,
+    gear_ids: Vec<u32>,
 }
 
 impl DiveForm {
@@ -79,6 +80,7 @@ impl DiveForm {
             cylinders: dive.cylinders.clone(),
             weights: dive.weights.clone(),
             pictures: dive.pictures.clone(),
+            gear_ids: dive.gear_ids.clone(),
         }
     }
 }
@@ -131,6 +133,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
             }
             after.cylinders = f.cylinders;
             after.weights = f.weights;
+            after.gear_ids = f.gear_ids;
             after.pictures = f
                 .pictures
                 .into_iter()
@@ -153,12 +156,14 @@ fn DiveDetailInner(dive: Dive) -> Element {
                     computer.max_depth = max_depth;
                     computer.duration = duration;
                     if computer.model.is_empty() {
-                        computer.model = "Manually entered".to_string();
+                        computer.model = benthic_core::MANUAL_COMPUTER_MODEL.to_string();
                     }
                 }
             }
 
-            let mut commands: Vec<Command> = Vec::new();
+            // Names typed on this dive join the global lists, so the next
+            // edit can pick them from the catalog.
+            let mut commands = benthic_core::catalog::register_dive_entries(&log, &after);
             let name = f.site_name.trim().to_string();
             let location = parse_location(&f.site_gps);
             let site_id = match (after.site_id, site.clone()) {
@@ -358,7 +363,7 @@ fn DiveDetailInner(dive: Dive) -> Element {
     // recording; imported traces are left untouched.
     let profile_editable = dive
         .primary_computer()
-        .map(|dc| dc.samples.is_empty() || dc.model == "Manually entered")
+        .map(|dc| dc.samples.is_empty() || dc.model == benthic_core::MANUAL_COMPUTER_MODEL)
         .unwrap_or(true);
     let profile_samples: Option<Vec<benthic_core::Sample>> = (edited_samples)();
     let (profile_max, profile_time) = match &profile_samples {
@@ -405,9 +410,40 @@ fn DiveDetailInner(dive: Dive) -> Element {
     } else {
         (active_dc)()
     };
-    let buddy_options = unique_values(log.dives.iter().map(|d| d.buddy.as_str()));
-    let divemaster_options = unique_values(log.dives.iter().map(|d| d.diveguide.as_str()));
-    let suit_options = unique_values(log.dives.iter().map(|d| d.suit.as_str()));
+    // Catalog entries ordered by most recent use, so autocomplete and the
+    // quick-pick chips lead with what the diver actually uses.
+    let person_usage = log.person_usage();
+    let mut people_sorted: Vec<&benthic_core::Person> = log.people.iter().collect();
+    people_sorted.sort_by_key(|person| {
+        (
+            std::cmp::Reverse(person_usage[&person.id].last_used),
+            person.name.to_lowercase(),
+        )
+    });
+    let buddy_options: Vec<String> = people_sorted.iter().map(|p| p.name.clone()).collect();
+    let divemaster_options = buddy_options.clone();
+
+    let gear_usage = log.gear_usage();
+    let mut gear_sorted: Vec<(benthic_core::GearItem, benthic_core::Usage)> = log
+        .gear
+        .iter()
+        .map(|item| (item.clone(), gear_usage[&item.id]))
+        .collect();
+    gear_sorted.sort_by_key(|(item, usage)| {
+        (std::cmp::Reverse(usage.last_used), item.name.to_lowercase())
+    });
+    let suit_options: Vec<String> = gear_sorted
+        .iter()
+        .filter(|(item, _)| item.kind == benthic_core::GearKind::Wetsuit)
+        .map(|(item, _)| item.name.clone())
+        .collect();
+    // Kinds with their own dive field are edited there; only extra equipment
+    // is linked explicitly, which avoids a suit appearing twice.
+    let other_gear: Vec<(benthic_core::GearItem, benthic_core::Usage)> = gear_sorted
+        .iter()
+        .filter(|(item, _)| !item.kind.has_dedicated_field())
+        .cloned()
+        .collect();
     let tag_options: Vec<String> = {
         let mut tags: Vec<String> = log
             .dives
@@ -470,6 +506,18 @@ fn DiveDetailInner(dive: Dive) -> Element {
         .map(|c| cylinder_row(c, &prefs, salinity_value))
         .collect();
     let weights: Vec<WeightRow> = dive.weights.iter().map(|w| weight_row(w, &prefs)).collect();
+    let extra_gear: Vec<(benthic_core::GearKind, String)> = dive
+        .gear_ids
+        .iter()
+        .filter_map(|id| log.gear_by_id(*id))
+        .filter(|item| !item.kind.has_dedicated_field())
+        .map(|item| (item.kind, item.name.clone()))
+        .collect();
+    let profile_computer_model = dive
+        .primary_computer()
+        .map(|computer| computer.model.clone())
+        .filter(|model| !model.is_empty())
+        .unwrap_or_else(|| "—".to_string());
 
     rsx! {
         section { class: "detail",
@@ -596,7 +644,9 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                     "{tr.edit_profile}"
                                 }
                             } else {
-                                span { class: "muted", "{tr.profile_from_computer}" }
+                                span { class: "muted",
+                                    {i18n::t1(tr.profile_from_computer, &profile_computer_model)}
+                                }
                             }
                         }
                     }
@@ -651,6 +701,26 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             value: "{f.buddy}",
                             oninput: move |evt| form.write().buddy = evt.value(),
                         }
+                        if !buddy_options.is_empty() {
+                            div { class: "tag-suggest",
+                                for name in buddy_options.iter().take(6) {
+                                    button {
+                                        key: "{name}",
+                                        class: "tag tag-add",
+                                        r#type: "button",
+                                        onclick: {
+                                            let name = name.to_string();
+                                            move |_| {
+                                                let mut form = form;
+                                                let current = form.read().buddy.clone();
+                                                form.write().buddy = toggle_name(&current, &name);
+                                            }
+                                        },
+                                        "{name}"
+                                    }
+                                }
+                            }
+                        }
                     }
                     label { class: "field-label", "{tr.field_dive_master}"
                         input {
@@ -659,6 +729,22 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             value: "{f.divemaster}",
                             oninput: move |evt| form.write().divemaster = evt.value(),
                         }
+                        if !divemaster_options.is_empty() {
+                            div { class: "tag-suggest",
+                                for name in divemaster_options.iter().take(6) {
+                                    button {
+                                        key: "{name}",
+                                        class: "tag tag-add",
+                                        r#type: "button",
+                                        onclick: {
+                                            let name = name.to_string();
+                                            move |_| form.write().divemaster = name.clone()
+                                        },
+                                        "{name}"
+                                    }
+                                }
+                            }
+                        }
                     }
                     label { class: "field-label", "{tr.field_suit}"
                         input {
@@ -666,6 +752,22 @@ fn DiveDetailInner(dive: Dive) -> Element {
                             list: "suit-list",
                             value: "{f.suit}",
                             oninput: move |evt| form.write().suit = evt.value(),
+                        }
+                        if !suit_options.is_empty() {
+                            div { class: "tag-suggest",
+                                for name in suit_options.iter().take(6) {
+                                    button {
+                                        key: "{name}",
+                                        class: "tag tag-add",
+                                        r#type: "button",
+                                        onclick: {
+                                            let name = name.to_string();
+                                            move |_| form.write().suit = name.clone()
+                                        },
+                                        "{name}"
+                                    }
+                                }
+                            }
                         }
                     }
                     label { class: "field-label", "{tr.field_trip}"
@@ -887,6 +989,28 @@ fn DiveDetailInner(dive: Dive) -> Element {
                         }
                     }
 
+                    if !other_gear.is_empty() {
+                        div { class: "field-label full", "{tr.gear_used}"
+                            div { class: "tag-suggest",
+                                for (item, _usage) in other_gear.clone() {
+                                    button {
+                                        key: "{item.id}",
+                                        class: if f.gear_ids.contains(&item.id) { "tag tag-add active" } else { "tag tag-add" },
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let mut w = form.write();
+                                            match w.gear_ids.iter().position(|gear_id| *gear_id == item.id) {
+                                                Some(index) => { w.gear_ids.remove(index); }
+                                                None => w.gear_ids.push(item.id),
+                                            }
+                                        },
+                                        "{i18n::gear_kind(tr, item.kind)} · {item.name}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     div { class: "field-label full", "{tr.weight_weight}"
                         div { class: "equip-list",
                             for (i, ws) in f.weights.iter().enumerate() {
@@ -1011,6 +1135,17 @@ fn DiveDetailInner(dive: Dive) -> Element {
                                         tr { td { "{row.weight}" } td { "{row.description}" } }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                if !extra_gear.is_empty() {
+                    div { class: "section-title", "{tr.gear_used}" }
+                    div { class: "tags",
+                        for (kind, name) in extra_gear {
+                            span { key: "{name}", class: "tag",
+                                "{i18n::gear_kind(tr, kind)} · {name}"
                             }
                         }
                     }
@@ -1144,16 +1279,24 @@ fn parse_tags(text: &str) -> Vec<String> {
     tags
 }
 
-/// Distinct, non-empty values in sorted order, for autocomplete lists.
-fn unique_values<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
-    let mut out: Vec<String> = values
-        .map(|value| value.trim())
+/// Add or remove a name in a comma-separated list (case-insensitive).
+fn toggle_name(names: &str, name: &str) -> String {
+    let mut list: Vec<String> = names
+        .split(',')
+        .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| value.to_string())
+        .map(str::to_string)
         .collect();
-    out.sort();
-    out.dedup();
-    out
+    match list
+        .iter()
+        .position(|existing| existing.eq_ignore_ascii_case(name))
+    {
+        Some(index) => {
+            list.remove(index);
+        }
+        None => list.push(name.to_string()),
+    }
+    list.join(", ")
 }
 
 /// Parse "lat, lon" or "lat lon" into a valid [`Location`].

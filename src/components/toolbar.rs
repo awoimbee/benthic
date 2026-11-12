@@ -81,12 +81,15 @@ pub fn Toolbar() -> Element {
     // (or behind) the modal that replaces it.
     use_effect(move || {
         let dialog_open = (state.show_prefs)()
+            || (state.show_ai)()
             || (state.show_trips)()
             || (state.show_map)()
             || (state.show_planner)()
             || (state.show_sync)()
             || (state.show_compare)()
-            || (state.show_download)();
+            || (state.show_download)()
+            || (state.show_people)()
+            || (state.show_batch_edit)();
         if dialog_open {
             open_menu.set(None);
             sheet_open.set(false);
@@ -262,7 +265,11 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                             onclick: move |_| actions::create_trip_from_selection(state),
                         }
                         MenuItem {
-                            label: t.delete_selected.to_string(),
+                            label: t.edit_selection.to_string(),
+                            onclick: move |_| actions::open_batch_edit(state),
+                        }
+                        MenuItem {
+                            label: i18n::t1(t.delete_selected_count, selected_count),
                             danger: true,
                             onclick: move |_| {
                                 let mut confirm = state.confirm_delete_selected;
@@ -288,6 +295,13 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     MenuItem {
                         label: t.manage_trips.to_string(),
                         onclick: move |_| actions::open_trips(state),
+                    }
+                    MenuItem {
+                        label: t.people_gear.to_string(),
+                        onclick: move |_| {
+                            let mut show_people = state.show_people;
+                            show_people.set(true);
+                        },
                     }
                     MenuItem {
                         label: t.merge_duplicate_sites.to_string(),
@@ -318,6 +332,13 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     }
                     a {
                         class: "menu-item",
+                        href: "https://planif.plongee.app/",
+                        target: "_blank",
+                        rel: "noopener noreferrer",
+                        "{t.external_dive_planner}"
+                    }
+                    a {
+                        class: "menu-item",
                         href: "https://antjac.github.io/DiveComputerSimulator/",
                         target: "_blank",
                         rel: "noopener",
@@ -340,6 +361,13 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     MenuItem {
                         label: t.preferences.to_string(),
                         onclick: move |_| actions::open_preferences(state),
+                    }
+                    MenuItem {
+                        label: t.ai_assistant.to_string(),
+                        onclick: move |_| {
+                            let mut show_ai = state.show_ai;
+                            show_ai.set(true);
+                        },
                     }
                     PrivacyItem {}
                 },
