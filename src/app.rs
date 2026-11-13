@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use benthic_core::{DiveFilter, DiveLog, FilterPreset, History, Preferences};
 
 use crate::components::{
-    AiDialog, BatchEditDialog, CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar,
+    AssistantPanel, BatchEditDialog, CompareDialog, ConfirmDialog, DiveDetail, DiveList, FilterBar,
     ImportReviewDialog, MapDialog, PeopleGearDialog, PlannerDialog, PreferencesDialog,
     RenumberDialog, SelectionBar, SyncDialog, Toolbar, TripView, TripsDialog, WelcomeDialog,
 };
@@ -39,6 +39,7 @@ pub fn App() -> Element {
             })
     });
     let dialog = use_signal(|| initial_route.dialog());
+    let show_ai = use_signal(|| false);
     let map_focus = use_signal(|| None::<(f64, f64)>);
     // Assume available, then hide the Download action on web platforms that
     // have neither Web Serial nor Web Bluetooth (e.g. iOS).
@@ -76,6 +77,7 @@ pub fn App() -> Element {
         show_filters,
         prefs,
         dialog,
+        show_ai,
         map_focus,
         download_available,
         import_review,
@@ -292,6 +294,9 @@ pub fn App() -> Element {
     let theme_light = (prefs)().theme == benthic_core::Theme::Light;
     let tr = crate::i18n::strings((prefs)().language);
     let mut panes_class = String::from("panes");
+    if (show_ai)() {
+        panes_class.push_str(" with-assistant");
+    }
     if (mobile_detail)() {
         panes_class.push_str(" mobile-detail");
     }
@@ -306,7 +311,6 @@ pub fn App() -> Element {
 
     let dialog_view = (dialog)().map(|open| match open {
         Dialog::Preferences => rsx! { PreferencesDialog {} },
-        Dialog::Ai => rsx! { AiDialog {} },
         Dialog::Trips => rsx! { TripsDialog {} },
         Dialog::Map => rsx! { MapDialog {} },
         Dialog::People => rsx! { PeopleGearDialog {} },
@@ -377,6 +381,9 @@ pub fn App() -> Element {
                     }
                 } else {
                     DiveDetail {}
+                }
+                if (show_ai)() {
+                    AssistantPanel {}
                 }
             }
             SelectionBar {}

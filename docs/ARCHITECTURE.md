@@ -235,6 +235,29 @@ the sites as JSON, the script builds the map and sends marker clicks back over
 the eval channel, and Rust turns a click into a dive selection. This keeps the
 same code path on web and desktop and leaves the domain crate untouched.
 
+## AI assistant
+
+The ✨ toolbar button toggles `AssistantPanel` (`src/components/assistant.rs`),
+a chat column beside the dive panes (full screen on phones), so a dive stays
+visible while the diver asks about it. `src/ai.rs` builds a [rig](https://rig.rs)
+agent on the provider the user configured (OpenRouter, Groq, Gemini or
+DeepSeek), sends requests directly from the device, and streams the reply.
+
+The model never receives the log wholesale. It gets a short preamble (dive
+count, the open dive, language and units) and read-only tools that run locally
+against a snapshot of the log: `search_dives` (text, site, buddy, date range,
+depth, freedive filters), `get_dive` (one dive's full details), `log_stats`
+(totals, records, per-year counts, top sites and buddies) and `list_sites`. It
+is told to cite dives as `[dive #N](dive:ID)`; the panel renders those as links
+that open the dive.
+
+A thread keeps both what the panel shows (questions, tool calls, answers,
+errors) and rig's message history, which is replayed with the next question.
+The last 20 threads and the API key live in local storage (`benthic.ai_threads`
+is bulk storage on the web) and are never exported or synced. An undocumented
+`base_url` in the stored config points the OpenRouter client at an
+OpenAI-compatible mock for manual testing.
+
 ## Platform abstraction
 
 The only genuinely platform-specific operations are:

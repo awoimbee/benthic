@@ -1,4 +1,4 @@
-mod ai_dialog;
+mod assistant;
 mod batch_edit;
 mod combo_input;
 mod compare;
@@ -30,7 +30,7 @@ mod trip_view;
 mod trips_dialog;
 mod welcome;
 
-pub use ai_dialog::AiDialog;
+pub use assistant::AssistantPanel;
 pub use batch_edit::BatchEditDialog;
 pub use combo_input::ComboInput;
 pub use compare::CompareDialog;

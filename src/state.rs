@@ -19,7 +19,6 @@ pub enum ImportMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialog {
     Preferences,
-    Ai,
     Trips,
     Map,
     People,
@@ -55,9 +54,7 @@ impl Dialog {
             Dialog::Sync => "sync",
             Dialog::Download => "download",
             Dialog::Compare => "compare",
-            Dialog::Ai | Dialog::BatchEdit | Dialog::Renumber | Dialog::ConfirmDeleteSelected => {
-                return None
-            }
+            Dialog::BatchEdit | Dialog::Renumber | Dialog::ConfirmDeleteSelected => return None,
         })
     }
 
@@ -105,6 +102,8 @@ pub struct AppState {
     pub prefs: Signal<Preferences>,
     /// The open modal dialog, if any. Only one is open at a time.
     pub dialog: Signal<Option<Dialog>>,
+    /// Whether the assistant panel is open beside the dive panes.
+    pub show_ai: Signal<bool>,
     /// Coordinates the site map should centre on when it opens, if any.
     pub map_focus: Signal<Option<(f64, f64)>>,
     /// Whether this platform can talk to a dive computer at all (Web

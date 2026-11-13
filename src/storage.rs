@@ -31,6 +31,7 @@ const BACKUP_TIME: &str = "benthic.backup_time";
 const SYNC: &str = "benthic.sync";
 const SYNC_STATE: &str = "benthic.sync_state";
 const AI: &str = "benthic.ai";
+const AI_THREADS: &str = "benthic.ai_threads";
 /// Prefix for copies of a log that failed to parse at startup.
 const UNREADABLE_PREFIX: &str = "benthic.unreadable.";
 #[cfg(any(feature = "divecomputer", target_arch = "wasm32"))]
@@ -52,7 +53,12 @@ mod imp {
     use std::task::{Poll, Waker};
 
     /// Keys stored in the bulk (IndexedDB) backend.
-    const BULK: [&str; 3] = [super::LOG, super::BACKUP, super::BACKUP_TIME];
+    const BULK: [&str; 4] = [
+        super::LOG,
+        super::BACKUP,
+        super::BACKUP_TIME,
+        super::AI_THREADS,
+    ];
     const STORE: &str = "kv";
     const DB_NAME: &str = "benthic";
 
@@ -417,6 +423,15 @@ pub fn load_ai() -> Option<String> {
 
 pub fn save_ai(contents: &str) -> Result<(), String> {
     imp::set(AI, contents)
+}
+
+/// Local-only assistant conversations.
+pub fn load_ai_threads() -> Option<String> {
+    imp::get(AI_THREADS)
+}
+
+pub fn save_ai_threads(contents: &str) -> Result<(), String> {
+    imp::set(AI_THREADS, contents)
 }
 
 /// Per-device download fingerprints, keyed by model and connection.

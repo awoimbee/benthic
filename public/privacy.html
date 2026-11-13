@@ -190,6 +190,23 @@
         from a service at any time, which removes the stored credentials.
       </p>
 
+      <h2>Optional AI assistant</h2>
+      <p>
+        benthic includes an optional assistant that answers questions about your
+        log. It is off until you choose a provider (OpenRouter, Groq, Google
+        Gemini or DeepSeek) and enter your own API key. When you ask a question,
+        your device sends it <strong>directly</strong> to that provider, along
+        with the parts of your log the assistant looks up to answer it (for
+        example dive dates, sites, depths, buddies, gear and notes). There is no
+        intermediary server operated by benthic. Those requests are governed by
+        the provider's own privacy policy and terms.
+      </p>
+      <p>
+        The API key and your conversations are stored only in the on-device
+        storage described above. They are never included in exports or sync,
+        and you can delete conversations from the assistant panel at any time.
+      </p>
+
       <h2>Google user data</h2>
       <p>
         If you connect Google Drive, benthic accesses only the contents of its
@@ -217,7 +234,11 @@
           We do not use analytics, telemetry, advertising, tracking pixels or
           tracking cookies.
         </li>
-        <li>We do not sell, rent or share your data with anyone.</li>
+        <li>
+          We do not sell, rent or share your data with anyone. Data only leaves
+          your device for a service you configure yourself (remote sync or the
+          AI assistant).
+        </li>
       </ul>
       <p>
         The map view requests map tiles directly from the tile providers (Esri
@@ -228,8 +249,8 @@
 
       <h2>Third-party services</h2>
       <p>
-        When you choose to use remote sync or the map, your use of those
-        services is governed by their own privacy policies:
+        When you choose to use remote sync, the map or the AI assistant, your
+        use of those services is governed by their own privacy policies:
       </p>
       <ul>
         <li>

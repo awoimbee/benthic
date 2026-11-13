@@ -115,6 +115,22 @@ pub fn Toolbar() -> Element {
                 oninput: move |evt| filter.write().query = evt.value(),
             }
 
+            {
+                let mut show_ai = state.show_ai;
+                let open = show_ai();
+                rsx! {
+                    button {
+                        class: if open { "btn assistant-toggle active" } else { "btn assistant-toggle" },
+                        r#type: "button",
+                        title: "{t.ai_assistant}",
+                        aria_label: "{t.ai_assistant}",
+                        aria_pressed: if open { "true" } else { "false" },
+                        onclick: move |_| show_ai.set(!open),
+                        "✨"
+                    }
+                }
+            }
+
             span {
                 class: "status status-wide",
                 role: "status",
@@ -355,9 +371,10 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                         onclick: move |_| actions::open_preferences(state),
                     }
                     MenuItem {
-                        label: t.ai_assistant.to_string(),
+                        label: format!("✨ {}", t.ai_assistant),
                         onclick: move |_| {
-                            state.open(Dialog::Ai);
+                            let mut show_ai = state.show_ai;
+                            show_ai.set(true);
                         },
                     }
                     PrivacyItem {}
