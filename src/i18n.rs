@@ -466,7 +466,6 @@ pub struct Strings {
     // ---- sync ----
     pub cloud_title: &'static str,
     pub cloud_intro: &'static str,
-    pub sync_temporary: &'static str,
     pub sync_service: &'static str,
     pub sync_signed_in: &'static str,
     pub sync_sign_out: &'static str,
@@ -474,6 +473,10 @@ pub struct Strings {
     pub sync_signing_in: &'static str,
     pub sync_signed_in_status: &'static str,
     pub sync_signed_out: &'static str,
+    pub tip_subsurface_server: &'static str,
+    pub unsaved_title: &'static str,
+    pub unsaved_body: &'static str,
+    pub unsaved_set_up: &'static str,
     pub cloud_open: &'static str,
     pub cloud_save: &'static str,
     pub cloud_autosave: &'static str,
@@ -1055,8 +1058,6 @@ pub static ENGLISH: Strings = Strings {
     cloud_title: "Cloud storage",
     cloud_intro:
         "Keep the log in a storage service you own. Open replaces this log with the stored copy, Save replaces the stored copy with this log. benthic asks before overwriting changes.",
-    sync_temporary:
-        "Temporary: this is a stopgap until benthic settles on a long-term cloud-sync design. Expect it to change.",
     sync_service: "Service",
     sync_signed_in: "Signed in to {}.",
     sync_sign_out: "Sign out",
@@ -1064,6 +1065,11 @@ pub static ENGLISH: Strings = Strings {
     sync_signing_in: "Signing in…",
     sync_signed_in_status: "Signed in.",
     sync_signed_out: "Signed out.",
+    unsaved_title: "Not saved to the cloud.",
+    unsaved_body: "Your changes exist only in this browser.",
+    unsaved_set_up: "Set up cloud storage",
+    tip_subsurface_server:
+        "The Subsurface cloud server does not send the CORS headers a web page needs, so the browser blocks it. The web version therefore goes through a small proxy that forwards your requests and adds those headers. Leave this blank to use the default proxy, or enter the address of your own (see tools/subsurface-proxy in the benthic repository). The desktop app talks to the server directly.",
     cloud_open: "Open from cloud storage",
     cloud_save: "Save to cloud storage",
     cloud_autosave: "Autosave",
@@ -1593,8 +1599,6 @@ pub static FRENCH: Strings = Strings {
     cloud_title: "Stockage cloud",
     cloud_intro:
         "Conservez le journal dans un service de stockage qui vous appartient. Ouvrir remplace ce journal par la copie stockée, Enregistrer remplace la copie stockée par ce journal. benthic demande avant d'écraser des modifications.",
-    sync_temporary:
-        "Temporaire : solution provisoire en attendant une conception pérenne de la synchronisation cloud. Elle est amenée à changer.",
     sync_service: "Service",
     sync_signed_in: "Connecté à {}.",
     sync_sign_out: "Se déconnecter",
@@ -1602,6 +1606,11 @@ pub static FRENCH: Strings = Strings {
     sync_signing_in: "Connexion…",
     sync_signed_in_status: "Connecté.",
     sync_signed_out: "Déconnecté.",
+    unsaved_title: "Non enregistré dans le cloud.",
+    unsaved_body: "Vos modifications n'existent que dans ce navigateur.",
+    unsaved_set_up: "Configurer le stockage cloud",
+    tip_subsurface_server:
+        "Le serveur cloud de Subsurface n'envoie pas les en-têtes CORS dont une page web a besoin, donc le navigateur le bloque. La version web passe donc par un petit proxy qui transmet vos requêtes et ajoute ces en-têtes. Laissez vide pour utiliser le proxy par défaut, ou saisissez l'adresse du vôtre (voir tools/subsurface-proxy dans le dépôt benthic). L'application de bureau contacte le serveur directement.",
     cloud_open: "Ouvrir depuis le stockage cloud",
     cloud_save: "Enregistrer dans le stockage cloud",
     cloud_autosave: "Enregistrement automatique",

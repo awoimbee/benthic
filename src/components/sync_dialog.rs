@@ -1,8 +1,9 @@
 use dioxus::prelude::*;
 
+use crate::components::InfoTip;
 use crate::i18n;
 use crate::state::AppState;
-use crate::sync::backend::{self, AuthKind, Field};
+use crate::sync::backend::{self, AuthKind, Field, FieldHelp};
 use crate::sync::{Opened, SaveOutcome, SyncConfig};
 
 /// A pending question after an open or save was refused.
@@ -87,9 +88,22 @@ pub fn SyncDialog() -> Element {
         .filter(|field| field.platforms.current())
         .partition(|field| field.advanced);
     let field_input = move |field: &'static Field| {
+        let help = field.help.map(|help| match help {
+            FieldHelp::SubsurfaceServer => tr.tip_subsurface_server,
+        });
+        // The "?" is a button, so it must stay outside the <label>: a label
+        // forwards clicks to its first button, which would reopen the tip.
+        let id = format!("cloud-{}", field.key);
         rsx! {
-            label { class: "field-label", "{field.label}"
+            div { class: "field-label",
+                span { class: "label-row",
+                    label { r#for: "{id}", "{field.label}" }
+                    if let Some(text) = help {
+                        InfoTip { text }
+                    }
+                }
                 input {
+                    id: "{id}",
                     class: "field",
                     r#type: field.kind.input_type(),
                     value: "{config.read().settings().text(field.key)}",
@@ -195,7 +209,6 @@ pub fn SyncDialog() -> Element {
                 aria_label: "{tr.cloud_title}",
                 onclick: move |evt| evt.stop_propagation(),
                 h2 { "{tr.cloud_title}" }
-                p { class: "sync-temporary", "{tr.sync_temporary}" }
                 p { class: "muted", "{tr.cloud_intro}" }
                 div { class: "edit-form", onfocusout: save_settings,
                     label { class: "field-label", "{tr.sync_service}"

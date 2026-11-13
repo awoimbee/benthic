@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 
 use benthic_core::sync::{self as plan, OpenPlan, RemoteFile, SavePlan, SyncState};
 use benthic_core::DiveLog;
+use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub mod backend;
@@ -114,10 +115,15 @@ pub fn load_state() -> SyncState {
         .unwrap_or_default()
 }
 
+/// Bumped whenever the open/save bookkeeping changes, so views that compare
+/// the log with the cloud copy recompute.
+pub static STATE_REVISION: GlobalSignal<u64> = Signal::global(|| 0);
+
 pub fn save_state(state: &SyncState) {
     if let Ok(text) = serde_json::to_string(state) {
         let _ = crate::storage::save_sync_state(&text);
     }
+    *STATE_REVISION.write() += 1;
 }
 
 /// Fetch the selected backend's remote log, or `None` when absent.

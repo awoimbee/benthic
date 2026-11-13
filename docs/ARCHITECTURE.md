@@ -116,10 +116,8 @@ place, so a crash leaves either the old or the new file, never a truncated one.
 ## Cloud storage
 
 > **Temporary.** The backends described in this section are a stopgap until a
-> long-term cloud-sync design is settled. The cloud storage dialog says so in
-> the UI.
-> Treat the transport and its stored configuration as replaceable rather than
-> as a stable contract.
+> long-term cloud-sync design is settled. Treat the transport and its stored
+> configuration as replaceable rather than as a stable contract.
 
 The remote copy is used like a file. **Open from cloud storage** replaces the
 local log with it (one undoable step) and **Save to cloud storage** replaces it

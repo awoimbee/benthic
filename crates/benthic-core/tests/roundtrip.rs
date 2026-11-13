@@ -629,3 +629,27 @@ fn ssrf_dive_gps_lands_on_the_dive_and_round_trips() {
     let centre = again.site_location(reef.uuid).unwrap();
     assert!((centre.lat - 43.005).abs() < 1e-3 && (centre.lon - 6.005).abs() < 1e-3);
 }
+
+#[test]
+fn dive_gases_are_distinct_and_skip_unused_cylinders() {
+    use benthic_core::{gas::GasMix, Cylinder, CylinderUse, Event};
+    let cylinder = |o2, use_| Cylinder {
+        gas: GasMix::new(o2, 0),
+        use_,
+        ..Default::default()
+    };
+    let mut dive = benthic_core::Dive::manual(0);
+    dive.cylinders = vec![
+        cylinder(210, CylinderUse::OcGas),
+        cylinder(570, CylinderUse::OcGas),
+        cylinder(210, CylinderUse::OcGas),
+        cylinder(1000, CylinderUse::NotUsed),
+    ];
+    dive.computers[0].events.push(Event {
+        name: "gaschange".into(),
+        gas: Some((-1, GasMix::new(320, 0))),
+        ..Default::default()
+    });
+    let names: Vec<String> = dive.gases().iter().map(|gas| gas.name()).collect();
+    assert_eq!(names, vec!["Air", "EAN57", "EAN32"]);
+}

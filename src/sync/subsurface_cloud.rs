@@ -14,7 +14,7 @@ use benthic_core::io::subsurface_git;
 use benthic_core::sync::RemoteFile;
 use std::collections::BTreeMap;
 
-use super::backend::{Backend, Field, FieldKind, Platforms, Settings};
+use super::backend::{Backend, Field, FieldHelp, FieldKind, Platforms, Settings};
 use super::git;
 
 pub static SUBSURFACE_CLOUD: SubsurfaceCloud = SubsurfaceCloud;
@@ -37,6 +37,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Text,
         advanced: false,
         platforms: Platforms::ALL,
+        help: None,
     },
     Field {
         key: "password",
@@ -45,6 +46,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Password,
         advanced: false,
         platforms: Platforms::ALL,
+        help: None,
     },
     Field {
         key: "base_url",
@@ -53,6 +55,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Url,
         advanced: true,
         platforms: Platforms::ALL,
+        help: Some(FieldHelp::SubsurfaceServer),
     },
 ];
 

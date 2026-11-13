@@ -352,8 +352,10 @@ pub fn App() -> Element {
     if (mobile_detail)() {
         panes_class.push_str(" mobile-detail");
     }
-    // The mobile bulk-action bar overlays the panes, so reserve space for it.
-    if !(state.selection)().is_empty() {
+    let unsaved_warning = unsaved_warning_shown(state);
+    // The mobile bulk-action bar and the unsaved-changes notice overlay the
+    // panes, so reserve space for them.
+    if !(state.selection)().is_empty() || unsaved_warning {
         panes_class.push_str(" selection-active");
     }
     let show_welcome = (loaded)() && (log)().dives.is_empty() && !(prefs)().seen_welcome;
@@ -439,6 +441,9 @@ pub fn App() -> Element {
                 }
             }
             SelectionBar {}
+            if unsaved_warning {
+                UnsavedWarning {}
+            }
         }
 
         // Dialogs sit outside the inert shell.
@@ -449,6 +454,64 @@ pub fn App() -> Element {
         for pending in (import_review)() {
             ImportReviewDialog { key: "{pending.nonce}", pending }
         }
+        }
+    }
+}
+
+/// Whether the log has changes that exist only in this browser: nothing was
+/// saved to cloud storage since, and cloud autosave is off. The notice is not
+/// shown for an empty log, while a dialog is open or while the bulk-action bar
+/// (same corner on phones) is showing.
+fn unsaved_warning_shown(state: AppState) -> bool {
+    let _ = crate::sync::STATE_REVISION();
+    let log = (state.log)();
+    !(state.cloud)().autosave
+        && !log.is_empty()
+        && (state.dialog)().is_none()
+        && (state.selection)().is_empty()
+        && crate::sync::has_unsaved_changes(&log)
+}
+
+/// A red notice, bottom right, offering to save the local-only changes.
+#[component]
+fn UnsavedWarning() -> Element {
+    let state = use_context::<AppState>();
+    let tr = state.strings();
+    let config = (state.cloud)();
+    let configured = config.is_configured();
+    rsx! {
+        div { class: "unsaved-warning", role: "alert",
+            span { class: "unsaved-warning-text",
+                strong { "{tr.unsaved_title}" }
+                " {tr.unsaved_body}"
+            }
+            button {
+                class: "btn",
+                disabled: (state.cloud_busy)(),
+                onclick: move |_| {
+                    if !configured {
+                        state.open(Dialog::Sync);
+                        return;
+                    }
+                    let config = (state.cloud)();
+                    let mut busy = state.cloud_busy;
+                    busy.set(true);
+                    state.set_status(tr.cloud_saving);
+                    spawn(async move {
+                        match crate::components::sync_dialog::save(state, config, false).await {
+                            Ok(Ok(message)) => state.set_status(message),
+                            Ok(Err(_)) => state.open(Dialog::Sync),
+                            Err(error) => state.set_status(error),
+                        }
+                        busy.set(false);
+                    });
+                },
+                if configured {
+                    "{tr.cloud_save}"
+                } else {
+                    "{tr.unsaved_set_up}"
+                }
+            }
         }
     }
 }

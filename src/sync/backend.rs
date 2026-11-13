@@ -106,6 +106,14 @@ pub struct Field {
     /// Shown under the collapsible "Advanced" section.
     pub advanced: bool,
     pub platforms: Platforms,
+    /// Explanation shown behind a "?" next to the label.
+    pub help: Option<FieldHelp>,
+}
+
+/// Translated explanations a field can show (see [`Field::help`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldHelp {
+    SubsurfaceServer,
 }
 
 /// A remote service.

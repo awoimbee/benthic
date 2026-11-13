@@ -23,6 +23,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Text,
         advanced: false,
         platforms: Platforms::ALL,
+        help: None,
     },
     Field {
         key: "path",
@@ -31,6 +32,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Text,
         advanced: false,
         platforms: Platforms::ALL,
+        help: None,
     },
     Field {
         key: "branch",
@@ -39,6 +41,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Text,
         advanced: false,
         platforms: Platforms::ALL,
+        help: None,
     },
     Field {
         key: "token",
@@ -47,6 +50,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Password,
         advanced: false,
         platforms: Platforms::ALL,
+        help: None,
     },
     Field {
         key: "base_url",
@@ -55,6 +59,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Url,
         advanced: true,
         platforms: Platforms::ALL,
+        help: None,
     },
 ];
 

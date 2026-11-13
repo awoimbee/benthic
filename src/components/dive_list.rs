@@ -95,11 +95,7 @@ pub fn DiveList() -> Element {
             },
             title: crate::format::dive_title(dive, &log),
             subtitle: crate::format::dive_subtitle(dive, &prefs),
-            trailing: dive
-                .cylinders
-                .first()
-                .map(|c| c.gas.name())
-                .unwrap_or_else(|| "—".to_string()),
+            trailing: gas_summary(dive),
             freedive_group: false,
             expanded: false,
             day: None,
@@ -385,4 +381,19 @@ fn freedive_day(dive: &benthic_core::Dive) -> Option<String> {
         let stamp = benthic_core::format_timestamp_utc(dive.when);
         stamp.split(' ').next().unwrap_or("").to_string()
     })
+}
+
+/// The gases of a dive for the list: every gas, or the first one and a count
+/// when there are many. Freedives have none.
+fn gas_summary(dive: &benthic_core::Dive) -> String {
+    if dive.is_freedive() {
+        return String::new();
+    }
+    let names: Vec<String> = dive.gases().iter().map(|gas| gas.name()).collect();
+    match names.as_slice() {
+        [] => "—".to_string(),
+        [one] => one.clone(),
+        [first, second] => format!("{first} + {second}"),
+        [first, rest @ ..] => format!("{first} +{}", rest.len()),
+    }
 }

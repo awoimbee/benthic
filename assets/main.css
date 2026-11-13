@@ -934,18 +934,6 @@ body {
   gap: 0.6rem;
 }
 
-/* Cloud sync is a stopgap; keep that visible instead of only in the docs. */
-.sync-temporary {
-  margin: 0 0 0.9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px dashed var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.4;
-}
-
 .sync-advanced {
   grid-column: 1 / -1;
 }
@@ -989,6 +977,20 @@ body {
   font-size: 0.9rem;
   font-family: inherit;
   width: 100%;
+}
+
+/* Native selects get a platform-specific height and inner padding; give them
+   and single-line inputs the same box so they line up side by side. */
+select.field,
+input.field {
+  box-sizing: border-box;
+  height: calc(1.25em + 2 * 0.4rem + 2px);
+  line-height: 1.25;
+}
+
+.mini select.field,
+.mini input.field {
+  height: calc(1.25em + 2 * 0.25rem + 2px);
 }
 
 .field:focus {
@@ -1978,6 +1980,35 @@ a:focus-visible {
   flex: 0 0 auto;
 }
 
+/* Changes that exist only in this browser. */
+.unsaved-warning {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(420px, calc(100vw - 2rem));
+  padding: 0.6rem 0.75rem;
+  background: color-mix(in srgb, var(--danger) 16%, var(--bg-alt));
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.unsaved-warning strong {
+  color: var(--danger);
+}
+
+.unsaved-warning .btn {
+  flex: none;
+  border-color: var(--danger);
+}
+
 /* Leave room under the scrolling panes for the floating bar, which may wrap
    onto several lines when space is tight. */
 .panes.selection-active .dive-list,
@@ -2065,6 +2096,19 @@ a:focus-visible {
 
   .table-scroll .data-table {
     min-width: 420px;
+  }
+
+  .unsaved-warning {
+    left: 0.75rem;
+    right: 0.75rem;
+    max-width: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .unsaved-warning-text {
+    flex: 1 1 100%;
   }
 
   /* Bulk actions as a sticky bottom bar, reachable by thumb. */

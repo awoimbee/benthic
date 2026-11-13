@@ -418,6 +418,29 @@ impl Dive {
             .any(|dc| dc.divemode == Divemode::Freedive)
     }
 
+    /// The distinct gases breathed on this dive, in cylinder order. Cylinders
+    /// marked unused are skipped; a gas change to a gas with no cylinder adds
+    /// it too.
+    pub fn gases(&self) -> Vec<crate::gas::GasMix> {
+        let mut gases = Vec::new();
+        let switched = self
+            .computers
+            .iter()
+            .flat_map(|dc| dc.events.iter())
+            .filter_map(|event| event.gas.map(|(_, gas)| gas));
+        let cylinders = self
+            .cylinders
+            .iter()
+            .filter(|cylinder| cylinder.use_ != CylinderUse::NotUsed)
+            .map(|cylinder| cylinder.gas);
+        for gas in cylinders.chain(switched) {
+            if !gases.contains(&gas) {
+                gases.push(gas);
+            }
+        }
+        gases
+    }
+
     /// Names of the people on this dive: buddies and dive guides, with
     /// comma-separated lists split into individual names.
     pub fn people_names(&self) -> impl Iterator<Item = &str> {

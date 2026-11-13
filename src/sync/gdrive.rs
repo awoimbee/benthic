@@ -44,6 +44,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Text,
         advanced: true,
         platforms: Platforms::ALL,
+        help: None,
     },
     Field {
         key: "client_secret",
@@ -52,6 +53,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Password,
         advanced: true,
         platforms: Platforms::DESKTOP,
+        help: None,
     },
     Field {
         key: "base_url",
@@ -60,6 +62,7 @@ const FIELDS: &[Field] = &[
         kind: FieldKind::Url,
         advanced: true,
         platforms: Platforms::ALL,
+        help: None,
     },
 ];
 
