@@ -108,7 +108,7 @@
       </header>
 
       <h1>Privacy policy</h1>
-      <p class="muted">Last updated: 1 October 2026</p>
+      <p class="muted">Last updated: 13 November 2026</p>
 
       <div class="card">
         <p>
@@ -161,7 +161,8 @@
         benthic can optionally sync your log through a storage service that you
         configure yourself. This is off by default. When you enable it, the
         application talks <strong>directly</strong> from your device to the
-        service you chose — there is no intermediary server operated by benthic.
+        service you chose. The one exception is Subsurface cloud on the web,
+        described below.
         The remote copy is stored in your own account, and you can delete it at
         any time from that service.
       </p>
@@ -181,10 +182,22 @@
           The log is stored as a single file in a repository you specify, using
           a personal access token that you provide.
         </li>
+        <li>
+          <strong>Subsurface cloud storage.</strong> The log is stored in your
+          Subsurface cloud account, using the email and password of that
+          account. The Subsurface cloud server cannot be reached directly from a
+          web page, so the web version goes through a small relay run by the
+          benthic maintainer. The relay forwards your requests (including your
+          Subsurface credentials and log) to the Subsurface cloud over HTTPS
+          and returns the answers; it does not log or store them. Its source is
+          in the benthic repository (<code>tools/subsurface-proxy</code>), and
+          you can point benthic at your own relay in the sync settings. The
+          desktop version talks to the Subsurface cloud directly.
+        </li>
       </ul>
       <p>
-        Credentials needed for sync (an OAuth access/refresh token or a personal
-        access token) are stored locally alongside your sync settings, in the
+        Credentials needed for sync (an OAuth access/refresh token, a personal
+        access token or a Subsurface cloud password) are stored locally alongside your sync settings, in the
         same on-device storage described above. They are used only to
         authenticate your device to the service you configured. You can sign out
         from a service at any time, which removes the stored credentials.
@@ -266,6 +279,15 @@
             target="_blank"
             rel="noopener"
             >GitHub privacy statement</a
+          >
+        </li>
+        <li>
+          Subsurface cloud:
+          <a
+            href="https://subsurface-divelog.org/privacy-policy/"
+            target="_blank"
+            rel="noopener"
+            >Subsurface privacy policy</a
           >
         </li>
         <li>

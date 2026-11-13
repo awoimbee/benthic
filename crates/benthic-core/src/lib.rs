@@ -40,7 +40,7 @@ pub use gas::GasMix;
 pub use history::{Command, History};
 pub use model::*;
 pub use planner::DivePlan;
-pub use sync::{SyncPlan, SyncState};
+pub use sync::{OpenPlan, SavePlan, SyncState};
 pub use units::*;
 
 /// Convenience result alias used throughout the crate.

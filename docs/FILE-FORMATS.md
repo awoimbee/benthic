@@ -116,6 +116,18 @@ To interop with Subsurface we mirror its number formatting:
 * Durations as total `MM:SS` (so 73 minutes is `73:56`, not `1:13:56`).
 * Durations/offsets tolerate `MM:SS`, `H:MM:SS` and a trailing `min` on read.
 
+## Subsurface git storage
+
+Subsurface's cloud (and any `[branch]` git destination) stores a tree of small
+text blobs rather than XML: `00-Subsurface` for settings,
+`01-Divesites/Site-<uuid>` for sites, `02-Filterpresets/` for presets, and
+`YYYY/MM/...` directories holding `Dive-*`, `Divecomputer-*` and `00-Trip`
+files. `io::subsurface_git` converts that tree to and from the domain model.
+As with SSRF, positions are stored on sites only: each site gets the centre of
+its dives' locations, and dives read back their site's position. The sync
+backend talks to the server over git smart HTTP; it does not shell out to
+`git`.
+
 ## Not yet supported (planned, see ROADMAP.md Phase 3)
 
 * **UDDF**, **DL7**, **GPX**, **CSV** (Subsurface/Shearwater/Suunto/...),

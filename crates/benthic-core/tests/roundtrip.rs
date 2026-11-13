@@ -526,31 +526,20 @@ fn dives_recent_first_orders_newest_first() {
 }
 
 #[test]
-fn missing_dive_numbers_are_assigned_chronologically() {
+fn preparing_a_log_keeps_unnumbered_dives_unnumbered() {
     let mut log = benthic_core::DiveLog::new();
-    log.dives.push(benthic_core::Dive {
-        id: 1,
-        number: 7,
-        when: 100,
-        ..Default::default()
-    });
-    log.dives.push(benthic_core::Dive {
-        id: 2,
-        number: 0,
-        when: 300,
-        ..Default::default()
-    });
-    log.dives.push(benthic_core::Dive {
-        id: 3,
-        number: 0,
-        when: 200,
-        ..Default::default()
-    });
-
-    assert_eq!(log.number_missing_dives(), 2);
-    assert_eq!(log.dive_by_id(3).unwrap().number, 8);
-    assert_eq!(log.dive_by_id(2).unwrap().number, 9);
-    assert_eq!(log.number_missing_dives(), 0);
+    for (id, number) in [(1, 7), (2, 0)] {
+        log.dives.push(benthic_core::Dive {
+            id,
+            number,
+            when: id as i64 * 100,
+            ..Default::default()
+        });
+    }
+    log.prepare();
+    assert_eq!(log.dive_by_id(1).unwrap().number, 7);
+    assert_eq!(log.dive_by_id(2).unwrap().number, 0);
+    assert_eq!(log.next_number(), 8);
 }
 
 #[test]

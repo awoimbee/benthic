@@ -104,6 +104,10 @@ pub struct AppState {
     pub dialog: Signal<Option<Dialog>>,
     /// Whether the assistant panel is open beside the dive panes.
     pub show_ai: Signal<bool>,
+    /// The cloud storage service, its settings and the autosave switch.
+    pub cloud: Signal<crate::sync::SyncConfig>,
+    /// Whether an automatic save to cloud storage is in flight.
+    pub cloud_busy: Signal<bool>,
     /// Coordinates the site map should centre on when it opens, if any.
     pub map_focus: Signal<Option<(f64, f64)>>,
     /// Whether this platform can talk to a dive computer at all (Web

@@ -1,11 +1,12 @@
-//! Sync planning.
+//! Cloud storage planning.
 //!
-//! The remote holds a single copy of the log. Syncing is deliberately
-//! conservative: it only pushes when the remote is unchanged since the last
-//! sync, only pulls when the local copy is unchanged, and otherwise reports a
-//! conflict so the user chooses. Nothing is overwritten silently.
+//! The remote holds a single copy of the log, used like a file: "open" loads
+//! it and "save" replaces it. Both are conservative: saving only replaces the
+//! remote copy when it is the one last opened or saved here, and opening asks
+//! before discarding local changes that were never saved to it. Nothing is
+//! overwritten silently.
 //!
-//! The transport (HTTP calls to GitHub or Google Drive) lives in the app; this
+//! The transport (HTTP calls to the storage services) lives in the app; this
 //! module is the pure decision logic and is fully unit-tested.
 
 use serde::{Deserialize, Serialize};
@@ -30,17 +31,26 @@ pub struct SyncState {
     pub last_sync_secs: i64,
 }
 
-/// What a sync should do.
+/// What saving should do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SyncPlan {
-    /// Both sides already agree.
+pub enum SavePlan {
+    /// The remote already holds this log.
     UpToDate,
-    /// Upload the local log to the remote.
-    Push,
-    /// Replace the local log with the remote's.
-    Pull,
-    /// Both sides changed since the last sync; ask the user.
+    /// Replace (or create) the remote copy.
+    Save,
+    /// The remote changed since it was last opened or saved here; ask before
+    /// replacing it.
     Conflict,
+}
+
+/// What opening should do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenPlan {
+    /// Replace the local log with the remote copy.
+    Open,
+    /// The local log has changes that were never saved to the remote; ask
+    /// before replacing them.
+    ConfirmDiscard,
 }
 
 /// A stable, dependency-free fingerprint of the log contents. Used only to
@@ -56,43 +66,48 @@ pub fn fingerprint(contents: &str) -> String {
     format!("{hash:016x}-{}", contents.len())
 }
 
-/// Decide what to do given the local log, the last-synced state and the remote.
-pub fn plan(
+/// Decide what saving should do given the local log, the bookkeeping from
+/// the last open/save and the current remote copy.
+pub fn save_plan(
     local_json: &str,
     local_empty: bool,
     state: &SyncState,
     remote: Option<&RemoteFile>,
-) -> SyncPlan {
+) -> SavePlan {
     let Some(remote) = remote else {
-        // Nothing on the remote yet: create it, unless there is nothing to
-        // send either.
+        // Nothing stored yet: create it, unless there is nothing to store.
         return if local_empty {
-            SyncPlan::UpToDate
+            SavePlan::UpToDate
         } else {
-            SyncPlan::Push
+            SavePlan::Save
         };
     };
-
-    let local_fingerprint = fingerprint(local_json);
-    let remote_unchanged = state.remote_revision.as_deref() == Some(remote.revision.as_str());
-    let local_unchanged = state.local_fingerprint.as_deref() == Some(local_fingerprint.as_str());
-
-    // First ever sync: adopt the remote if there is nothing local to lose,
-    // otherwise the two sides have diverged and the user must choose.
-    if state.remote_revision.is_none() && state.local_fingerprint.is_none() {
-        return if local_empty || local_json == remote.content {
-            SyncPlan::Pull
-        } else {
-            SyncPlan::Conflict
-        };
+    if remote.content == local_json {
+        return SavePlan::UpToDate;
     }
-
-    match (remote_unchanged, local_unchanged) {
-        (true, true) => SyncPlan::UpToDate,
-        (true, false) => SyncPlan::Push,
-        (false, true) => SyncPlan::Pull,
-        (false, false) => SyncPlan::Conflict,
+    if state.remote_revision.as_deref() != Some(remote.revision.as_str()) {
+        return SavePlan::Conflict;
     }
+    if state.local_fingerprint.as_deref() == Some(fingerprint(local_json).as_str()) {
+        SavePlan::UpToDate
+    } else {
+        SavePlan::Save
+    }
+}
+
+/// Decide whether opening the remote copy may replace the local log.
+pub fn open_plan(local_json: &str, local_empty: bool, state: &SyncState) -> OpenPlan {
+    if local_empty || state.local_fingerprint.as_deref() == Some(fingerprint(local_json).as_str()) {
+        OpenPlan::Open
+    } else {
+        OpenPlan::ConfirmDiscard
+    }
+}
+
+/// Whether the local log changed since it was last opened from or saved to
+/// the remote.
+pub fn has_unsaved_changes(local_json: &str, state: &SyncState) -> bool {
+    state.local_fingerprint.as_deref() != Some(fingerprint(local_json).as_str())
 }
 
 #[cfg(test)]
@@ -122,67 +137,68 @@ mod tests {
     }
 
     #[test]
-    fn empty_remote_and_empty_local_is_a_no_op() {
+    fn saving_an_empty_log_to_an_empty_remote_is_a_no_op() {
         assert_eq!(
-            plan("{}", true, &state(None, None), None),
-            SyncPlan::UpToDate
+            save_plan("{}", true, &state(None, None), None),
+            SavePlan::UpToDate
         );
     }
 
     #[test]
-    fn empty_remote_gets_the_local_log() {
+    fn saving_creates_the_remote() {
         assert_eq!(
-            plan("{\"dives\":[]}", false, &state(None, None), None),
-            SyncPlan::Push
+            save_plan("local", false, &state(None, None), None),
+            SavePlan::Save
         );
     }
 
     #[test]
-    fn first_sync_adopts_a_remote_when_local_is_empty() {
+    fn saving_never_replaces_a_remote_it_has_not_seen() {
         let r = remote("remote", "sha1");
         assert_eq!(
-            plan("{}", true, &state(None, None), Some(&r)),
-            SyncPlan::Pull
+            save_plan("local", false, &state(None, None), Some(&r)),
+            SavePlan::Conflict
         );
+        let stale = state(Some("sha0"), Some(&fingerprint("local")));
         assert_eq!(
-            plan("remote", false, &state(None, None), Some(&r)),
-            SyncPlan::Pull
+            save_plan("local", false, &stale, Some(&r)),
+            SavePlan::Conflict
         );
     }
 
     #[test]
-    fn first_sync_with_both_sides_filled_conflicts() {
+    fn saving_replaces_the_remote_last_seen() {
         let r = remote("remote", "sha1");
+        let s = state(Some("sha1"), Some(&fingerprint("older")));
+        assert_eq!(save_plan("local", false, &s, Some(&r)), SavePlan::Save);
+        let unchanged = state(Some("sha1"), Some(&fingerprint("local")));
         assert_eq!(
-            plan("local", false, &state(None, None), Some(&r)),
-            SyncPlan::Conflict
+            save_plan("local", false, &unchanged, Some(&r)),
+            SavePlan::UpToDate
         );
     }
 
     #[test]
-    fn pushes_only_when_the_remote_is_unchanged() {
-        let local = "local";
-        let r = remote("remote", "sha1");
-        let s = state(Some("sha1"), Some(&fingerprint(local)));
-        assert_eq!(plan(local, false, &s, Some(&r)), SyncPlan::UpToDate);
-
-        let changed = state(Some("sha1"), Some(&fingerprint("older")));
-        assert_eq!(plan(local, false, &changed, Some(&r)), SyncPlan::Push);
+    fn saving_identical_content_is_up_to_date() {
+        let r = remote("same", "sha9");
+        assert_eq!(
+            save_plan("same", false, &state(None, None), Some(&r)),
+            SavePlan::UpToDate
+        );
     }
 
     #[test]
-    fn pulls_only_when_the_local_is_unchanged() {
-        let local = "local";
-        let r = remote("remote", "sha2");
-        let s = state(Some("sha1"), Some(&fingerprint(local)));
-        assert_eq!(plan(local, false, &s, Some(&r)), SyncPlan::Pull);
-    }
-
-    #[test]
-    fn both_sides_changed_conflicts() {
-        let r = remote("remote", "sha2");
-        let s = state(Some("sha1"), Some(&fingerprint("older-local")));
-        assert_eq!(plan("local", false, &s, Some(&r)), SyncPlan::Conflict);
+    fn opening_asks_before_discarding_unsaved_changes() {
+        assert_eq!(open_plan("{}", true, &state(None, None)), OpenPlan::Open);
+        assert_eq!(
+            open_plan("local", false, &state(None, None)),
+            OpenPlan::ConfirmDiscard
+        );
+        let saved = state(Some("sha1"), Some(&fingerprint("local")));
+        assert_eq!(open_plan("local", false, &saved), OpenPlan::Open);
+        assert_eq!(open_plan("edited", false, &saved), OpenPlan::ConfirmDiscard);
+        assert!(has_unsaved_changes("edited", &saved));
+        assert!(!has_unsaved_changes("local", &saved));
     }
 
     #[test]

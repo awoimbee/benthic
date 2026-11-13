@@ -1,7 +1,10 @@
-//! Remote sync: the backend registry and the persisted configuration.
+//! Cloud storage: the backend registry, the persisted configuration and the
+//! open/save operations.
 //!
-//! The decision logic lives in [`benthic_core::sync`]; this module dispatches
-//! to the selected [`backend::Backend`] and persists the selection.
+//! The remote copy is used like a file: "open" replaces the local log with it
+//! and "save" replaces it with the local log, optionally after every edit
+//! (autosave). The decision logic lives in [`benthic_core::sync`]; this module
+//! dispatches to the selected [`backend::Backend`] and persists the selection.
 //!
 //! Adding a backend means writing a module that implements
 //! [`backend::Backend`] and listing it in [`backend::all`] — the dialog, the
@@ -10,12 +13,14 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use benthic_core::sync::{RemoteFile, SyncState};
+use benthic_core::sync::{self as plan, OpenPlan, RemoteFile, SavePlan, SyncState};
+use benthic_core::DiveLog;
 use serde::{Deserialize, Serialize};
 
 pub mod backend;
 
 mod gdrive;
+mod git;
 mod github;
 mod http;
 
@@ -24,6 +29,8 @@ mod oauth_desktop;
 
 #[cfg(target_arch = "wasm32")]
 mod oauth_web;
+
+mod subsurface_cloud;
 
 #[cfg(test)]
 mod test_server;
@@ -42,6 +49,8 @@ pub struct SyncConfig {
     pub provider: String,
     /// Per-backend settings, keyed by backend id.
     pub settings: BTreeMap<String, Settings>,
+    /// Save to cloud storage automatically after every change.
+    pub autosave: bool,
 }
 
 impl Default for SyncConfig {
@@ -49,6 +58,7 @@ impl Default for SyncConfig {
         Self {
             provider: backend::all()[0].id().to_string(),
             settings: BTreeMap::new(),
+            autosave: false,
         }
     }
 }
@@ -146,6 +156,109 @@ pub async fn sign_out(config: &mut SyncConfig) {
     let id = config.provider.clone();
     let backend = backend::by_id(&id);
     backend.sign_out(config.settings_mut()).await;
+}
+
+/// Forget which remote copy the local log was last opened from or saved to,
+/// e.g. after switching services.
+pub fn reset_state() {
+    save_state(&SyncState::default());
+}
+
+fn remember(revision: String, local_json: &str) {
+    save_state(&SyncState {
+        remote_revision: Some(revision),
+        local_fingerprint: Some(plan::fingerprint(local_json)),
+        last_sync_secs: crate::platform::now_secs(),
+    });
+}
+
+/// The result of saving to cloud storage.
+pub enum SaveOutcome {
+    Written,
+    UpToDate,
+    /// The remote changed since it was last opened or saved here.
+    Conflict,
+}
+
+/// Save `log` to cloud storage. Unless `force`, a remote copy that changed
+/// since it was last opened or saved here is left alone and reported as a
+/// conflict.
+pub async fn save(
+    config: &mut SyncConfig,
+    log: &DiveLog,
+    force: bool,
+) -> Result<SaveOutcome, String> {
+    let local = benthic_core::io::json::to_string(log).map_err(|error| error.to_string())?;
+    let remote = fetch(config).await?;
+    let state = load_state();
+    let decision = if force {
+        SavePlan::Save
+    } else {
+        plan::save_plan(&local, log.is_empty(), &state, remote.as_ref())
+    };
+    match decision {
+        SavePlan::UpToDate => {
+            if let Some(remote) = remote {
+                remember(remote.revision, &local);
+            }
+            Ok(SaveOutcome::UpToDate)
+        }
+        SavePlan::Conflict => Ok(SaveOutcome::Conflict),
+        SavePlan::Save => {
+            let revision = remote.as_ref().map(|r| r.revision.clone());
+            let pushed = push(config, &local, revision.as_deref()).await?;
+            remember(pushed.revision, &local);
+            Ok(SaveOutcome::Written)
+        }
+    }
+}
+
+/// The result of opening from cloud storage.
+pub enum Opened {
+    Log(Box<DiveLog>),
+    Empty,
+    /// The local log has changes that were never saved to cloud storage.
+    ConfirmDiscard,
+}
+
+/// Fetch the cloud copy to open. Unless `force`, unsaved local changes are
+/// reported instead of being discarded. Call [`opened`] once the returned log
+/// has replaced the local one.
+pub async fn open(config: &mut SyncConfig, log: &DiveLog, force: bool) -> Result<Opened, String> {
+    if !force {
+        let local = benthic_core::io::json::to_string(log).map_err(|error| error.to_string())?;
+        if plan::open_plan(&local, log.is_empty(), &load_state()) == OpenPlan::ConfirmDiscard {
+            return Ok(Opened::ConfirmDiscard);
+        }
+    }
+    let Some(remote) = fetch(config).await? else {
+        return Ok(Opened::Empty);
+    };
+    let parsed =
+        benthic_core::io::parse_auto(&remote.content).map_err(|error| error.to_string())?;
+    save_state(&SyncState {
+        remote_revision: Some(remote.revision),
+        ..SyncState::default()
+    });
+    Ok(Opened::Log(Box::new(parsed)))
+}
+
+/// Record that the local log now matches the copy just opened.
+pub fn opened(log: &DiveLog) {
+    let mut state = load_state();
+    if let (Some(revision), Ok(local)) = (
+        state.remote_revision.take(),
+        benthic_core::io::json::to_string(log),
+    ) {
+        remember(revision, &local);
+    }
+}
+
+/// Whether the local log has changes not yet saved to cloud storage.
+pub fn has_unsaved_changes(log: &DiveLog) -> bool {
+    benthic_core::io::json::to_string(log)
+        .map(|local| plan::has_unsaved_changes(&local, &load_state()))
+        .unwrap_or(true)
 }
 
 #[cfg(test)]

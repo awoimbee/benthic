@@ -11,7 +11,8 @@ ideas.
 
 * Runs in the browser and on the desktop from one Rust/Dioxus codebase.
 * Local-first: no account, no server, automatic persistence, explicit
-  import/export, and optional GitHub sync (web or desktop).
+  import/export, and optional cloud storage on GitHub or Subsurface cloud
+  (open, save and autosave; web or desktop).
 * Reads and writes Subsurface-compatible XML (`.ssrf`).
 * Deployed from `main` to <https://awoimbee.github.io/benthic/>.
 

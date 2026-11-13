@@ -24,7 +24,7 @@ mod profile;
 mod profile_editor;
 mod renumber;
 mod selection_bar;
-mod sync_dialog;
+pub mod sync_dialog;
 mod toolbar;
 mod trip_view;
 mod trips_dialog;

@@ -20,6 +20,18 @@ pub fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// Wait without blocking the UI.
+#[cfg(target_arch = "wasm32")]
+pub async fn sleep_ms(ms: u32) {
+    gloo_timers::future::TimeoutFuture::new(ms).await;
+}
+
+/// Wait without blocking the UI.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn sleep_ms(ms: u32) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms.into())).await;
+}
+
 /// Whether the browser exposes Web Serial or Web Bluetooth at all.
 ///
 /// This is a cheap feature probe (`"serial" in navigator`) used to decide

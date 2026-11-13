@@ -140,6 +140,10 @@ pub struct Sample {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Event {
     pub time: Duration,
+    /// libdivecomputer's numeric event type (e.g. 25 for a gas change), kept
+    /// so files written by Subsurface round-trip unchanged.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub event_type: i32,
     /// Display name, e.g. "gaschange", "deco", "Marker".
     pub name: String,
     pub flags: i32,
@@ -202,6 +206,12 @@ pub struct DiveComputer {
     /// Seconds east of UTC as reported by the computer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone_offset: Option<i32>,
+    /// Start time of this computer's recording, when it differs from the dive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<Timestamp>,
+    /// End of the manually entered part of a profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_manual_time: Option<Duration>,
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub no_o2_sensors: u8,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -381,6 +391,9 @@ pub struct Dive {
     /// Exclude this dive from automatic trip grouping.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_trip: bool,
+    /// Marked invalid in Subsurface (excluded from statistics there).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub invalid: bool,
 }
 
 impl Dive {
@@ -1042,43 +1055,12 @@ impl DiveLog {
     }
 
     /// Bring a log from storage, a file or a remote up to the app's
-    /// invariants: summary fields derived, every dive numbered, and the
-    /// people/gear catalog seeded. Idempotent.
+    /// invariants: summary fields derived and the people/gear catalog seeded.
+    /// Dive numbers are left alone: a dive without one stays unnumbered, as in
+    /// Subsurface. Idempotent.
     pub fn prepare(&mut self) {
         self.fixup_all();
-        self.number_missing_dives();
         self.seed_catalog();
-    }
-
-    /// Give every dive without a user-visible number the next free one.
-    ///
-    /// Dives are numbered oldest-first, which is how a chronological logbook
-    /// reads and how Subsurface imports assign numbers. Returns how many
-    /// dives were numbered.
-    pub fn number_missing_dives(&mut self) -> usize {
-        let mut next = self
-            .dives
-            .iter()
-            .map(|dive| dive.number)
-            .filter(|number| *number > 0)
-            .max()
-            .unwrap_or(0)
-            + 1;
-        let mut missing: Vec<(Timestamp, u32)> = self
-            .dives
-            .iter()
-            .filter(|dive| dive.number == 0)
-            .map(|dive| (dive.when, dive.id))
-            .collect();
-        missing.sort_unstable();
-        let count = missing.len();
-        for (_, id) in missing {
-            if let Some(dive) = self.dives.iter_mut().find(|dive| dive.id == id) {
-                dive.number = next;
-                next += 1;
-            }
-        }
-        count
     }
 
     /// Number every dive chronologically, oldest first, starting at `start`.

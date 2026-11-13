@@ -361,9 +361,10 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     ImportExport {}
                     DownloadItem {}
                     MenuItem {
-                        label: t.sync.to_string(),
+                        label: t.cloud_open_menu.to_string(),
                         onclick: move |_| state.open(Dialog::Sync),
                     }
+                    CloudSaveItem {}
                 },
                 MenuSection::Settings => rsx! {
                     MenuItem {
@@ -380,6 +381,48 @@ fn MenuContent(sections: Vec<MenuSection>, show_headings: bool) -> Element {
                     PrivacyItem {}
                 },
             }}
+        }
+    }
+}
+
+/// "Save to cloud storage": saves directly once a service is configured,
+/// otherwise opens the cloud storage dialog to set one up.
+#[component]
+fn CloudSaveItem() -> Element {
+    let state = use_context::<AppState>();
+    let t = i18n::strings((state.prefs)().language);
+    let config = (state.cloud)();
+    let busy = (state.cloud_busy)();
+    let label = if config.autosave {
+        format!("{} ✓", t.cloud_save_menu)
+    } else {
+        t.cloud_save_menu.to_string()
+    };
+    rsx! {
+        MenuItem {
+            label,
+            disabled: busy,
+            onclick: move |_| {
+                let config = (state.cloud)();
+                if !config.is_configured() {
+                    state.open(Dialog::Sync);
+                    return;
+                }
+                let mut busy = state.cloud_busy;
+                busy.set(true);
+                state.set_status(t.cloud_saving);
+                spawn(async move {
+                    match crate::components::sync_dialog::save(state, config, false).await {
+                        Ok(Ok(message)) => state.set_status(message),
+                        Ok(Err(_)) => {
+                            state.set_status(t.cloud_confirm_overwrite);
+                            state.open(Dialog::Sync);
+                        }
+                        Err(error) => state.set_status(error),
+                    }
+                    busy.set(false);
+                });
+            },
         }
     }
 }

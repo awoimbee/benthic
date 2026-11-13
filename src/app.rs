@@ -40,6 +40,8 @@ pub fn App() -> Element {
     });
     let dialog = use_signal(|| initial_route.dialog());
     let show_ai = use_signal(|| false);
+    let cloud = use_signal(crate::sync::load_config);
+    let cloud_busy = use_signal(|| false);
     let map_focus = use_signal(|| None::<(f64, f64)>);
     // Assume available, then hide the Download action on web platforms that
     // have neither Web Serial nor Web Bluetooth (e.g. iOS).
@@ -78,6 +80,8 @@ pub fn App() -> Element {
         prefs,
         dialog,
         show_ai,
+        cloud,
+        cloud_busy,
         map_focus,
         download_available,
         import_review,
@@ -233,6 +237,54 @@ pub fn App() -> Element {
         loop {
             storage_error.set(crate::storage::next_write_status().await);
         }
+    });
+
+    // Save to cloud storage a few seconds after the last change, when enabled.
+    // A remote copy changed elsewhere is never overwritten: autosave turns off
+    // and the user resolves it from the cloud storage dialog.
+    let mut cloud_edit = use_signal(|| 0u64);
+    use_effect(move || {
+        let _ = log();
+        if (loaded)() && (state.cloud)().autosave {
+            *cloud_edit.write() += 1;
+        }
+    });
+    use_effect(move || {
+        let edit = (cloud_edit)();
+        if edit == 0 {
+            return;
+        }
+        spawn(async move {
+            crate::platform::sleep_ms(3000).await;
+            if *cloud_edit.peek() != edit {
+                return;
+            }
+            let mut busy = state.cloud_busy;
+            if *busy.peek() || !crate::sync::has_unsaved_changes(&state.log.peek()) {
+                return;
+            }
+            busy.set(true);
+            let config = state.cloud.peek().clone();
+            let t = state.strings();
+            match crate::components::sync_dialog::save(state, config, false).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(_)) => {
+                    let mut cloud = state.cloud;
+                    let mut next = cloud.peek().clone();
+                    next.autosave = false;
+                    crate::sync::save_config(&next);
+                    cloud.set(next);
+                    state.set_status(t.cloud_autosave_conflict);
+                }
+                Err(error) => state.set_status(crate::i18n::t1(t.cloud_autosave_failed, error)),
+            }
+            busy.set(false);
+            // Changes made during the save are picked up by the next edit, or
+            // here if there was none.
+            if *cloud_edit.peek() == edit && crate::sync::has_unsaved_changes(&state.log.peek()) {
+                *cloud_edit.write() += 1;
+            }
+        });
     });
 
     // Autosave whenever the log changes (once loading has finished).

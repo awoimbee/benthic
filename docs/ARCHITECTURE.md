@@ -113,18 +113,23 @@ for retry and is reported in the UI until a later flush succeeds. On the
 desktop each file is written to a temporary sibling, synced, and renamed into
 place, so a crash leaves either the old or the new file, never a truncated one.
 
-## Remote sync
+## Cloud storage
 
 > **Temporary.** The backends described in this section are a stopgap until a
-> long-term cloud-sync design is settled. The sync dialog says so in the UI.
+> long-term cloud-sync design is settled. The cloud storage dialog says so in
+> the UI.
 > Treat the transport and its stored configuration as replaceable rather than
 > as a stable contract.
 
-`benthic-core::sync` is the pure, tested decision logic: given the local log,
-the last-synced bookkeeping and the remote copy, it returns `UpToDate`, `Push`,
-`Pull` or `Conflict`. A push happens only when the remote is unchanged since the
-last sync, a pull only when the local copy is unchanged, and otherwise the user
-chooses — nothing is overwritten silently.
+The remote copy is used like a file. **Open from cloud storage** replaces the
+local log with it (one undoable step) and **Save to cloud storage** replaces it
+with the local log. With **Autosave** on, the app saves a few seconds after the
+last change (`src/app.rs`). `benthic-core::sync` is the pure, tested decision
+logic. It remembers the remote revision and local fingerprint from the last
+open or save. Saving only replaces the remote copy it last saw, and opening only
+discards local changes that were saved to it. Otherwise the user confirms, so
+nothing is overwritten silently. Autosave never overwrites: it turns itself off
+when the remote changed elsewhere.
 
 The transport lives in the app (`src/sync/`) and stores the whole log as one
 file. Backends implement the `Backend` trait (`src/sync/backend.rs`), which
@@ -135,8 +140,19 @@ goes through a single cross-platform shim: `gloo-net` on the web, `reqwest`
 natively. Settings are stored per backend as JSON.
 
 GitHub uses the repository-contents API (the base URL is configurable, so Gitea
-and enterprise hosts work), needs only a personal access token, and is the
-backend offered in production builds.
+and enterprise hosts work) and needs only a personal access token.
+
+Subsurface cloud is a normal bare git repository per account, served over smart
+HTTP with Basic auth. The user's email is both the repository and branch name.
+`src/sync/git.rs` implements the small part of the git protocol needed to fetch
+a shallow tip and push one commit (pure Rust, so it runs in the browser too);
+`benthic_core::io::subsurface_git` translates Subsurface's text-blob tree to
+the model. Files benthic does not understand (such as filter presets) are
+carried over unchanged on push. The cloud server sends no CORS headers, so the
+web build goes through a small CORS proxy (`tools/subsurface-proxy/`) by
+default, while desktop builds talk to the server directly. The proxy only
+forwards `/git/<account>/...` and only for allowed origins; the server URL is
+an advanced setting.
 
 Google Drive stores the log in the app's private `appDataFolder` (scope
 `drive.appdata`). It is **only offered in local/development builds**: publishing

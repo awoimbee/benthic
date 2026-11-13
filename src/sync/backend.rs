@@ -16,7 +16,7 @@ use benthic_core::sync::RemoteFile;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{gdrive, github};
+use super::{gdrive, github, subsurface_cloud};
 
 /// Per-backend settings, kept as a JSON object so a backend can persist
 /// whatever it needs (including tokens) without changing the config schema.
@@ -175,9 +175,16 @@ pub trait Backend: Send + Sync {
 pub const GDRIVE_ENABLED: bool = cfg!(debug_assertions);
 
 /// Every registered backend, in the order shown to the user.
+///
+/// The Subsurface cloud server does not send CORS headers; the web build
+/// reaches it through a CORS proxy (see [`subsurface_cloud`]).
 pub fn all() -> &'static [&'static dyn Backend] {
-    static DEV: &[&dyn Backend] = &[&github::GITHUB, &gdrive::GDRIVE];
-    static PROD: &[&dyn Backend] = &[&github::GITHUB];
+    static DEV: &[&dyn Backend] = &[
+        &github::GITHUB,
+        &subsurface_cloud::SUBSURFACE_CLOUD,
+        &gdrive::GDRIVE,
+    ];
+    static PROD: &[&dyn Backend] = &[&github::GITHUB, &subsurface_cloud::SUBSURFACE_CLOUD];
     if GDRIVE_ENABLED {
         DEV
     } else {

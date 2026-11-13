@@ -524,6 +524,7 @@ fn parse_event(node: &Node) -> Event {
     };
     Event {
         time: node.attr("time").map(parse_duration).unwrap_or_default(),
+        event_type: node.attr("type").and_then(|s| s.parse().ok()).unwrap_or(0),
         name,
         flags: node.attr("flags").and_then(|s| s.parse().ok()).unwrap_or(0),
         value: node.attr("value").and_then(|s| s.parse().ok()).unwrap_or(0),
@@ -630,13 +631,13 @@ fn write_dive(out: &mut String, dive: &Dive) {
             wattr(
                 out,
                 "o2",
-                &format!("{}%", fmt_milli(cyl.gas.o2_permille as i64)),
+                &format!("{}%", fmt_milli(cyl.gas.o2_permille as i64 * 100)),
             );
             if cyl.gas.he_permille != 0 {
                 wattr(
                     out,
                     "he",
-                    &format!("{}%", fmt_milli(cyl.gas.he_permille as i64)),
+                    &format!("{}%", fmt_milli(cyl.gas.he_permille as i64 * 100)),
                 );
             }
         }
@@ -874,6 +875,9 @@ fn write_sample(out: &mut String, s: &Sample) {
 fn write_event(out: &mut String, ev: &Event) {
     out.push_str("  <event");
     wattr(out, "time", &fmt_duration_min(ev.time));
+    if ev.event_type != 0 {
+        wattr(out, "type", &ev.event_type.to_string());
+    }
     if ev.flags != 0 {
         wattr(out, "flags", &ev.flags.to_string());
     }
@@ -891,13 +895,13 @@ fn write_event(out: &mut String, ev: &Event) {
             wattr(
                 out,
                 "o2",
-                &format!("{}%", fmt_milli(mix.o2_permille as i64)),
+                &format!("{}%", fmt_milli(mix.o2_permille as i64 * 100)),
             );
             if mix.he_permille != 0 {
                 wattr(
                     out,
                     "he",
-                    &format!("{}%", fmt_milli(mix.he_permille as i64)),
+                    &format!("{}%", fmt_milli(mix.he_permille as i64 * 100)),
                 );
             }
         }

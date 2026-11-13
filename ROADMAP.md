@@ -124,10 +124,11 @@ list below).
 ## Phase 5 — Platform polish
 
 - [x] IndexedDB storage for large logs and migration from the old localStorage log
-- [x] Opt-in remote sync: mirror the log to a Git repository (GitHub, or any
-      compatible API) or Google Drive, with push/pull/conflict handling. Both
-      run on the web and desktop, and the backend registry makes new services
-      (OneDrive, FTP, ...) additive
+- [x] Opt-in cloud storage: open/save (and autosave) the log to a Git
+      repository (GitHub, or any compatible API), Subsurface cloud storage or
+      Google Drive, never overwriting changes made elsewhere silently. All run on the web and desktop (Subsurface
+      cloud through a CORS proxy on the web), and the backend registry makes
+      new services (OneDrive, FTP, ...) additive
 - [ ] PWA: offline install, update prompts, file-handling API for `.ssrf`
 - [ ] Mobile targets (Dioxus iOS/Android)
 - [x] Internationalization with a typed string table and a French translation
