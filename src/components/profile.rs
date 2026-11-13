@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use benthic_core::units::{format_duration, Depth, Duration, Pressure, Temperature};
-use benthic_core::{Dive, DiveComputer, DivePlan, Event, Preferences};
+use benthic_core::{Dive, DiveComputer, Event, Preferences};
 
 use crate::i18n;
 use crate::state::AppState;
@@ -15,22 +15,15 @@ const COLOR_HEART: &str = "var(--trace-heart)";
 const COLOR_CNS: &str = "var(--trace-cns)";
 const COLOR_CEILING: &str = "var(--trace-ceiling)";
 
-#[cfg(target_arch = "wasm32")]
-async fn yield_to_ui() {
-    gloo_timers::future::TimeoutFuture::new(0).await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn yield_to_ui() {
-    tokio::time::sleep(std::time::Duration::from_millis(0)).await;
-}
-
 /// An interactive SVG depth profile with overlays, event markers, a scrubber
 /// readout, pan/zoom and (when a dive has several computers) the other
 /// computers' traces.
 ///
 /// The plot keeps a vertical scale for every displayed metric: depth on the
 /// left and one colour-coded scale per overlay on the right.
+///
+/// `planned` is for generated profiles: the depth trace is a single colour
+/// (ascent speed is fixed by the plan) and unavailable metrics are hidden.
 #[component]
 pub fn DiveProfile(
     dive: Dive,
@@ -39,10 +32,7 @@ pub fn DiveProfile(
     #[props(default)] pressure_colors: Vec<String>,
     #[props(default)] on_add_event: Option<EventHandler<(usize, Duration)>>,
     #[props(default)] on_remove_event: Option<EventHandler<(usize, usize)>>,
-    #[props(default)] tts_max: Option<Duration>,
-    #[props(default)] tts_plan: Option<DivePlan>,
-    #[props(default)] tts_surface_bar: f64,
-    #[props(default)] tts_salinity: i32,
+    #[props(default)] planned: bool,
 ) -> Element {
     let state = use_context::<AppState>();
     let prefs = (state.prefs)();
@@ -54,14 +44,11 @@ pub fn DiveProfile(
     let active_opt = dive.computer(dc_index).or_else(|| dive.computers.first());
     let available = active_opt.map(metric_availability).unwrap_or_default();
     let has_pressure = available.pressure;
-    let has_deco = available.ceiling;
-    let has_tts = available.tts || tts_max.is_some_and(|tts| tts.seconds > 0);
 
     let mut overlays_on = use_signal(|| Overlays {
         pressure: has_pressure,
         ndl: show_all && available.ndl,
-        tts: show_all && has_tts,
-        deco: has_deco,
+        tts: show_all && available.tts,
         ..Default::default()
     });
     let mut cursor = use_signal(|| 0usize);
@@ -74,56 +61,6 @@ pub fn DiveProfile(
     let mut touches = use_signal(Vec::<(i32, f64, f64)>::new);
     let mut touch_gesture = use_signal(|| None::<TouchGesture>);
     let mut selected_event = use_signal(|| None::<usize>);
-    let tts_values = use_signal(Vec::<Option<Duration>>::new);
-    let tts_plan_key = use_signal(|| None::<DivePlan>);
-    let tts_generation = use_signal(|| 0u64);
-    let tts_samples = active_opt
-        .filter(|computer| computer.samples.len() >= 2)
-        .map(|computer| computer.samples.clone())
-        .unwrap_or_default();
-
-    use_effect(use_reactive(
-        (&tts_plan, &tts_surface_bar, &tts_salinity),
-        move |(plan, surface_bar, salinity)| {
-            let mut generation = tts_generation;
-            let current = *generation.peek() + 1;
-            generation.set(current);
-            let mut values = tts_values;
-            values.set(Vec::new());
-            let mut key = tts_plan_key;
-            key.set(plan.clone());
-            let Some(plan) = plan else {
-                return;
-            };
-            let Some(mut calculator) =
-                plan.tts_calculator(surface_bar, salinity, tts_samples.clone())
-            else {
-                return;
-            };
-            let sample_count = tts_samples.len();
-            spawn(async move {
-                while !calculator.is_done() {
-                    if *generation.peek() != current {
-                        break;
-                    }
-                    let batch = calculator.next_batch(1);
-                    {
-                        let mut series = values.write();
-                        if series.len() < sample_count {
-                            series.resize(sample_count, None);
-                        }
-                        for (index, tts) in batch {
-                            if let Some(slot) = series.get_mut(index) {
-                                *slot = tts;
-                            }
-                        }
-                    }
-                    yield_to_ui().await;
-                }
-            });
-        },
-    ));
-
     let Some(active) = active_opt else {
         return rsx! { div { class: "profile empty-hint", "{tr.no_profile}" } };
     };
@@ -169,20 +106,12 @@ pub fn DiveProfile(
         .unwrap_or((0.0, 0.0, false));
 
     // The depth trace is split into one path per vertical-speed band, so its
-    // colour shows how fast the diver was descending or ascending. The ceiling
-    // is a depth too and must line up with the depth scale.
-    let depth_bands = speed_bands(&active.samples, max_d, max_t, win_start, win_end);
-    let ceiling = scaled_series(
-        active.samples.iter().filter_map(|s| {
-            s.stop_depth
-                .filter(|d| d.mm > 0)
-                .map(|d| (s.time.seconds, d.mm))
-        }),
-        max_d,
-        max_t,
-        win_start,
-        win_end,
-    );
+    // colour shows how fast the diver was descending or ascending.
+    let depth_bands = if planned {
+        single_band(&active.samples, max_d, max_t, win_start, win_end)
+    } else {
+        speed_bands(&active.samples, max_d, max_t, win_start, win_end)
+    };
     let overlays: Vec<String> = dive
         .computers
         .iter()
@@ -256,67 +185,37 @@ pub fn DiveProfile(
                 .collect()
         })
         .unwrap_or_default();
-    let ndl = series_fixed(
+    // The NDL scale starts at one minute so a zero NDL (in decompression)
+    // falls below the plot instead of lying along its bottom edge.
+    let ndl = clipped_series(
         active.samples.iter().filter_map(|s| {
             s.ndl
                 .filter(|d| d.seconds >= 0)
                 .map(|d| (s.time.seconds, d.seconds))
         }),
-        0,
+        60,
         90 * 60,
         max_t,
         win_start,
         win_end,
     );
-    let async_tts = if tts_plan
-        .as_ref()
-        .is_some_and(|plan| (tts_plan_key)().as_ref() == Some(plan))
-    {
-        Some((tts_values)())
-    } else {
-        None
-    };
-    let tts_values: Vec<(i32, i32)> = active
-        .samples
-        .iter()
-        .enumerate()
-        .filter_map(|(index, sample)| {
-            let tts = async_tts
-                .as_ref()
-                .and_then(|values| values.get(index).copied().flatten())
-                .or(sample.tts);
-            tts.filter(|d| d.seconds > 0)
-                .map(|d| (sample.time.seconds, d.seconds))
-        })
-        .collect();
-    // The planner supplies its final/max TTS before the expensive trace has
-    // been computed, so the axis and toggle can appear immediately.
-    let tts_ceiling = tts_max.map(|tts| tts.seconds).unwrap_or(0).max(
-        tts_values
+    let tts = series_fixed(
+        active.samples.iter().filter_map(|s| {
+            s.tts
+                .filter(|d| d.seconds > 0)
+                .map(|d| (s.time.seconds, d.seconds))
+        }),
+        0,
+        active
+            .samples
             .iter()
-            .map(|(_, seconds)| *seconds)
+            .filter_map(|s| s.tts.map(|d| d.seconds))
             .max()
             .unwrap_or(0),
+        max_t,
+        win_start,
+        win_end,
     );
-    let tts = if tts_ceiling > 0 {
-        series_fixed(
-            tts_values.into_iter(),
-            0,
-            tts_ceiling,
-            max_t,
-            win_start,
-            win_end,
-        )
-        .or_else(|| {
-            Some(Series {
-                points: String::new(),
-                min: 0,
-                max: tts_ceiling,
-            })
-        })
-    } else {
-        None
-    };
     let heart = series(
         active
             .samples
@@ -342,8 +241,10 @@ pub fn DiveProfile(
         tts: tts_on,
         heart: heart_on,
         cns: cns_on,
-        deco: deco_on,
     } = overlays_on();
+    // Subsurface-style water column: a depth gradient under the trace whose
+    // top edge drops to the decompression ceiling.
+    let (depth_area, ceiling_zone) = depth_area(&active.samples, max_d, max_t, win_start, win_end);
 
     // Vertical scales: depth on the left, one column per active overlay on the
     // right. Each tick is `(y percent, style, label)`.
@@ -378,7 +279,13 @@ pub fn DiveProfile(
             right_axes.push((
                 "NDL",
                 format!("color: {COLOR_NDL};"),
-                value_axis(*min, *max, COLOR_NDL, |v| format_duration(Duration::new(v))),
+                value_axis_ticks(
+                    *min,
+                    *max,
+                    &[*max, (*min + *max) / 2 / 60 * 60, *min],
+                    COLOR_NDL,
+                    |v| format_duration(Duration::new(v)),
+                ),
             ));
         }
     }
@@ -409,13 +316,6 @@ pub fn DiveProfile(
             ));
         }
     }
-    if deco_on && !ceiling.is_empty() {
-        right_axes.push((
-            tr.axis_ceiling,
-            format!("color: {COLOR_CEILING};"),
-            depth_ticks.clone(),
-        ));
-    }
 
     // Event markers within the window. The icon/colour identifies the event
     // type so gas switches and bookmarks are not just anonymous ticks.
@@ -436,13 +336,23 @@ pub fn DiveProfile(
                 return None;
             }
             let kind = event_kind(event);
+            let gas_color = event
+                .gas
+                .and_then(|(cylinder, _)| usize::try_from(cylinder).ok())
+                .and_then(|cylinder| pressure_colors.get(cylinder).cloned());
+            let label = match event.gas {
+                Some((_, gas)) => format!("{} · {}", kind.label(tr), gas.name()),
+                None => kind.label(tr).to_string(),
+            };
             Some(EventMark {
                 event_index,
                 x: (fraction - win_start) / win_span * 100.0,
-                label: kind.label(tr).to_string(),
+                y: depth_at(&active.samples, event.time.seconds) / max_d * 90.0 + 5.0,
+                label,
                 time: format_duration(event.time),
                 icon: kind.icon(),
-                color: kind.color(),
+                color: gas_color.unwrap_or_else(|| kind.color().to_string()),
+                gas_change: kind == EventKind::GasChange,
                 sample_index: sample_index_at(fraction, &active.samples, max_t),
             })
         })
@@ -454,7 +364,7 @@ pub fn DiveProfile(
             let sample_index = mark.sample_index;
             let x = mark.x;
             let icon = mark.icon;
-            let color = mark.color;
+            let color = mark.color.clone();
             let label = mark.label.clone();
             let time = mark.time.clone();
             let event_index = mark.event_index;
@@ -492,8 +402,8 @@ pub fn DiveProfile(
         .map(|event| event_details(event, tr))
         .unwrap_or_default();
     let selected_icon = selected_event_data.map(|event| event_kind(event).icon());
-    let selected_color = selected_event_data.map(|event| event_kind(event).color());
-    let selected_label = selected_event_data.map(|event| event_kind(event).label(tr));
+    let selected_color = selected_mark.map(|mark| mark.color.clone());
+    let selected_label = selected_mark.map(|mark| mark.label.clone());
     let selected_time = selected_event_data.map(|event| format_duration(event.time));
     let selected_can_remove = selected_event_data
         .is_some_and(|event| event_kind(event) == EventKind::Bookmark && on_remove_event.is_some());
@@ -555,6 +465,12 @@ pub fn DiveProfile(
                     }
                 }
                 div { class: "profile-canvas",
+                    if let Some(zone) = ceiling_zone.as_deref() {
+                        div {
+                            class: "profile-ceiling-zone",
+                            style: "clip-path: polygon({zone});",
+                        }
+                    }
                     svg {
                         class: "profile-svg",
                     view_box: "0 0 100 100",
@@ -725,6 +641,22 @@ pub fn DiveProfile(
                         zoom.set(1.0);
                         pan.set(0.5);
                     },
+                    defs {
+                        linearGradient {
+                            id: "profile-depth-gradient",
+                            gradient_units: "userSpaceOnUse",
+                            x1: "0",
+                            y1: "5",
+                            x2: "0",
+                            y2: "95",
+                            stop { offset: "0", class: "profile-depth-stop-top" }
+                            stop { offset: "1", class: "profile-depth-stop-bottom" }
+                        }
+                    }
+                    polygon {
+                        class: "profile-depth-area",
+                        points: "{depth_area}",
+                    }
                     for (y, _, _) in depth_ticks.iter() {
                         line {
                             key: "grid-{y}",
@@ -761,8 +693,8 @@ pub fn DiveProfile(
                     }
                     if ndl_on {
                         if let Some(Series { points, .. }) = &ndl {
-                            polyline {
-                                points: "{points}",
+                            path {
+                                d: "{points}",
                                 style: "fill: none; stroke: {COLOR_NDL}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.8; stroke-dasharray: 3 2;",
                             }
                         }
@@ -798,12 +730,6 @@ pub fn DiveProfile(
                             style: "fill: none; stroke: {color}; stroke-width: 1.5; vector-effect: non-scaling-stroke;",
                         }
                     }
-                    if deco_on && !ceiling.is_empty() {
-                        polyline {
-                            points: "{ceiling}",
-                            style: "fill: none; stroke: {COLOR_CEILING}; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.9;",
-                        }
-                    }
                     for (index, mark) in event_marks.iter().enumerate() {
                         line {
                             key: "event-line-{index}",
@@ -812,6 +738,17 @@ pub fn DiveProfile(
                             x2: "{mark.x}",
                             y2: "100",
                             style: "stroke: {mark.color}; stroke-width: 0.8; vector-effect: non-scaling-stroke; opacity: 0.32; pointer-events: none;",
+                        }
+                    }
+                    for (index, mark) in event_marks.iter().filter(|mark| mark.gas_change).enumerate() {
+                        line {
+                            key: "gas-switch-{index}",
+                            class: "profile-gas-switch",
+                            x1: "{mark.x}",
+                            y1: "{mark.y}",
+                            x2: "{mark.x}",
+                            y2: "{mark.y}",
+                            style: "stroke: {mark.color};",
                         }
                     }
                     line {
@@ -853,8 +790,8 @@ pub fn DiveProfile(
                             selected_x,
                             selected_remove_index,
                             selected_icon,
-                            selected_color,
-                            selected_label,
+                            selected_color.as_deref(),
+                            selected_label.as_deref(),
                             selected_time.as_deref(),
                         ) {
                             div {
@@ -900,13 +837,24 @@ pub fn DiveProfile(
             }
             div { class: "profile-caption", "{readout}" }
             div { class: "profile-controls",
-                Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: tr.tip_pressure, onclick: move |_| overlays_on.write().pressure ^= true }
-                Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: tr.tip_temperature, onclick: move |_| overlays_on.write().temp ^= true }
-                Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: tr.tip_ndl_toggle, onclick: move |_| overlays_on.write().ndl ^= true }
-                Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !has_tts, title: tr.tip_tts, onclick: move |_| overlays_on.write().tts ^= true }
-                Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: tr.tip_heart, onclick: move |_| overlays_on.write().heart ^= true }
-                Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: tr.tip_cns, onclick: move |_| overlays_on.write().cns ^= true }
-                Toggle { label: tr.deco, color: COLOR_CEILING, on: deco_on, disabled: !available.ceiling, title: tr.tip_deco_toggle, onclick: move |_| overlays_on.write().deco ^= true }
+                if !planned || available.pressure {
+                    Toggle { label: tr.pressure, color: COLOR_PRESSURE, on: pressure_on, disabled: !available.pressure, title: tr.tip_pressure, onclick: move |_| overlays_on.write().pressure ^= true }
+                }
+                if !planned || available.temperature {
+                    Toggle { label: tr.temperature, color: COLOR_TEMP, on: temp_on, disabled: !available.temperature, title: tr.tip_temperature, onclick: move |_| overlays_on.write().temp ^= true }
+                }
+                if !planned || available.ndl {
+                    Toggle { label: tr.ndl, color: COLOR_NDL, on: ndl_on, disabled: !available.ndl, title: tr.tip_ndl_toggle, onclick: move |_| overlays_on.write().ndl ^= true }
+                }
+                if !planned || available.tts {
+                    Toggle { label: tr.tts, color: COLOR_TTS, on: tts_on, disabled: !available.tts, title: tr.tip_tts, onclick: move |_| overlays_on.write().tts ^= true }
+                }
+                if !planned || available.heart {
+                    Toggle { label: tr.heart, color: COLOR_HEART, on: heart_on, disabled: !available.heart, title: tr.tip_heart, onclick: move |_| overlays_on.write().heart ^= true }
+                }
+                if !planned || available.cns {
+                    Toggle { label: tr.cns, color: COLOR_CNS, on: cns_on, disabled: !available.cns, title: tr.tip_cns, onclick: move |_| overlays_on.write().cns ^= true }
+                }
                 if let Some(add_event) = on_add_event {
                     button {
                         class: "btn profile-add-event",
@@ -988,7 +936,6 @@ struct Overlays {
     tts: bool,
     heart: bool,
     cns: bool,
-    deco: bool,
 }
 
 /// One colour-coded value scale per active overlay, right of the plot.
@@ -1048,7 +995,6 @@ struct Availability {
     tts: bool,
     heart: bool,
     cns: bool,
-    ceiling: bool,
 }
 
 /// Scan a computer's samples for the metrics that have data, so the matching
@@ -1064,9 +1010,6 @@ fn metric_availability(dc: &DiveComputer) -> Availability {
         tts: samples.iter().any(|s| s.tts.is_some_and(|d| d.seconds > 0)),
         heart: samples.iter().any(|s| s.heartbeat.is_some()),
         cns: samples.iter().any(|s| s.cns.is_some()),
-        ceiling: samples
-            .iter()
-            .any(|s| s.stop_depth.is_some_and(|d| d.mm > 0)),
     }
 }
 
@@ -1074,10 +1017,13 @@ fn metric_availability(dc: &DiveComputer) -> Availability {
 struct EventMark {
     event_index: usize,
     x: f64,
+    /// Depth of the trace at the event, in plot percent.
+    y: f64,
     label: String,
     time: String,
     icon: &'static str,
-    color: &'static str,
+    color: String,
+    gas_change: bool,
     sample_index: usize,
 }
 
@@ -1225,6 +1171,81 @@ fn scaled_series(
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The water column under the depth trace as a closed polygon, plus the zone
+/// above the decompression ceiling (`None` without a ceiling) as CSS
+/// `polygon()` points.
+///
+/// The column's top edge is the ceiling (the surface when there is none),
+/// never deeper than the diver.
+fn depth_area(
+    samples: &[benthic_core::Sample],
+    max_d: f64,
+    max_t: f64,
+    start: f64,
+    end: f64,
+) -> (String, Option<String>) {
+    if samples.is_empty() {
+        return (String::new(), None);
+    }
+    let span = (end - start).max(1e-9);
+    let first = samples.partition_point(|s| (s.time.seconds as f64 / max_t) < start);
+    let after = samples.partition_point(|s| (s.time.seconds as f64 / max_t) <= end);
+    let window = &samples[first.saturating_sub(1)..(after + 1).min(samples.len())];
+    let x_of =
+        |sample: &benthic_core::Sample| (sample.time.seconds as f64 / max_t - start) / span * 100.0;
+    let y_of = |mm: i32| mm as f64 / max_d.max(1e-9) * 90.0 + 5.0;
+    let ceiling = |s: &benthic_core::Sample| s.stop_depth.map_or(0, |d| d.mm.clamp(0, s.depth.mm));
+    // The ceiling moves in stop steps: between two samples, hold the shallower
+    // of the two so the edge never dips below the diver.
+    let mut top: Vec<(f64, f64)> = vec![(x_of(&window[0]), y_of(ceiling(&window[0])))];
+    for pair in window.windows(2) {
+        let level = y_of(ceiling(&pair[0]).min(ceiling(&pair[1])));
+        top.push((x_of(&pair[0]), level));
+        top.push((x_of(&pair[1]), level));
+    }
+    if let Some(last) = window.last() {
+        top.push((x_of(last), y_of(ceiling(last))));
+    }
+    top.dedup();
+
+    let area = window
+        .iter()
+        .map(|s| (x_of(s), y_of(s.depth.mm)))
+        .chain(top.iter().rev().copied())
+        .map(|(x, y)| format!("{x:.2},{y:.2}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let surface = y_of(0);
+    let zone = top.iter().any(|(_, y)| *y > surface + 1e-6).then(|| {
+        let (first_x, last_x) = (top[0].0, top[top.len() - 1].0);
+        std::iter::once((first_x, surface))
+            .chain(top.iter().copied())
+            .chain(std::iter::once((last_x, surface)))
+            .map(|(x, y)| format!("{x:.2}% {y:.2}%"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    });
+    (area, zone)
+}
+
+/// The trace depth (mm) at a time, interpolated between samples.
+fn depth_at(samples: &[benthic_core::Sample], seconds: i32) -> f64 {
+    let index = samples.partition_point(|s| s.time.seconds < seconds);
+    match (
+        index.checked_sub(1).and_then(|i| samples.get(i)),
+        samples.get(index),
+    ) {
+        (Some(a), Some(b)) if b.time.seconds > a.time.seconds => {
+            let fraction =
+                (seconds - a.time.seconds) as f64 / (b.time.seconds - a.time.seconds) as f64;
+            a.depth.mm as f64 + (b.depth.mm - a.depth.mm) as f64 * fraction
+        }
+        (_, Some(sample)) | (Some(sample), None) => sample.depth.mm as f64,
+        (None, None) => 0.0,
+    }
 }
 
 /// A drag narrower than this fraction of the plot is treated as a click, not a
@@ -1391,6 +1412,31 @@ fn speed_bands(
     bands
 }
 
+/// The whole depth trace as one path in the depth colour.
+fn single_band(
+    samples: &[benthic_core::Sample],
+    max_d: f64,
+    max_t: f64,
+    start: f64,
+    end: f64,
+) -> Vec<(&'static str, &'static str, String)> {
+    let points = scaled_series(
+        samples.iter().map(|s| (s.time.seconds, s.depth.mm)),
+        max_d,
+        max_t,
+        start,
+        end,
+    );
+    if points.is_empty() {
+        return Vec::new();
+    }
+    vec![(
+        "Depth",
+        COLOR_DEPTH,
+        format!("M {}", points.replace(' ', " L ")),
+    )]
+}
+
 /// Normalize a `(seconds, value)` series to its own range, inverting the value
 /// axis so larger values sit higher on the chart.
 fn series(
@@ -1506,6 +1552,52 @@ fn series_points(
     )
 }
 
+/// Like [`series_fixed`], but values below `min` are placed under the plot
+/// rather than clamped onto its edge, and runs of them are left out. The
+/// points are SVG path data.
+fn clipped_series(
+    values: impl Iterator<Item = (i32, i32)>,
+    min: i32,
+    max: i32,
+    max_t: f64,
+    start: f64,
+    end: f64,
+) -> Option<Series> {
+    const BELOW: f64 = 105.0;
+    let span = (end - start).max(1e-9);
+    let all: Vec<(f64, i32)> = values.map(|(t, v)| (t as f64 / max_t, v)).collect();
+    if all.is_empty() {
+        return None;
+    }
+    let (lo, hi) = value_window(&all, start, end);
+    let value_span = (max - min).max(1) as f64;
+    let mut d = String::new();
+    let mut previous: Option<(f64, f64, bool)> = None;
+    for (fraction, value) in &all[lo..hi] {
+        let x = (fraction - start) / span * 100.0;
+        let visible = *value >= min;
+        let y = if visible {
+            95.0 - ((*value).min(max) - min) as f64 / value_span * 90.0
+        } else {
+            BELOW
+        };
+        if let Some((px, py, previous_visible)) = previous {
+            if visible || previous_visible {
+                if !d.ends_with(&format!("{px:.2},{py:.2} ")) {
+                    d.push_str(&format!("M {px:.2},{py:.2} "));
+                }
+                d.push_str(&format!("L {x:.2},{y:.2} "));
+            }
+        }
+        previous = Some((x, y, visible));
+    }
+    Some(Series {
+        points: d,
+        min,
+        max,
+    })
+}
+
 /// A tick is `(y percent, inline style, label)`.
 type Tick = (f64, String, String);
 
@@ -1533,14 +1625,24 @@ fn depth_axis(max_d: f64, prefs: &Preferences) -> Vec<Tick> {
 /// Three ticks (max, middle, min) for a normalized overlay, coloured to match
 /// its trace.
 fn value_axis(min: i32, max: i32, color: &str, fmt: impl Fn(i32) -> String) -> Vec<Tick> {
+    value_axis_ticks(min, max, &[max, min + (max - min) / 2, min], color, fmt)
+}
+
+/// A value scale with ticks at the given values.
+fn value_axis_ticks(
+    min: i32,
+    max: i32,
+    values: &[i32],
+    color: &str,
+    fmt: impl Fn(i32) -> String,
+) -> Vec<Tick> {
     if min == max {
         return vec![(50.0, format!("top: 50%; color: {color};"), fmt(min))];
     }
     let range = (max - min) as f64;
-    let middle = min + (max - min) / 2;
-    [max, middle, min]
-        .into_iter()
-        .map(|value| {
+    values
+        .iter()
+        .map(|&value| {
             let y = 95.0 - (value - min) as f64 / range * 90.0;
             (y, format!("top: {y:.2}%; color: {color};"), fmt(value))
         })

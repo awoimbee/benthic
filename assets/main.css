@@ -348,6 +348,20 @@ body {
   touch-action: pan-y;
 }
 
+/* The zone above the decompression ceiling, clipped to its shape. CSS
+   stripes keep a true 45° angle where an SVG pattern would be stretched by
+   the plot's non-uniform scaling. */
+.profile-ceiling-zone {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--danger) 35%, transparent) 0 1px,
+    transparent 1px 6px
+  );
+}
+
 .profile-events {
   position: absolute;
   inset: 0;
@@ -407,6 +421,14 @@ body {
 .profile-event:hover .profile-event-tip,
 .profile-event:focus-visible .profile-event-tip {
   opacity: 1;
+}
+
+.profile-gas-switch {
+  stroke-width: 9;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1.5px var(--bg-alt));
 }
 
 .profile-event-popover {
@@ -518,6 +540,22 @@ body {
   fill: var(--accent);
   opacity: 0.18;
   pointer-events: none;
+}
+
+.profile-depth-area {
+  fill: url(#profile-depth-gradient);
+  stroke: none;
+  pointer-events: none;
+}
+
+.profile-depth-stop-top {
+  stop-color: var(--trace-depth);
+  stop-opacity: 0.08;
+}
+
+.profile-depth-stop-bottom {
+  stop-color: var(--trace-depth);
+  stop-opacity: 0.5;
 }
 
 .profile-gridline {
@@ -2199,6 +2237,19 @@ a:focus-visible {
   cursor: pointer;
 }
 
+.info-tip.open {
+  position: relative;
+  z-index: 60;
+}
+
+.info-tip-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: transparent;
+  cursor: default;
+}
+
 .info-tip:hover,
 .info-tip.open {
   border-color: var(--accent);
@@ -2223,6 +2274,15 @@ a:focus-visible {
   text-transform: none;
   letter-spacing: normal;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Fixed elements never widen the page, so the explanation is measured here
+   before being placed next to its "?". */
+.info-pop.measuring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  visibility: hidden;
 }
 
 /* ---- Planner waypoints as collapsible cards ---- */
@@ -2294,6 +2354,14 @@ a:focus-visible {
   justify-content: center;
   gap: 0.75rem;
   margin: 0.75rem 0;
+}
+
+.planner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0 1rem;
 }
 
 .dive-gauges {

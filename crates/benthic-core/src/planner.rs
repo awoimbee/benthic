@@ -113,93 +113,6 @@ pub struct DivePlan {
     pub gas_uses: Vec<GasUse>,
 }
 
-/// Incremental Bühlmann TTS computation for interactive charts.
-pub struct TtsCalculator {
-    samples: Vec<Sample>,
-    segment: DecoSegment,
-    bottom_mode: BreathingMode,
-    model: Buhlmann,
-    previous_time: i32,
-    previous_depth: f64,
-    next_index: usize,
-    bottom_seconds: i32,
-    total_seconds: i32,
-}
-
-impl TtsCalculator {
-    fn new(plan: &DivePlan, samples: Vec<Sample>, surface_bar: f64, salinity: i32) -> Option<Self> {
-        let DecoModel::Buhlmann { gf_low, gf_high } = plan.deco_model else {
-            return None;
-        };
-        let segment = DecoSegment {
-            points: plan.points.clone(),
-            gf_low,
-            gf_high,
-            stop_step: plan.stop_step,
-            ascent_rate: plan.ascent_rate,
-            gas_switches: plan
-                .gas_switches
-                .iter()
-                .map(|switch| (switch.depth, BreathingMode::OpenCircuit(switch.gas)))
-                .collect(),
-            ..Default::default()
-        };
-        Some(Self {
-            samples,
-            segment,
-            bottom_mode: plan.bottom_mode(),
-            model: Buhlmann::new(surface_bar, salinity),
-            previous_time: 0,
-            previous_depth: 0.0,
-            next_index: 0,
-            bottom_seconds: plan.bottom_time().seconds,
-            total_seconds: plan.total_time().seconds,
-        })
-    }
-
-    pub fn is_done(&self) -> bool {
-        self.next_index >= self.samples.len()
-    }
-
-    /// Compute the next `count` TTS values. The caller can yield between
-    /// batches to keep the UI responsive.
-    pub fn next_batch(&mut self, count: usize) -> Vec<(usize, Option<Duration>)> {
-        let end = self
-            .next_index
-            .saturating_add(count)
-            .min(self.samples.len());
-        let mut out = Vec::with_capacity(end.saturating_sub(self.next_index));
-        for index in self.next_index..end {
-            let time = self.samples[index].time.seconds;
-            let depth = self.samples[index].depth;
-            let elapsed = (time - self.previous_time) as f64 / 60.0;
-            if elapsed > 0.0 {
-                let avg_depth = (self.previous_depth + depth.meters()) / 2.0;
-                self.model.add_segment_mode(
-                    Depth::from_meters(avg_depth),
-                    elapsed,
-                    self.bottom_mode,
-                );
-            }
-            let tts = if depth.mm > 0 {
-                Some(if time >= self.bottom_seconds {
-                    Duration::new((self.total_seconds - time).max(0))
-                } else {
-                    self.model
-                        .time_to_surface(&self.model.tissues, depth, &self.segment)
-                })
-            } else {
-                Some(Duration::ZERO)
-            };
-            out.push((index, tts));
-            self.previous_time = time;
-            self.previous_depth = depth.meters();
-        }
-        self.next_index = end;
-        out
-    }
-}
-
 /// The no-decompression limit for a depth and breathing mode under the chosen
 /// decompression model.
 pub fn ndl(
@@ -301,6 +214,29 @@ fn gas_at_depth(sorted: &[(GasSupply, Depth)], depth: Depth) -> GasMix {
         }
     }
     chosen
+}
+
+/// Round a ceiling up to the stop grid. The schedule lets the diver ascend to
+/// a stop when the ceiling is within 5 cm of it, so the same tolerance keeps
+/// the displayed ceiling from sitting one step below the diver.
+fn stop_grid_ceiling(ceiling: Depth, step_mm: i32) -> Depth {
+    const TOLERANCE_MM: i32 = 50;
+    let mm = (ceiling.mm - TOLERANCE_MM).max(0);
+    Depth::new((mm + step_mm - 1) / step_mm * step_mm)
+}
+
+/// Seconds to reach the surface from `start_m` through `stops`, rounded per
+/// leg like the planned profile.
+fn ascent_seconds(start_m: f64, stops: &[Stop], ascent_rate: f64) -> i32 {
+    let rate = ascent_rate.max(0.1);
+    let mut seconds = 0;
+    let mut current = start_m;
+    for stop in stops {
+        seconds += ((current - stop.depth.meters()) / rate * 60.0).round() as i32;
+        seconds += stop.duration.seconds;
+        current = stop.depth.meters();
+    }
+    seconds + (current / rate * 60.0).round() as i32
 }
 
 impl DivePlan {
@@ -810,181 +746,326 @@ impl DivePlan {
         samples
     }
 
-    /// Samples for the planner chart without the expensive, tissue-based
-    /// Bühlmann TTS series. NDL, stop depths and pressures are still present.
-    pub fn graph_samples_without_tts(
-        &self,
-        surface_bar: f64,
-        salinity: i32,
-        rmv_l_per_min: f64,
-    ) -> Vec<Sample> {
-        let mut samples = densify_samples(self.samples(), MAX_GRAPH_SAMPLES);
-
-        // Mark the generated stops so the ceiling overlay has data.
-        let mut stop_time = self
-            .points
-            .iter()
-            .map(|point| point.duration.seconds)
-            .sum::<i32>();
-        let mut stop_depth = self.max_depth().meters();
-        for stop in &self.stops {
-            let ascent = ((stop_depth - stop.depth.meters()).max(0.0) / self.ascent_rate.max(0.1)
-                * 60.0)
-                .round() as i32;
-            stop_time += ascent;
-            let stop_end = stop_time + stop.duration.seconds;
-            for sample in &mut samples {
-                if sample.time.seconds >= stop_time && sample.time.seconds <= stop_end {
-                    sample.stop_depth = Some(stop.depth);
-                }
-            }
-            stop_time = stop_end;
-            stop_depth = stop.depth.meters();
-        }
-
-        match self.deco_model {
-            DecoModel::Buhlmann { gf_high, .. } => {
-                let mut model = Buhlmann::new(surface_bar, salinity);
-                let mut previous_time = 0;
-                let mut previous_depth = 0.0f64;
-                for sample in &mut samples {
-                    let elapsed = (sample.time.seconds - previous_time) as f64 / 60.0;
-                    if elapsed > 0.0 {
-                        let avg_depth = (previous_depth + sample.depth.meters()) / 2.0;
-                        let mode = self.ascent_mode_at(previous_time);
-                        model.add_segment_mode(Depth::from_meters(avg_depth), elapsed, mode);
-                    }
-                    if sample.depth.mm > 0 {
-                        let mode = self.ascent_mode_at(sample.time.seconds);
-                        let gas = mode.gas_at(model.ambient_bar(sample.depth));
-                        sample.ndl = Some(model.ndl_capped(
-                            sample.depth,
-                            gas,
-                            gf_high,
-                            Duration::new(99 * 60),
-                        ));
-                    }
-                    previous_time = sample.time.seconds;
-                    previous_depth = sample.depth.meters();
-                }
-            }
-            DecoModel::Vpmb { .. } => {
-                let bottom = self.bottom_mode();
-                let total = self.total_time().seconds;
-                let bottom_seconds = self.bottom_time().seconds;
-                for sample in &mut samples {
-                    if sample.depth.mm > 0 {
-                        sample.ndl =
-                            ndl(sample.depth, bottom, self.deco_model, surface_bar, salinity)
-                                .map(|ndl| Duration::new(ndl.seconds.min(99 * 60)));
-                    }
-                    let to_surface = if sample.time.seconds >= bottom_seconds {
-                        total - sample.time.seconds
-                    } else {
-                        total - bottom_seconds
-                    };
-                    sample.tts = Some(Duration::new(to_surface.max(0)));
-                }
-            }
-        }
-
-        // Per-cylinder remaining pressure. Switch events carry the cylinder
-        // index, so this replays each bottle independently rather than
-        // collapsing cylinders that contain the same gas.
-        if !self.gas_uses.is_empty() && rmv_l_per_min > 0.0 {
-            let surface_mbar = surface_bar * 1000.0;
-            let mut remaining: Vec<f64> = self
-                .gas_uses
-                .iter()
-                .map(|gas| gas.size.liters().max(0.001) * gas.start_pressure.bar())
-                .collect();
-            let mut active = 0usize;
-            let mut switch_index = 0usize;
-            for index in 0..samples.len() {
-                while let Some(switch) = self.gas_switches.get(switch_index) {
-                    if switch.time.seconds > samples[index].time.seconds {
-                        break;
-                    }
-                    if let Some(cylinder) = switch.cylinder {
-                        active = cylinder.min(remaining.len().saturating_sub(1));
-                    }
-                    switch_index += 1;
-                }
-                samples[index].pressures = remaining
-                    .iter()
-                    .enumerate()
-                    .map(|(cylinder, liters)| {
-                        let size = self
-                            .gas_uses
-                            .get(cylinder)
-                            .map(|gas| gas.size.liters().max(0.001))
-                            .unwrap_or(1.0);
-                        SensorPressure {
-                            sensor: cylinder as i16,
-                            pressure: Pressure::new(((liters / size * 1000.0).max(0.0)) as i32),
-                        }
-                    })
-                    .collect();
-                if let Some(next) = samples.get(index + 1) {
-                    let dt = (next.time.seconds - samples[index].time.seconds) as f64 / 60.0;
-                    if dt > 0.0 {
-                        let avg_depth = (samples[index].depth.mm + next.depth.mm) as f64 / 2.0;
-                        let ambient =
-                            ambient_mbar(avg_depth.round() as i32, surface_mbar, salinity)
-                                / surface_mbar;
-                        if let Some(liters) = remaining.get_mut(active) {
-                            *liters = (*liters - rmv_l_per_min * dt * ambient).max(0.0);
-                        }
-                    }
-                }
-            }
-        }
-        samples
-    }
-
-    /// Full chart samples including the synchronously computed Bühlmann TTS.
-    /// Prefer [`Self::graph_samples_without_tts`] plus [`Self::tts_calculator`]
-    /// in interactive UIs so the expensive TTS series can be filled in chunks.
+    /// Samples for the planner chart: depth, NDL, the decompression ceiling
+    /// and the pressure of each cylinder while it is in use.
     pub fn graph_samples(
         &self,
         surface_bar: f64,
         salinity: i32,
         rmv_l_per_min: f64,
     ) -> Vec<Sample> {
-        let mut samples = self.graph_samples_without_tts(surface_bar, salinity, rmv_l_per_min);
-        if let Some(mut calculator) = self.tts_calculator(surface_bar, salinity, samples.clone()) {
-            while !calculator.is_done() {
-                for (index, tts) in calculator.next_batch(256) {
-                    if let Some(sample) = samples.get_mut(index) {
-                        sample.tts = tts;
-                    }
-                }
+        let mut samples = densify_samples(self.samples(), MAX_GRAPH_SAMPLES);
+        match self.deco_model {
+            DecoModel::Buhlmann { gf_low, gf_high } => {
+                self.fill_buhlmann(&mut samples, gf_low, gf_high, surface_bar, salinity);
             }
+            DecoModel::Vpmb { .. } => {
+                self.fill_vpmb(&mut samples, surface_bar, salinity);
+            }
+        }
+        if rmv_l_per_min > 0.0 {
+            self.fill_pressures(&mut samples, rmv_l_per_min, surface_bar, salinity);
         }
         samples
     }
 
-    /// The largest TTS in the plan. The bottom-time end is where the
-    /// decompression obligation peaks, so it can be shown before the full
-    /// time series is calculated.
+    /// NDL and gradient-factor ceiling along the profile. The low gradient
+    /// factor is anchored at the deepest ceiling reached so far. Like a dive
+    /// computer, the ceiling is shown as the next stop on the stop grid.
+    fn fill_buhlmann(
+        &self,
+        samples: &mut [Sample],
+        gf_low: f64,
+        gf_high: f64,
+        surface_bar: f64,
+        salinity: i32,
+    ) {
+        const STEP_SECONDS: f64 = 2.0;
+        let mut model = Buhlmann::new(surface_bar, salinity);
+        let mut anchor_bar = model.gf_anchor_bar(&model.tissues, gf_low);
+        let step_mm = (self.stop_step.max(0.1) * 1000.0).round() as i32;
+        let bottom_seconds = self.bottom_time().seconds;
+        let mut previous: Option<(i32, f64)> = None;
+        for sample in samples.iter_mut() {
+            let time = sample.time.seconds;
+            let depth_m = sample.depth.meters();
+            if let Some((t0, d0)) = previous {
+                let seconds = (time - t0) as f64;
+                if seconds > 0.0 {
+                    let mode = self.mode_at_time(t0);
+                    let steps = (seconds / STEP_SECONDS).ceil().max(1.0);
+                    let minutes = seconds / 60.0 / steps;
+                    for step in 0..steps as usize {
+                        let mid = d0 + (depth_m - d0) * (step as f64 + 0.5) / steps;
+                        let depth = Depth::from_meters(mid);
+                        let gas = mode.gas_at(model.ambient_bar(depth));
+                        model.add_segment_minutes(depth, minutes, gas);
+                    }
+                }
+            }
+            // The schedule anchors the low gradient factor at the start of the
+            // ascent, so the anchor stops moving there.
+            if time <= bottom_seconds {
+                anchor_bar = anchor_bar.max(model.gf_anchor_bar(&model.tissues, gf_low));
+            }
+            let raw = model.gf_ceiling_depth_of(&model.tissues, gf_low, gf_high, anchor_bar);
+            sample.stop_depth = Some(stop_grid_ceiling(raw, step_mm));
+            if sample.depth.mm > 0 {
+                let mode = self.mode_at_time(time);
+                let gas = mode.gas_at(model.ambient_bar(sample.depth));
+                sample.ndl =
+                    Some(model.ndl_capped(sample.depth, gas, gf_high, Duration::new(99 * 60)));
+            }
+            previous = Some((time, depth_m));
+        }
+    }
+
+    /// VPM-B only exposes its schedule, so the ceiling follows the planned
+    /// stops during the ascent. The NDL is the extra time at the current depth
+    /// before the profile so far would need a stop, and zero while the diver is
+    /// in decompression.
+    fn fill_vpmb(&self, samples: &mut [Sample], surface_bar: f64, salinity: i32) {
+        let DecoModel::Vpmb { conservatism } = self.deco_model else {
+            return;
+        };
+        let bottom_seconds = self.bottom_time().seconds;
+        let mut stop_ends = Vec::with_capacity(self.stops.len());
+        let mut time = bottom_seconds;
+        let mut depth_m = self.points.last().map(|p| p.depth.meters()).unwrap_or(0.0);
+        let rate = self.ascent_rate.max(0.1);
+        for stop in &self.stops {
+            time += ((depth_m - stop.depth.meters()).max(0.0) / rate * 60.0).round() as i32;
+            time += stop.duration.seconds;
+            stop_ends.push((time, stop.depth));
+            depth_m = stop.depth.meters();
+        }
+
+        let base = DecoSegment {
+            ascent_rate: self.ascent_rate,
+            stop_step: self.stop_step,
+            gas_switches: self.ascent_switches(),
+            ..Default::default()
+        };
+        let has_stops = |points: Vec<PlanPoint>| {
+            !crate::deco::vpmb::plan(
+                &DecoSegment {
+                    points,
+                    ..base.clone()
+                },
+                surface_bar,
+                salinity,
+                conservatism,
+                VPMB_TIMESTEP_SECONDS,
+            )
+            .stops
+            .is_empty()
+        };
+        let in_deco_ascent = !self.stops.is_empty();
+        let mut profile: Vec<PlanPoint> = Vec::new();
+        let mut previous: Option<i32> = None;
+        // Staying at or below the depth where a stop became necessary keeps it
+        // necessary, which skips most schedule runs on the bottom.
+        let mut deco_since: Option<i32> = None;
+        for sample in samples.iter_mut() {
+            let time = sample.time.seconds;
+            if let Some(t0) = previous.filter(|t0| time > *t0) {
+                profile.push(PlanPoint {
+                    depth: sample.depth,
+                    duration: Duration::new(time - t0),
+                    mode: self.mode_at_time(t0),
+                });
+            }
+            previous = Some(time);
+            if time >= bottom_seconds {
+                sample.stop_depth = Some(
+                    stop_ends
+                        .iter()
+                        .find(|(end, _)| *end > time)
+                        .map(|(_, depth)| *depth)
+                        .unwrap_or(Depth::ZERO),
+                );
+            }
+            if sample.depth.mm <= 0 {
+                continue;
+            }
+            if (in_deco_ascent && time >= bottom_seconds)
+                || deco_since.is_some_and(|depth| sample.depth.mm >= depth)
+            {
+                sample.ndl = Some(Duration::ZERO);
+                continue;
+            }
+            let mode = self.mode_at_time(time);
+            let with_extra = |minutes: i32| {
+                let mut points = profile.clone();
+                if minutes > 0 {
+                    points.push(PlanPoint {
+                        depth: sample.depth,
+                        duration: Duration::from_minutes(minutes),
+                        mode,
+                    });
+                }
+                has_stops(points)
+            };
+            const CAP_MINUTES: i32 = 99;
+            sample.ndl = Some(if with_extra(0) {
+                deco_since = Some(sample.depth.mm);
+                Duration::ZERO
+            } else if !with_extra(CAP_MINUTES) {
+                Duration::from_minutes(CAP_MINUTES)
+            } else {
+                let (mut lo, mut hi) = (0, CAP_MINUTES);
+                while hi - lo > 1 {
+                    let mid = (lo + hi) / 2;
+                    if with_extra(mid) {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                Duration::from_minutes(lo)
+            });
+        }
+    }
+
+    /// The ascent gas switches as the schedule sees them: the deepest switch
+    /// to each gas after the entered profile.
+    fn ascent_switches(&self) -> Vec<(Depth, BreathingMode)> {
+        let bottom_seconds = self.bottom_time().seconds;
+        let bottom_gas = self.bottom_gas();
+        let mut switches: Vec<(Depth, BreathingMode)> = Vec::new();
+        for switch in &self.gas_switches {
+            if switch.time.seconds < bottom_seconds || switch.gas == bottom_gas {
+                continue;
+            }
+            match switches
+                .iter_mut()
+                .find(|(_, mode)| mode.cylinder_gas() == switch.gas)
+            {
+                Some((depth, _)) => *depth = (*depth).max(switch.depth),
+                None => switches.push((switch.depth, BreathingMode::OpenCircuit(switch.gas))),
+            }
+        }
+        switches
+    }
+
+    /// Per-cylinder remaining pressure. Switch events carry the cylinder
+    /// index, so this replays each bottle independently rather than
+    /// collapsing cylinders that contain the same gas. A cylinder only has a
+    /// pressure from the moment it is first breathed until it is last used.
+    fn fill_pressures(
+        &self,
+        samples: &mut [Sample],
+        rmv_l_per_min: f64,
+        surface_bar: f64,
+        salinity: i32,
+    ) {
+        if self.gas_uses.is_empty() || samples.is_empty() {
+            return;
+        }
+        let surface_mbar = surface_bar * 1000.0;
+        let sizes: Vec<f64> = self
+            .gas_uses
+            .iter()
+            .map(|gas| gas.size.liters().max(0.001))
+            .collect();
+        let mut remaining: Vec<f64> = self
+            .gas_uses
+            .iter()
+            .zip(&sizes)
+            .map(|(gas, size)| size * gas.start_pressure.bar())
+            .collect();
+        let mut history: Vec<Vec<f64>> = Vec::with_capacity(samples.len());
+        let mut used_span: Vec<Option<(usize, usize)>> = vec![None; remaining.len()];
+        let mut active = 0usize;
+        let mut switch_index = 0usize;
+        for index in 0..samples.len() {
+            while let Some(switch) = self.gas_switches.get(switch_index) {
+                if switch.time.seconds > samples[index].time.seconds {
+                    break;
+                }
+                if let Some(cylinder) = switch.cylinder {
+                    active = cylinder.min(remaining.len() - 1);
+                }
+                switch_index += 1;
+            }
+            history.push(remaining.clone());
+            let Some(next) = samples.get(index + 1) else {
+                break;
+            };
+            let dt = (next.time.seconds - samples[index].time.seconds) as f64 / 60.0;
+            if dt <= 0.0 {
+                continue;
+            }
+            let span = used_span[active].get_or_insert((index, index + 1));
+            span.1 = index + 1;
+            let avg_depth = (samples[index].depth.mm + next.depth.mm) as f64 / 2.0;
+            let ambient =
+                ambient_mbar(avg_depth.round() as i32, surface_mbar, salinity) / surface_mbar;
+            remaining[active] = (remaining[active] - rmv_l_per_min * dt * ambient).max(0.0);
+        }
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let Some(liters) = history.get(index) else {
+                continue;
+            };
+            sample.pressures = used_span
+                .iter()
+                .enumerate()
+                .filter(|(_, span)| span.is_some_and(|(from, to)| (from..=to).contains(&index)))
+                .map(|(cylinder, _)| SensorPressure {
+                    sensor: cylinder as i16,
+                    pressure: Pressure::new(
+                        (liters[cylinder] / sizes[cylinder] * 1000.0).max(0.0) as i32
+                    ),
+                })
+                .collect();
+        }
+    }
+
+    /// The largest TTS in the plan: the ascent time from the end of the
+    /// entered profile, where the decompression obligation peaks.
     pub fn max_tts(&self) -> Duration {
         Duration::new((self.total_time().seconds - self.bottom_time().seconds).max(0))
     }
 
-    /// Build an incremental TTS calculator for interactive charts.
-    ///
-    /// Returns `None` for VPM-B, whose graph samples already carry a cheap
-    /// ascent-time approximation.
-    pub fn tts_calculator(
-        &self,
-        surface_bar: f64,
-        salinity: i32,
-        samples: Vec<Sample>,
-    ) -> Option<TtsCalculator> {
-        TtsCalculator::new(self, samples, surface_bar, salinity)
+    /// The largest TTS as a dive computer that ignores future gas switches
+    /// would show it: the ascent from the end of the entered profile computed
+    /// on the bottom gas only.
+    pub fn max_tts_current_gas(&self, surface_bar: f64, salinity: i32) -> Duration {
+        let segment = DecoSegment {
+            points: self.points.clone(),
+            ascent_rate: self.ascent_rate,
+            stop_step: self.stop_step,
+            gas_switches: Vec::new(),
+            ..Default::default()
+        };
+        let stops = match self.deco_model {
+            DecoModel::Buhlmann { gf_low, gf_high } => Buhlmann::new(surface_bar, salinity)
+                .deco_schedule(&DecoSegment {
+                    gf_low,
+                    gf_high,
+                    ..segment
+                }),
+            DecoModel::Vpmb { conservatism } => {
+                crate::deco::vpmb::plan(
+                    &segment,
+                    surface_bar,
+                    salinity,
+                    conservatism,
+                    VPMB_TIMESTEP_SECONDS,
+                )
+                .stops
+            }
+        };
+        let start = self.points.last().map(|p| p.depth.meters()).unwrap_or(0.0);
+        Duration::new(ascent_seconds(start, &stops, self.ascent_rate))
     }
 
-    fn ascent_mode_at(&self, seconds: i32) -> BreathingMode {
+    /// The breathing mode at an elapsed time: the waypoint's mode during the
+    /// entered profile, then the automatic switches during the ascent.
+    fn mode_at_time(&self, seconds: i32) -> BreathingMode {
+        if seconds < self.bottom_time().seconds {
+            return self.mode_at(seconds);
+        }
         let mut mode = self.bottom_mode();
         if matches!(mode, BreathingMode::OpenCircuit(_)) {
             for switch in &self.gas_switches {
@@ -1158,6 +1239,47 @@ impl DivePlan {
     /// waypoints becomes a gas-switch event, so the saved dive shows the same
     /// switches the planner does.
     pub fn to_dive(&self, when: Timestamp, salinity: i32) -> Dive {
+        let (cylinders, events) = self.cylinders_and_events();
+
+        // A CCR sample carries its segment's setpoint.
+        let mut samples = self.samples();
+        for sample in &mut samples {
+            if let BreathingMode::ClosedCircuit { setpoint_bar, .. } =
+                self.mode_at(sample.time.seconds)
+            {
+                sample.setpoint = Some(O2Pressure::from_bar(setpoint_bar));
+            }
+        }
+        let duration = samples.last().map(|s| s.time).unwrap_or_default();
+
+        Dive {
+            when,
+            duration: Some(duration),
+            max_depth: Some(self.max_depth()),
+            salinity: Some(salinity),
+            notes: self.summary(),
+            tags: vec!["planned".to_string()],
+            cylinders,
+            computers: vec![DiveComputer {
+                model: "Planner".to_string(),
+                divemode: divemode_of(self.bottom_mode()),
+                duration: Some(duration),
+                max_depth: Some(self.max_depth()),
+                samples,
+                events,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// Gas-switch and dive-mode events, with cylinder indices matching
+    /// [`Self::to_dive`].
+    pub fn events(&self) -> Vec<Event> {
+        self.cylinders_and_events().1
+    }
+
+    fn cylinders_and_events(&self) -> (Vec<Cylinder>, Vec<Event>) {
         let mut cylinders: Vec<Cylinder> = Vec::new();
         if !self.gas_uses.is_empty() {
             cylinders = self
@@ -1241,37 +1363,8 @@ impl DivePlan {
         if cylinders.is_empty() {
             cylinders.push(Cylinder::default());
         }
-
-        // A CCR sample carries its segment's setpoint.
-        let mut samples = self.samples();
-        for sample in &mut samples {
-            if let BreathingMode::ClosedCircuit { setpoint_bar, .. } =
-                self.mode_at(sample.time.seconds)
-            {
-                sample.setpoint = Some(O2Pressure::from_bar(setpoint_bar));
-            }
-        }
-        let duration = samples.last().map(|s| s.time).unwrap_or_default();
-
-        Dive {
-            when,
-            duration: Some(duration),
-            max_depth: Some(self.max_depth()),
-            salinity: Some(salinity),
-            notes: self.summary(),
-            tags: vec!["planned".to_string()],
-            cylinders,
-            computers: vec![DiveComputer {
-                model: "Planner".to_string(),
-                divemode: divemode_of(self.bottom_mode()),
-                duration: Some(duration),
-                max_depth: Some(self.max_depth()),
-                samples,
-                events,
-                ..Default::default()
-            }],
-            ..Default::default()
-        }
+        events.sort_by_key(|event| event.time);
+        (cylinders, events)
     }
 
     /// The breathing mode used at a given elapsed time. A switch happens at the
@@ -1643,10 +1736,15 @@ mod tests {
             .expect("switch to the second bottle");
         assert_eq!(bottle_switch.gas, AIR);
         let samples = plan.graph_samples(1.01325, EN13319_SALINITY, 20.0);
+        let at_switch = samples
+            .iter()
+            .find(|sample| sample.time == bottle_switch.time)
+            .expect("switch sample");
+        assert_eq!(at_switch.pressures.len(), 2);
+        assert!(at_switch.pressures[1].pressure.mbar > at_switch.pressures[0].pressure.mbar);
         let last = samples.last().expect("surface sample");
-        assert_eq!(last.pressures.len(), 2);
-        assert!(last.pressures[0].pressure.mbar < 10_000);
-        assert!(last.pressures[1].pressure.mbar > last.pressures[0].pressure.mbar);
+        assert_eq!(last.pressures.len(), 1);
+        assert_eq!(last.pressures[0].sensor, 1);
     }
 
     #[test]
@@ -1686,7 +1784,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_samples_are_minutely_and_have_live_ndl_tts() {
+    fn graph_samples_are_minutely_and_have_live_ndl() {
         let plan = DivePlan::square(
             Depth::from_meters(18.0),
             Duration::from_minutes(20),
@@ -1707,9 +1805,7 @@ mod tests {
             .find(|sample| sample.time.seconds >= plan.bottom_time().seconds)
             .expect("bottom sample");
         assert!(bottom.ndl.is_some());
-        assert!(bottom.tts.is_some_and(|tts| tts.seconds > 0));
         assert_eq!(samples.last().unwrap().depth, Depth::ZERO);
-        assert_eq!(samples.last().unwrap().tts, Some(Duration::ZERO));
         // The NDL shrinks as the diver stays on the bottom.
         let early = samples
             .iter()
@@ -1721,42 +1817,191 @@ mod tests {
     }
 
     #[test]
-    fn incremental_tts_matches_the_full_graph() {
+    fn ceiling_rises_during_the_bottom_and_stays_above_the_diver() {
         let plan = DivePlan::square(
             Depth::from_meters(45.0),
-            Duration::from_minutes(15),
+            Duration::from_minutes(25),
             oc(),
             DecoModel::Buhlmann {
-                gf_low: 0.85,
-                gf_high: 0.85,
+                gf_low: 0.3,
+                gf_high: 0.7,
             },
             1.01325,
             EN13319_SALINITY,
         );
-        let base = plan.graph_samples_without_tts(1.01325, EN13319_SALINITY, 18.0);
-        assert!(base.iter().all(|sample| sample.tts.is_none()));
-        let full = plan.graph_samples(1.01325, EN13319_SALINITY, 18.0);
-        let mut incremental = base;
-        let mut calculator = plan
-            .tts_calculator(1.01325, EN13319_SALINITY, incremental.clone())
-            .expect("Bühlmann calculator");
-        while !calculator.is_done() {
-            for (index, tts) in calculator.next_batch(3) {
-                incremental[index].tts = tts;
+        assert!(!plan.stops.is_empty());
+        let samples = plan.graph_samples(1.01325, EN13319_SALINITY, 18.0);
+        let ceiling_at = |seconds| {
+            samples
+                .iter()
+                .find(|sample| sample.time.seconds >= seconds)
+                .and_then(|sample| sample.stop_depth)
+                .expect("ceiling")
+        };
+        assert_eq!(ceiling_at(0), Depth::ZERO);
+        let early = ceiling_at(300);
+        let late = ceiling_at(plan.bottom_time().seconds);
+        assert!(late.mm > early.mm, "{early:?} -> {late:?}");
+        assert!(late.mm > 0);
+        for sample in &samples {
+            let ceiling = sample.stop_depth.expect("ceiling");
+            assert!(
+                ceiling.mm <= (sample.depth.mm + 2999) / 3000 * 3000,
+                "ceiling {ceiling:?} below the diver at {:?}",
+                sample.depth
+            );
+        }
+        assert!(samples
+            .iter()
+            .all(|sample| sample.stop_depth.unwrap().mm % 3000 == 0));
+        assert_eq!(samples.last().unwrap().stop_depth, Some(Depth::ZERO));
+        // While holding a stop, the ceiling is that stop until it clears.
+        let first_stop = plan.stops[0].depth;
+        assert!(samples
+            .iter()
+            .any(|sample| sample.depth == first_stop && sample.stop_depth == Some(first_stop)));
+    }
+
+    #[test]
+    fn current_gas_tts_ignores_deco_gases() {
+        let bottom = GasSupply {
+            gas: AIR,
+            size: Volume::from_liters(24.0),
+            start_pressure: Pressure::from_bar(200.0),
+        };
+        let deco = GasSupply {
+            gas: GasMix::new(500, 0),
+            size: Volume::from_liters(11.0),
+            start_pressure: Pressure::from_bar(200.0),
+        };
+        let model = DecoModel::Buhlmann {
+            gf_low: 0.3,
+            gf_high: 0.7,
+        };
+        let plan = |supplies: &[GasSupply]| {
+            DivePlan::square_with_gases(
+                Depth::from_meters(45.0),
+                Duration::from_minutes(25),
+                supplies,
+                1.6,
+                Depth::ZERO,
+                model,
+                1.01325,
+                EN13319_SALINITY,
+                20.0,
+            )
+        };
+        let air_only = plan(&[bottom]);
+        assert_eq!(
+            air_only.max_tts_current_gas(1.01325, EN13319_SALINITY),
+            air_only.max_tts()
+        );
+        let with_deco = plan(&[bottom, deco]);
+        let current = with_deco.max_tts_current_gas(1.01325, EN13319_SALINITY);
+        assert_eq!(current, air_only.max_tts());
+        assert!(current.seconds > with_deco.max_tts().seconds);
+
+        let vpmb = DivePlan::square_with_gases(
+            Depth::from_meters(45.0),
+            Duration::from_minutes(25),
+            &[bottom, deco],
+            1.6,
+            Depth::ZERO,
+            DecoModel::Vpmb { conservatism: 3 },
+            1.01325,
+            EN13319_SALINITY,
+            20.0,
+        );
+        assert!(
+            vpmb.max_tts_current_gas(1.01325, EN13319_SALINITY).seconds > vpmb.max_tts().seconds
+        );
+    }
+
+    #[test]
+    fn ndl_never_recovers_during_a_deco_ascent() {
+        for model in [
+            DecoModel::Vpmb { conservatism: 3 },
+            DecoModel::Buhlmann {
+                gf_low: 0.3,
+                gf_high: 0.7,
+            },
+        ] {
+            let plan = DivePlan::square(
+                Depth::from_meters(45.0),
+                Duration::from_minutes(25),
+                oc(),
+                model,
+                1.01325,
+                EN13319_SALINITY,
+            );
+            assert!(!plan.stops.is_empty());
+            let samples = plan.graph_samples(1.01325, EN13319_SALINITY, 18.0);
+            let bottom = plan.bottom_time().seconds;
+            let mut previous = Duration::new(i32::MAX);
+            for sample in samples.iter().filter(|s| s.depth.mm > 0) {
+                let ndl = sample.ndl.expect("NDL");
+                if sample.time.seconds >= bottom {
+                    assert_eq!(ndl, Duration::ZERO, "{model:?} at {:?}", sample.time);
+                } else if sample.time.seconds > 180 {
+                    assert!(ndl <= previous, "{model:?} at {:?}", sample.time);
+                    previous = ndl;
+                }
+            }
+            let first_bottom = samples
+                .iter()
+                .find(|s| s.time.seconds > 180)
+                .and_then(|s| s.ndl)
+                .expect("bottom NDL");
+            assert!(first_bottom.seconds > 0, "{model:?}");
+        }
+    }
+
+    #[test]
+    fn deco_gas_pressure_only_appears_while_in_use() {
+        let supplies = vec![
+            GasSupply {
+                gas: AIR,
+                size: Volume::from_liters(15.0),
+                start_pressure: Pressure::from_bar(200.0),
+            },
+            GasSupply {
+                gas: GasMix::new(500, 0),
+                size: Volume::from_liters(7.0),
+                start_pressure: Pressure::from_bar(200.0),
+            },
+        ];
+        let plan = DivePlan::square_with_gases(
+            Depth::from_meters(40.0),
+            Duration::from_minutes(20),
+            &supplies,
+            1.6,
+            Depth::from_meters(1.0),
+            DecoModel::Buhlmann {
+                gf_low: 0.3,
+                gf_high: 0.7,
+            },
+            1.01325,
+            EN13319_SALINITY,
+            20.0,
+        );
+        let switch = plan
+            .gas_switches
+            .iter()
+            .find(|switch| switch.gas.o2_permille == 500)
+            .expect("EAN50 switch");
+        let samples = plan.graph_samples(1.01325, EN13319_SALINITY, 20.0);
+        let sensors =
+            |sample: &Sample| -> Vec<i16> { sample.pressures.iter().map(|p| p.sensor).collect() };
+        for sample in &samples {
+            if sample.time.seconds < switch.time.seconds {
+                assert_eq!(sensors(sample), vec![0], "at {:?}", sample.time);
+            } else if sample.time.seconds > switch.time.seconds {
+                assert_eq!(sensors(sample), vec![1], "at {:?}", sample.time);
             }
         }
-        let full_tts: Vec<_> = full.iter().map(|sample| sample.tts).collect();
-        let incremental_tts: Vec<_> = incremental.iter().map(|sample| sample.tts).collect();
-        assert_eq!(incremental_tts, full_tts);
-        assert_eq!(
-            plan.max_tts().seconds,
-            full_tts
-                .into_iter()
-                .flatten()
-                .map(|tts| tts.seconds)
-                .max()
-                .unwrap_or(0)
-        );
+        assert!(samples
+            .iter()
+            .any(|sample| sample.time == switch.time && sensors(sample) == vec![0, 1]));
     }
 
     #[test]
@@ -1858,34 +2103,5 @@ mod tests {
         assert!(samples.len() <= MAX_GRAPH_SAMPLES);
         assert_eq!(samples.first().unwrap().time, Duration::ZERO);
         assert_eq!(samples.last().unwrap().time, Duration::new(72_000));
-    }
-
-    #[test]
-    fn tts_grows_during_the_bottom() {
-        let plan = DivePlan::square(
-            Depth::from_meters(45.0),
-            Duration::from_minutes(15),
-            oc(),
-            DecoModel::Buhlmann {
-                gf_low: 0.85,
-                gf_high: 0.85,
-            },
-            1.01325,
-            EN13319_SALINITY,
-        );
-        let samples = plan.graph_samples(1.01325, EN13319_SALINITY, 18.0);
-        let at = |seconds| {
-            samples
-                .iter()
-                .find(|sample| sample.time.seconds >= seconds)
-                .and_then(|sample| sample.tts)
-                .expect("TTS")
-        };
-        let early = at(300);
-        let late = at(900);
-        assert!(
-            late.seconds > early.seconds + 300,
-            "TTS should grow through the bottom: {early:?} -> {late:?}"
-        );
     }
 }

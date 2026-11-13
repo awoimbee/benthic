@@ -441,9 +441,12 @@ pub struct Strings {
     pub pressure: &'static str,
     pub temperature: &'static str,
     pub tts: &'static str,
+    pub max_tts: &'static str,
+    pub max_tts_current_gas: &'static str,
+    pub tip_max_tts: &'static str,
+    pub tip_max_tts_current_gas: &'static str,
     pub heart: &'static str,
     pub cns: &'static str,
-    pub deco: &'static str,
     pub reset_zoom: &'static str,
 
     // ---- sync ----
@@ -527,7 +530,6 @@ pub struct Strings {
     pub tip_tts: &'static str,
     pub tip_heart: &'static str,
     pub tip_cns: &'static str,
-    pub tip_deco_toggle: &'static str,
 
     // ---- status messages ----
     pub status_loaded: &'static str,
@@ -991,9 +993,12 @@ pub static ENGLISH: Strings = Strings {
     pressure: "Pressure",
     temperature: "Temperature",
     tts: "TTS",
+    max_tts: "Max TTS",
+    max_tts_current_gas: "Max TTS (current gas)",
+    tip_max_tts: "Longest time to surface, including the planned gas switches",
+    tip_max_tts_current_gas: "Longest time to surface staying on the bottom gas, as shown by dive computers that ignore future gas switches",
     heart: "Heart",
     cns: "CNS",
-    deco: "Deco",
     reset_zoom: "Reset zoom",
 
     tip_deco_model: "The algorithm behind the schedule. Bühlmann uses gradient factors; VPM-B uses a conservatism level.",
@@ -1011,7 +1016,6 @@ pub static ENGLISH: Strings = Strings {
     tip_tts: "Time to surface: estimated ascent time including any decompression stops",
     tip_heart: "Heart rate in beats per minute",
     tip_cns: "Central nervous system oxygen toxicity, as a share of the NOAA limit",
-    tip_deco_toggle: "Decompression ceiling: the shallowest depth you may ascend to",
 
     sync_title: "Sync",
     sync_intro:
@@ -1453,7 +1457,7 @@ pub static FRENCH: Strings = Strings {
     gas_left: "Restant",
     bottom_depth: "Profondeur",
     bottom_minutes: "Temps au fond",
-    customize_waypoints: "Personnaliser avec des paliers",
+    customize_waypoints: "Personnaliser avec des points de passage",
     square_profile: "Revenir à la plongée carrée",
     add_gas: "+ Ajouter un gaz",
     remove_gas: "Retirer ce gaz",
@@ -1505,10 +1509,13 @@ pub static FRENCH: Strings = Strings {
 
     pressure: "Pression",
     temperature: "Température",
-    tts: "DRS",
+    tts: "DTR",
+    max_tts: "DTR max",
+    max_tts_current_gas: "DTR max (gaz actuel)",
+    tip_max_tts: "Durée totale de remontée la plus longue, changements de gaz prévus compris",
+    tip_max_tts_current_gas: "Durée totale de remontée la plus longue en restant sur le gaz de fond, comme l'affichent les ordinateurs qui ignorent les changements de gaz à venir",
     heart: "Cœur",
     cns: "SNC",
-    deco: "Paliers",
     reset_zoom: "Réinitialiser le zoom",
 
     tip_deco_model: "L'algorithme qui produit le plan. Bühlmann utilise des facteurs de gradient ; VPM-B utilise un niveau de conservatisme.",
@@ -1523,10 +1530,9 @@ pub static FRENCH: Strings = Strings {
     tip_pressure: "Pression du bloc pendant la plongée",
     tip_temperature: "Température de l'eau pendant la plongée",
     tip_ndl_toggle: "Limite de non-décompression : combien de temps vous pouvez encore rester à cette profondeur sans palier",
-    tip_tts: "Durée de remontée : temps de remontée estimé, paliers compris",
+    tip_tts: "Durée totale de remontée : temps de remontée estimé, paliers compris",
     tip_heart: "Fréquence cardiaque en battements par minute",
     tip_cns: "Toxicité de l'oxygène sur le système nerveux central, en part de la limite NOAA",
-    tip_deco_toggle: "Plafond de décompression : la profondeur la moins profonde à laquelle vous pouvez remonter",
 
     sync_title: "Synchronisation",
     sync_intro:

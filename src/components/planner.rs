@@ -12,8 +12,9 @@ use crate::i18n;
 use crate::routing::{self, Route};
 use crate::state::{AppState, Dialog};
 
+/// Cylinder colours, distinct from the depth and ceiling traces.
 const GAS_COLORS: [&str; 8] = [
-    "#4cc9f0", "#7ee787", "#f5a623", "#f28fad", "#c792ea", "#ffd166", "#a8dadc", "#d0ffb7",
+    "#7ee787", "#f5a623", "#f28fad", "#ffd166", "#ff7b72", "#79c0ff", "#d0ffb7", "#e3b341",
 ];
 
 fn gas_color(gases: &[GasForm], gas: GasMix) -> &'static str {
@@ -929,20 +930,19 @@ pub fn PlannerDialog() -> Element {
     }
     let gas_low = plan_gas_low(&plan, reserve_value);
 
-    let graph_samples =
-        plan.graph_samples_without_tts(SURFACE_PRESSURE_MBAR / 1000.0, salinity, rmv_value);
+    let graph_samples = plan.graph_samples(SURFACE_PRESSURE_MBAR / 1000.0, salinity, rmv_value);
     let pressure_colors: Vec<String> = plan
         .gas_uses
         .iter()
         .map(|gas| gas_color(&gas_forms, gas.gas).to_string())
         .collect();
-    let tts_max = plan.max_tts();
     let graph_dive = Dive {
         max_depth: Some(max_depth),
         duration: Some(plan.total_time()),
         computers: vec![DiveComputer {
             model: "Planner".to_string(),
             samples: graph_samples,
+            events: plan.events(),
             ..Default::default()
         }],
         ..Default::default()
@@ -1316,20 +1316,24 @@ pub fn PlannerDialog() -> Element {
                             onchange: move |value| reserve.set(value),
                         }
                     }
-                    button {
-                        class: "btn",
-                        onclick: optimize,
-                        "{tr.optimize_time}"
-                    }
                 }
 
-                button {
-                    class: "btn",
-                    onclick: toggle_custom,
-                    if custom_value {
-                        "{tr.square_profile}"
-                    } else {
-                        "{tr.customize_waypoints}"
+                div { class: "planner-actions",
+                    if !custom_value {
+                        button {
+                            class: "btn",
+                            onclick: optimize,
+                            "{tr.optimize_time}"
+                        }
+                    }
+                    button {
+                        class: "btn",
+                        onclick: toggle_custom,
+                        if custom_value {
+                            "{tr.square_profile}"
+                        } else {
+                            "{tr.customize_waypoints}"
+                        }
                     }
                 }
 
@@ -1422,10 +1426,7 @@ pub fn PlannerDialog() -> Element {
                     dc_index: 0,
                     show_all: true,
                     pressure_colors,
-                    tts_max: Some(tts_max),
-                    tts_plan: Some(plan.clone()),
-                    tts_surface_bar: SURFACE_PRESSURE_MBAR / 1000.0,
-                    tts_salinity: salinity,
+                    planned: true,
                 }
 
                 if over_mod {
@@ -1534,6 +1535,8 @@ fn PlanResults(
             )
         })
         .collect();
+    let max_tts = plan.max_tts();
+    let max_tts_current_gas = plan.max_tts_current_gas(SURFACE_PRESSURE_MBAR / 1000.0, salinity);
     let has_stops = !stops.is_empty();
     let gas_needed: f64 = plan.gas_uses.iter().map(|gas| gas.used_liters).sum();
 
@@ -1547,10 +1550,12 @@ fn PlanResults(
                     value: prefs.depth(Depth::new(mod_mm)),
                     help: Some(tr.tip_mod),
                 }
-                Result {
-                    label: tr.end,
-                    value: prefs.depth(Depth::new(end_mm)),
-                    help: Some(tr.tip_end),
+                if prefs.depth(Depth::new(end_mm)) != prefs.depth(max_depth) {
+                    Result {
+                        label: tr.end,
+                        value: prefs.depth(Depth::new(end_mm)),
+                        help: Some(tr.tip_end),
+                    }
                 }
                 Result {
                     label: tr.ndl,
@@ -1560,6 +1565,18 @@ fn PlanResults(
                 Result { label: tr.runtime, value: format_duration(plan.total_time()) }
                 Result { label: tr.bottom_time, value: format_duration(plan.bottom_time()) }
                 Result { label: tr.deco_time, value: format_duration(plan.deco_time()) }
+                Result {
+                    label: tr.max_tts,
+                    value: format_duration(max_tts),
+                    help: Some(tr.tip_max_tts),
+                }
+                if max_tts_current_gas != max_tts {
+                    Result {
+                        label: tr.max_tts_current_gas,
+                        value: format_duration(max_tts_current_gas),
+                        help: Some(tr.tip_max_tts_current_gas),
+                    }
+                }
                 if !rebreather {
                     Result {
                         label: tr.gas_needed,
